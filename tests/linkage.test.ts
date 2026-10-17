@@ -1,0 +1,44 @@
+import { describe, expect, it } from 'vitest';
+import { rarity, suggest } from '../src/core/linkage';
+
+describe('數值連動', () => {
+  it('只填參考身高體重時，建議值等於參考體型', () => {
+    const s = suggest({ sex: 'female', locked: { height: 160, weight: 52 } });
+    expect(s.values.waist).toBeCloseTo(64, 1);
+    expect(s.values.hip).toBeCloseTo(89, 1);
+    expect(s.locked.weight).toBe(true);
+    expect(s.locked.waist).toBe(false);
+  });
+
+  it('臀圍變大時，大腿圍的建議值跟著變大', () => {
+    const base = suggest({ sex: 'female', locked: { height: 160, weight: 52 } }).values;
+    const big = suggest({ sex: 'female', locked: { height: 160, weight: 52, hip: 100 } }).values;
+    expect(big.hip).toBe(100);
+    expect(big.thigh).toBeGreaterThan(base.thigh + 3);
+  });
+
+  it('體重增加時，各圍度都變大，腰圍比手腕增加得多', () => {
+    const a = suggest({ sex: 'female', locked: { height: 160, weight: 50 } }).values;
+    const b = suggest({ sex: 'female', locked: { height: 160, weight: 70 } }).values;
+    expect(b.waist / a.waist).toBeGreaterThan(b.wrist / a.wrist);
+  });
+
+  it('指定罩杯時上下胸圍差符合，且主要是上胸圍變大', () => {
+    const base = suggest({ sex: 'female', locked: { height: 160, weight: 52 } }).values;
+    const e = suggest({ sex: 'female', locked: { height: 160, weight: 52 }, bustDiff: 20 }).values;
+    expect(e.bust - e.underbust).toBeCloseTo(20, 1);
+    expect(e.bust - base.bust).toBeGreaterThan(base.underbust - e.underbust);
+  });
+
+  it('常見範圍包住建議值', () => {
+    const s = suggest({ sex: 'male', locked: { height: 175, weight: 70 } });
+    expect(s.range.waist[0]).toBeLessThan(s.values.waist);
+    expect(s.range.waist[1]).toBeGreaterThan(s.values.waist);
+  });
+
+  it('身高 160、體重 52 時腰圍 56 屬於少見', () => {
+    const r = rarity({ sex: 'female', locked: { height: 160, weight: 52, waist: 56 } });
+    const waist = r.find((x) => x.id === 'waist')!;
+    expect(waist.percentile).toBeLessThan(0.05);
+  });
+});

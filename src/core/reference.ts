@@ -1,13 +1,9 @@
-import type { MeasureId, Sex } from './measurements';
+import type { Sex } from './measurements';
 
-// 推算用的參考體型。數值取自成年人人體計測的常見平均值（台灣／東亞年輕成人為主），
-// 推算時會依身高、體重、體脂率從這組數據縮放出完整的身體。
+// 參考體型：台灣／東亞年輕成人的常見平均值。連動模型以這組數值為平均，
+// 再依 ANSUR II 的共變異數推算其他項目（見 linkage.ts）。
 
 export type GirthId = 'neck' | 'underbust' | 'waist' | 'hip' | 'upperArm' | 'wrist' | 'thigh' | 'calf' | 'ankle';
-
-export const GIRTH_IDS: readonly GirthId[] = [
-  'neck', 'underbust', 'waist', 'hip', 'upperArm', 'wrist', 'thigh', 'calf', 'ankle',
-];
 
 export interface ReferenceBody {
   height: number;
@@ -20,11 +16,6 @@ export interface ReferenceBody {
   shoulder: number;
   /** 長度與身高的比例 */
   lengthRatio: Record<'upperArmLen' | 'forearmLen' | 'thighLen' | 'calfLen', number>;
-  /**
-   * 各部位截面積中「隨脂肪量變化」的比例。數值越高，體脂變化時該部位的圍度變化越大，
-   * 例如腰和臀遠比手腕敏感。男女的脂肪分佈不同。
-   */
-  fatShare: Record<GirthId, number>;
 }
 
 export const REFERENCE: Record<Sex, ReferenceBody> = {
@@ -46,17 +37,6 @@ export const REFERENCE: Record<Sex, ReferenceBody> = {
     bustDiff: 12.5,
     shoulder: 38,
     lengthRatio: { upperArmLen: 0.186, forearmLen: 0.145, thighLen: 0.175, calfLen: 0.241 },
-    fatShare: {
-      neck: 0.18,
-      underbust: 0.22,
-      waist: 0.45,
-      hip: 0.52,
-      upperArm: 0.45,
-      wrist: 0.1,
-      thigh: 0.52,
-      calf: 0.38,
-      ankle: 0.12,
-    },
   },
   male: {
     height: 172,
@@ -76,17 +56,6 @@ export const REFERENCE: Record<Sex, ReferenceBody> = {
     bustDiff: 7,
     shoulder: 45,
     lengthRatio: { upperArmLen: 0.188, forearmLen: 0.148, thighLen: 0.177, calfLen: 0.244 },
-    fatShare: {
-      neck: 0.2,
-      underbust: 0.25,
-      waist: 0.58,
-      hip: 0.45,
-      upperArm: 0.28,
-      wrist: 0.1,
-      thigh: 0.35,
-      calf: 0.25,
-      ankle: 0.1,
-    },
   },
 };
 
@@ -120,15 +89,7 @@ export function cupFromDiff(diff: number): string {
   return best.cup;
 }
 
-/** Deurenberg 公式：由 BMI 估算體脂率（假設 25 歲） */
-export function bodyFatFromBmi(bmi: number, sex: Sex): number {
-  const pct = 1.2 * bmi + 0.23 * 25 - 10.8 * (sex === 'male' ? 1 : 0) - 5.4;
-  return Math.min(0.5, Math.max(0.06, pct / 100));
-}
-
 /** Siri 公式：體脂率 → 人體平均密度（g/cm³） */
 export function bodyDensity(bodyFat: number): number {
   return 495 / (bodyFat * 100 + 450);
 }
-
-export type LengthId = Extract<MeasureId, 'upperArmLen' | 'forearmLen' | 'thighLen' | 'calfLen'>;

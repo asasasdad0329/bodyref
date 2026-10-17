@@ -2,33 +2,23 @@ import * as THREE from 'three';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import type { BodyShape } from '../body/generate';
-import { buildMesh, gridLineIndex } from '../body/loft';
+import type { BodyAsset } from '../body/mh/asset';
+import { headParts } from '../body/mh/egghead';
+import type { EngineOutput } from '../body/mh/engine';
 import type { LineStyle } from '../core/state';
 import type { SceneColors } from './theme';
 
 // 人台的外觀：白模表面、線條（結構線或網格線）、外輪廓線（把背面往外推一點畫成深色）
 
-interface PartObjects {
-  mesh: THREE.Mesh;
-  grid: THREE.LineSegments;
-  guides: LineSegments2 | null;
-  outline: THREE.Mesh;
-}
-
-/** 網格橫線每隔幾列畫一圈（列距約 1.25 cm） */
-const GRID_ROW_STEP = 2;
-
-/** 縱線數量：軀幹約 24 條，其他部位約 14 條 */
-function columnStep(cols: number): number {
-  return Math.max(1, Math.round(cols / (cols >= 90 ? 24 : 14)));
-}
-
 export class BodyView {
   readonly group = new THREE.Group();
-  private parts: PartObjects[] = [];
   private lineStyle: LineStyle = 'guide';
   private outlineVisible = true;
+  private gridIndex: Uint32Array | null = null;
+  private objects: THREE.Object3D[] = [];
+  private grid: THREE.LineSegments | null = null;
+  private guides: LineSegments2 | null = null;
+  private outlines: THREE.Mesh[] = [];
   private readonly outlineWidth = { value: 0.3 };
   private readonly surfaceMat = new THREE.MeshStandardMaterial({
     roughness: 0.86,
@@ -37,7 +27,7 @@ export class BodyView {
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
-  private readonly gridMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.45 });
+  private readonly gridMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.4 });
   private readonly guideMat = new LineMaterial({ linewidth: 1.3, transparent: true, opacity: 0.85 });
   private readonly outlineMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide });
 
@@ -50,51 +40,70 @@ export class BodyView {
     };
   }
 
-  update(shape: BodyShape): void {
-    this.clear();
-    for (const part of shape.parts) {
-      const data = buildMesh(part.loft);
-      const geo = new THREE.BufferGeometry();
-      const pos = new THREE.BufferAttribute(data.positions, 3);
-      geo.setAttribute('position', pos);
-      geo.setIndex(new THREE.BufferAttribute(data.index, 1));
-      geo.computeVertexNormals();
-      geo.computeBoundingSphere();
+  /** 網格模式畫的是 MakeHuman 原本的四邊形邊（頭與上段脖子除外） */
+  setTopology(a: BodyAsset): void {
+    const { removable } = headParts(a);
+    const seen = new Set<number>();
+    const edges: number[] = [];
+    for (let f = 0; f < a.quads.length / 4; f++) {
+      const q = [a.quads[f * 4], a.quads[f * 4 + 1], a.quads[f * 4 + 2], a.quads[f * 4 + 3]];
+      if (q.some((v) => removable[v])) continue;
+      for (let k = 0; k < 4; k++) {
+        const u = q[k], v = q[(k + 1) & 3];
+        const key = Math.min(u, v) * 65536 + Math.max(u, v);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push(u, v);
+      }
+    }
+    this.gridIndex = Uint32Array.from(edges);
+  }
 
+  update(out: EngineOutput): void {
+    this.clear();
+    const bodyGeo = new THREE.BufferGeometry();
+    const pos = new THREE.BufferAttribute(out.positions, 3);
+    bodyGeo.setAttribute('position', pos);
+    bodyGeo.setIndex(new THREE.BufferAttribute(out.bodyIndex, 1));
+    bodyGeo.computeVertexNormals();
+    bodyGeo.computeBoundingSphere();
+
+    const headGeo = new THREE.BufferGeometry();
+    headGeo.setAttribute('position', new THREE.BufferAttribute(out.head.positions, 3));
+    headGeo.setIndex(new THREE.BufferAttribute(out.head.index, 1));
+    headGeo.computeVertexNormals();
+    headGeo.computeBoundingSphere();
+
+    for (const geo of [bodyGeo, headGeo]) {
       const mesh = new THREE.Mesh(geo, this.surfaceMat);
       mesh.castShadow = true;
-      mesh.receiveShadow = true;
-
-      const { rows, cols, capStart, capEnd } = part.loft;
-      const startIdx = capStart ? rows * cols : -1;
-      const endIdx = capEnd ? rows * cols + (capStart ? 1 : 0) : -1;
-      const gridGeo = new THREE.BufferGeometry();
-      gridGeo.setAttribute('position', pos);
-      gridGeo.setIndex(new THREE.BufferAttribute(gridLineIndex(part.loft, GRID_ROW_STEP, columnStep(cols), startIdx, endIdx), 1));
-      const grid = new THREE.LineSegments(gridGeo, this.gridMat);
-
-      let guides: LineSegments2 | null = null;
-      if (part.guides.length) {
-        const seg: number[] = [];
-        for (const line of part.guides) {
-          for (let i = 0; i < line.length - 1; i++) {
-            const a = line[i], b = line[i + 1];
-            seg.push(a.x, a.y, a.z, b.x, b.y, b.z);
-          }
-        }
-        const g = new LineSegmentsGeometry();
-        g.setPositions(seg);
-        guides = new LineSegments2(g, this.guideMat);
-        guides.renderOrder = 1;
-      }
-
+      mesh.receiveShadow = false;
       const outline = new THREE.Mesh(geo, this.outlineMat);
       outline.renderOrder = -1;
-
-      this.group.add(mesh, grid, outline);
-      if (guides) this.group.add(guides);
-      this.parts.push({ mesh, grid, guides, outline });
+      this.outlines.push(outline);
+      this.objects.push(mesh, outline);
     }
+
+    if (this.gridIndex) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', pos);
+      g.setIndex(new THREE.BufferAttribute(this.gridIndex, 1));
+      this.grid = new THREE.LineSegments(g, this.gridMat);
+      this.objects.push(this.grid);
+    }
+
+    const seg: number[] = [];
+    for (const line of out.guides) {
+      for (let i = 0; i + 5 < line.length; i += 3) seg.push(line[i], line[i + 1], line[i + 2], line[i + 3], line[i + 4], line[i + 5]);
+    }
+    if (seg.length) {
+      const g = new LineSegmentsGeometry();
+      g.setPositions(seg);
+      this.guides = new LineSegments2(g, this.guideMat);
+      this.guides.renderOrder = 1;
+      this.objects.push(this.guides);
+    }
+    this.group.add(...this.objects);
     this.applyVisibility();
   }
 
@@ -121,21 +130,21 @@ export class BodyView {
   }
 
   private applyVisibility(): void {
-    for (const p of this.parts) {
-      p.grid.visible = this.lineStyle === 'grid';
-      if (p.guides) p.guides.visible = this.lineStyle === 'guide';
-      p.outline.visible = this.outlineVisible;
-    }
+    if (this.grid) this.grid.visible = this.lineStyle === 'grid';
+    if (this.guides) this.guides.visible = this.lineStyle === 'guide';
+    for (const o of this.outlines) o.visible = this.outlineVisible;
   }
 
   private clear(): void {
-    for (const p of this.parts) {
-      p.mesh.geometry.dispose();
-      p.grid.geometry.dispose();
-      p.guides?.geometry.dispose();
-      this.group.remove(p.mesh, p.grid, p.outline);
-      if (p.guides) this.group.remove(p.guides);
+    const geos = new Set<{ dispose(): void }>();
+    for (const o of this.objects) {
+      if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments || o instanceof LineSegments2) geos.add(o.geometry);
+      this.group.remove(o);
     }
-    this.parts = [];
+    for (const g of geos) g.dispose();
+    this.objects = [];
+    this.outlines = [];
+    this.grid = null;
+    this.guides = null;
   }
 }

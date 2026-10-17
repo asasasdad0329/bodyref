@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
-import type { BodyShape } from '../body/generate';
+import type { EngineOutput } from '../body/mh/engine';
+import type { BodyAsset } from '../body/mh/asset';
 import type { MeasureValues } from '../core/measurements';
 import type { LineStyle } from '../core/state';
 import { BodyView } from './bodyView';
@@ -87,10 +88,14 @@ export class Viewer {
     this.loop();
   }
 
-  setShape(shape: BodyShape, values: MeasureValues): void {
-    this.body.update(shape);
-    this.measures.update(shape, values);
-    const h = shape.modelHeight;
+  setTopology(a: BodyAsset): void {
+    this.body.setTopology(a);
+  }
+
+  setShape(out: EngineOutput, values: MeasureValues): void {
+    this.body.update(out);
+    this.measures.update(out.tapes, values);
+    const h = out.marks.topY;
     if (Math.abs(h - this.modelHeight) > 0.01) {
       const first = this.modelHeight === 0;
       if (!first) {

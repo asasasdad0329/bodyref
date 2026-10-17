@@ -235,6 +235,22 @@ textarea {
 }
 
 /* ── 3D 畫面上的控制 ───────────────────────── */
+.stage-status {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  max-width: min(420px, calc(100% - 32px));
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  background: var(--hud);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  text-align: center;
+}
+
 .hud {
   position: absolute;
   z-index: 2;
@@ -397,6 +413,20 @@ textarea {
   margin: 0;
   font-size: 12.5px;
   color: var(--muted);
+}
+
+.reality-note {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tag[data-state='rare'] {
+  border-color: var(--tape);
+  background: var(--tape);
+  color: #231a00;
+  font-weight: 700;
 }
 
 /* 量測標籤：外層是定位點，內層偏到右側 */
@@ -609,6 +639,19 @@ textarea {
   font-size: 12px;
   line-height: 1.5;
   color: var(--muted);
+}
+
+.credits {
+  padding-block: 16px 24px;
+  padding-left: 20px;
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.credits a {
+  color: inherit;
 }
 
 /* 滑桿 */

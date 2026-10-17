@@ -1,5 +1,5 @@
 import type { Summary } from '../core/analysis';
-import type { Estimate } from '../core/estimate';
+import type { Suggestion } from '../core/linkage';
 import { MEASURES } from '../core/measurements';
 import type { AppState } from '../core/state';
 import { decodeShare, encodeShare, shareUrl } from '../core/state';
@@ -43,7 +43,7 @@ export class ExportDialog {
 }
 
 /** 正面、側面、背面三張正交圖，同一比例尺，下方附上量測數據 */
-export function composeThreeView(viewer: Viewer, state: AppState, est: Estimate, summary: Summary): string {
+export function composeThreeView(viewer: Viewer, state: AppState, sug: Suggestion, summary: Summary): string {
   const panelW = 520;
   const panelH = 1000;
   const gap = 24;
@@ -74,7 +74,7 @@ export function composeThreeView(viewer: Viewer, state: AppState, est: Estimate,
   ctx.fillStyle = muted;
   const sexText = state.sex === 'female' ? '女性' : '男性';
   ctx.fillText(
-    `${sexText}・身高 ${summary.modelHeight.toFixed(1)} cm・體重 ${state.weight.toFixed(1)} kg・體脂 ${(est.bodyFat * 100).toFixed(1)}%${summary.braSize ? `・${summary.braSize}` : ''}・${summary.shape}`,
+    `${sexText}・身高 ${summary.modelHeight.toFixed(1)} cm・體重 ${summary.weight.toFixed(1)} kg・體脂 ${(summary.bodyFat * 100).toFixed(1)}%${summary.braSize ? `・${summary.braSize}` : ''}・${summary.shape}`,
     pad,
     pad + 70,
   );
@@ -136,14 +136,14 @@ export function composeThreeView(viewer: Viewer, state: AppState, est: Estimate,
     const row = Math.floor(i / 3);
     const x = pad + col * colW;
     const y = tableY + 40 + row * 34;
-    const manual = est.source[d.id] === 'manual';
+    const manual = sug.locked[d.id];
     ctx.font = `400 19px ${sans}`;
     ctx.fillStyle = muted;
-    ctx.fillText(`${d.label}${manual ? '' : '（推算）'}`, x, y);
+    ctx.fillText(`${d.label}${manual ? '' : '（建議）'}`, x, y);
     ctx.font = `500 20px ${mono}`;
     ctx.fillStyle = ink;
     ctx.textAlign = 'right';
-    ctx.fillText(`${est.measurements[d.id].toFixed(1)} cm`, x + colW - 40, y);
+    ctx.fillText(`${sug.values[d.id].toFixed(1)} cm`, x + colW - 40, y);
     ctx.textAlign = 'left';
   });
 

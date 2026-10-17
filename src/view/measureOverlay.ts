@@ -3,7 +3,7 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import type { BodyShape, MeasurePath } from '../body/generate';
+import type { TapePath } from '../body/mh/engine';
 import { MEASURES, MEASURE_BY_ID, type MeasureId, type MeasureValues } from '../core/measurements';
 import type { SceneColors } from './theme';
 
@@ -64,12 +64,21 @@ export class MeasureOverlay {
     }
   }
 
-  update(shape: BodyShape, values: MeasureValues): void {
+  update(tapes: Partial<Record<MeasureId, TapePath>>, values: MeasureValues): void {
     for (const d of MEASURES) {
       const item = this.items.get(d.id)!;
-      const path: MeasurePath = shape.paths[d.id];
-      const pts = path.closed ? [...path.points, path.points[0]] : path.points;
-      const flat = pts.flatMap((p) => [p.x, p.y, p.z]);
+      const path = tapes[d.id];
+      if (item.ends) {
+        item.ends.geometry.dispose();
+        this.group.remove(item.ends);
+        item.ends = null;
+      }
+      if (!path) {
+        item.front.visible = item.behind.visible = false;
+        continue;
+      }
+      const flat = Array.from(path.points);
+      if (path.closed) flat.push(flat[0], flat[1], flat[2]);
       for (const line of [item.front, item.behind]) {
         line.geometry.dispose();
         const g = new LineGeometry();
@@ -77,18 +86,17 @@ export class MeasureOverlay {
         line.geometry = g;
         line.computeLineDistances();
       }
-      if (item.ends) {
-        item.ends.geometry.dispose();
-        this.group.remove(item.ends);
-        item.ends = null;
-      }
       if (!path.closed) {
-        const ends = new THREE.Points(new THREE.BufferGeometry().setFromPoints([pts[0], pts[pts.length - 1]]), this.endMat);
+        const n = flat.length;
+        const ends = new THREE.Points(
+          new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([flat[0], flat[1], flat[2], flat[n - 3], flat[n - 2], flat[n - 1]], 3)),
+          this.endMat,
+        );
         ends.renderOrder = 4;
         this.group.add(ends);
         item.ends = ends;
       }
-      item.label.position.copy(path.anchor);
+      item.label.position.set(...path.anchor);
       item.labelValue.textContent = values[d.id].toFixed(1);
     }
     this.refresh();

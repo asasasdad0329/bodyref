@@ -1,10 +1,12 @@
-import type { BodyShape } from '../body/generate';
-import type { Estimate } from './estimate';
-import type { Sex } from './measurements';
+import type { EngineOutput } from '../body/mh/engine';
+import { type Rarity, type Suggestion, rarity } from './linkage';
+import { MEASURE_BY_ID, type MeasureId, type Sex, VAR_LABEL } from './measurements';
 import { MUSCLE_OF_LEAN, cupFromDiff } from './reference';
+import type { AppState } from './state';
 
-// 由推算結果算出摘要數據，並檢查數據組合在現實中是否常見。
-// 參考範圍是成年人的大致分佈，用來提醒「這組數字很少見」，不是醫學判斷。
+// 摘要數據與現實檢核。
+// 少見程度用連動模型計算：例如身高 160、體重 52 的女性，腰圍 56 大約落在第幾百分位。
+// 這是和成年人實測資料比較的統計結果，不是醫學判斷。
 
 export type CheckLevel = 'rare' | 'conflict';
 
@@ -16,9 +18,12 @@ export interface Check {
 export interface Summary {
   bmi: number;
   bmiLabel: string;
+  weight: number;
+  weightLocked: boolean;
+  /** 依模型體積換算的體重 */
   modelWeight: number;
   bodyFat: number;
-  bodyFatAuto: boolean;
+  bodyFatLocked: boolean;
   leanMass: number;
   muscleRate: number;
   /** 例如 "B70"；男性為 null */
@@ -28,6 +33,8 @@ export interface Summary {
   modelHeight: number;
   shape: string;
   checks: Check[];
+  /** 每個鎖定數值的百分位（給欄位標示「少見」） */
+  rarity: Rarity[];
 }
 
 /** 台灣成人 BMI 分級 */
@@ -53,67 +60,90 @@ export function bodyShapeType(bust: number, waist: number, hip: number, sex: Sex
   return 'H 形（直筒）';
 }
 
-const fmt = (v: number, d = 1) => v.toFixed(d);
+const f1 = (v: number) => v.toFixed(1);
 
-export function summarize(est: Estimate, inputWeight: number, body: BodyShape): Summary {
-  const m = est.measurements;
-  const female = m.sex === 'female';
-  const H = m.height;
-  const bmi = inputWeight / (H / 100) ** 2;
-  const leanMass = inputWeight * (1 - est.bodyFat);
+function unitOf(id: string): string {
+  if (id === 'weight') return 'kg';
+  if (id === 'bodyFat') return '%';
+  return 'cm';
+}
+
+function shown(id: string, v: number): string {
+  return id === 'bodyFat' ? f1(v * 100) : f1(v);
+}
+
+function direction(id: string, high: boolean): string {
+  if (id === 'weight') return high ? '重' : '輕';
+  if (id === 'bodyFat') return high ? '高' : '低';
+  const kind = MEASURE_BY_ID[id as MeasureId]?.kind;
+  if (kind === 'length') return high ? '長' : '短';
+  return high ? '粗' : '細';
+}
+
+/** 「比這更細的只有約 3%」「比這更細的不到 0.1%」 */
+function share(p: number): string {
+  const v = p * 100;
+  if (v < 0.1) return '不到 0.1%';
+  return `只有約 ${v < 1 ? v.toFixed(1) : Math.round(v)}%`;
+}
+
+export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, bustDiff: number | null): Summary {
+  const v = sug.values;
+  const female = state.sex === 'female';
+  const H = v.height;
+  const bmi = v.weight / (H / 100) ** 2;
   const checks: Check[] = [];
   const add = (level: CheckLevel, text: string) => checks.push({ level, text });
 
-  // 數據彼此矛盾
-  const gap = est.modelWeight - inputWeight;
-  if (Math.abs(gap) / inputWeight > 0.04) {
+  // 模型做不到的數值
+  for (const [k, r] of Object.entries(out.residual)) {
+    if (Math.abs(r) > 0.5) {
+      add('conflict', `${VAR_LABEL[k] ?? k}：模型最接近只能做到 ${f1(out.values[k as keyof typeof out.values])} cm（目標 ${f1(v[k as keyof typeof v])} cm），這幾個數值彼此不太相容。`);
+    }
+  }
+  // 體積換算的體重和輸入差太多
+  const gap = out.modelWeight - v.weight;
+  if (sug.locked.weight && Math.abs(gap) / v.weight > 0.05) {
     add(
       'conflict',
-      `依目前的圍度，模型體重約 ${fmt(est.modelWeight)} kg，和輸入的 ${fmt(inputWeight)} kg 差了 ${fmt(Math.abs(gap))} kg。手動指定的圍度太多時，系統沒辦法同時符合體重。`,
+      `依模型體積換算約 ${f1(out.modelWeight)} kg，比輸入的體重${gap > 0 ? '重' : '輕'} ${f1(Math.abs(gap))} kg。手動指定的圍度和體重可能不太相符。`,
     );
   }
-  if (body.torsoClamped) {
-    add('conflict', `大腿長加小腿長超出這個身高能容納的範圍，模型身高變成 ${fmt(body.modelHeight)} cm。`);
-  }
-  if (m.underbust > m.bust) add('conflict', '下胸圍比上胸圍大，請檢查兩個數值是否填反。');
-  if (m.calf > m.thigh) add('conflict', '小腿圍比大腿圍大，請檢查數值。');
-  if (m.ankle > m.calf) add('conflict', '腳踝圍比小腿圍大，請檢查數值。');
-  if (m.wrist > m.upperArm) add('conflict', '手腕圍比臂圍大，請檢查數值。');
+  if (v.underbust > v.bust) add('conflict', '下胸圍比上胸圍大，請檢查兩個數值是否填反。');
 
-  // 現實中少見的組合
-  if (bmi < 16.5) add('rare', `BMI ${fmt(bmi)} 屬於嚴重過輕，現實中少見。`);
-  if (bmi > 40) add('rare', `BMI ${fmt(bmi)} 屬於重度肥胖。`);
-  const whr = m.waist / m.hip;
-  if (female && whr < 0.65) add('rare', `腰臀比 ${fmt(whr, 2)}，成年女性很少低於 0.65（常見約 0.68–0.85）。`);
-  if (!female && whr < 0.78) add('rare', `腰臀比 ${fmt(whr, 2)}，成年男性很少低於 0.78（常見約 0.80–0.95）。`);
-  const wht = m.waist / H;
-  if (wht < 0.35) add('rare', `腰圍只有身高的 ${fmt(wht * 100, 0)}%，現實中很少低於 35%。`);
-  const diff = m.bust - m.underbust;
-  if (female && diff >= 20 && est.bodyFat < 0.2) {
-    add('rare', `${cupFromDiff(diff)} 罩杯以上的胸部大多是脂肪，體脂 ${fmt(est.bodyFat * 100, 0)}% 時很少見。`);
+  // 和實測資料比較的少見程度
+  const rar = rarity({ sex: state.sex, locked: state.locked, bustDiff });
+  for (const r of rar) {
+    const p = Math.min(r.percentile, 1 - r.percentile);
+    if (p >= 0.05) continue;
+    const high = r.percentile > 0.5;
+    add(
+      'rare',
+      `${VAR_LABEL[r.id]} ${shown(r.id, v[r.id])} ${unitOf(r.id)}：在同性別、同身高、其他已填數值也相同的人當中，比這更${direction(r.id, high)}的${share(p)}。`,
+    );
   }
-  if (female && diff >= 30) add('rare', '上下胸圍差 30 cm 以上（I 罩杯以上）屬於極少數。');
-  if (!female && diff > 14) add('rare', `男性上下胸圍差 ${fmt(diff)} cm，通常只出現在胸肌非常發達或體脂很高時。`);
-  const inseamRatio = body.landmarks.crotchY / H;
-  if (inseamRatio > (female ? 0.49 : 0.5)) add('rare', `股下占身高 ${fmt(inseamRatio * 100, 0)}%，一般約 44–48%，屬於少見的長腿比例。`);
-  if (inseamRatio < 0.41) add('rare', `股下只占身高 ${fmt(inseamRatio * 100, 0)}%，一般約 44–48%。`);
-  if (m.thigh / m.hip > 0.68) add('rare', `大腿圍是臀圍的 ${fmt((m.thigh / m.hip) * 100, 0)}%，一般在 52–64% 之間。`);
-  if (female && est.bodyFat < 0.13) add('rare', `體脂 ${fmt(est.bodyFat * 100, 0)}% 已接近女性的必需脂肪下限（約 10–13%）。`);
-  if (!female && est.bodyFat < 0.06) add('rare', `體脂 ${fmt(est.bodyFat * 100, 0)}% 已接近男性的必需脂肪下限（約 2–5%）。`);
+  if (bmi < 16.5) add('rare', `BMI ${f1(bmi)} 屬於嚴重過輕。`);
+  if (bmi > 40) add('rare', `BMI ${f1(bmi)} 屬於重度肥胖。`);
+  if (female && v.bodyFat < 0.13) add('rare', `體脂 ${f1(v.bodyFat * 100)}% 已接近女性的必需脂肪下限（約 10–13%）。`);
+  if (!female && v.bodyFat < 0.06) add('rare', `體脂 ${f1(v.bodyFat * 100)}% 已接近男性的必需脂肪下限（約 2–5%）。`);
 
+  const leanMass = v.weight * (1 - v.bodyFat);
   return {
     bmi,
     bmiLabel: bmiLabel(bmi),
-    modelWeight: est.modelWeight,
-    bodyFat: est.bodyFat,
-    bodyFatAuto: est.bodyFatAuto,
+    weight: v.weight,
+    weightLocked: sug.locked.weight,
+    modelWeight: out.modelWeight,
+    bodyFat: v.bodyFat,
+    bodyFatLocked: sug.locked.bodyFat,
     leanMass,
-    muscleRate: MUSCLE_OF_LEAN * (1 - est.bodyFat),
-    braSize: female ? braSize(m.bust, m.underbust) : null,
-    whr,
-    inseam: body.landmarks.crotchY,
-    modelHeight: body.modelHeight,
-    shape: bodyShapeType(m.bust, m.waist, m.hip, m.sex),
+    muscleRate: MUSCLE_OF_LEAN * (1 - v.bodyFat),
+    braSize: female ? braSize(v.bust, v.underbust) : null,
+    whr: v.waist / v.hip,
+    inseam: out.marks.crotchY,
+    modelHeight: out.marks.topY,
+    shape: bodyShapeType(v.bust, v.waist, v.hip, state.sex),
     checks,
+    rarity: rar,
   };
 }

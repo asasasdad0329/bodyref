@@ -1,0 +1,627 @@
+{
+ "source": "MakeHuman 1.x assets (CC0 1.0), https://github.com/makehumancommunity/makehuman",
+ "vertexCount": 13532,
+ "bodyVertexCount": 13380,
+ "faceCount": 13378,
+ "deltaStep": 0.002,
+ "regions": [
+  "torso",
+  "neck",
+  "head",
+  "face",
+  "shoulderL",
+  "shoulderR",
+  "upperarmL",
+  "upperarmR",
+  "forearmL",
+  "forearmR",
+  "handL",
+  "handR",
+  "thighL",
+  "thighR",
+  "calfL",
+  "calfR",
+  "footL",
+  "footR",
+  "breastL",
+  "breastR"
+ ],
+ "joints": {
+  "l-shoulder": [
+   13380,
+   8
+  ],
+  "r-shoulder": [
+   13388,
+   8
+  ],
+  "l-elbow": [
+   13396,
+   8
+  ],
+  "r-elbow": [
+   13404,
+   8
+  ],
+  "l-hand": [
+   13412,
+   8
+  ],
+  "r-hand": [
+   13420,
+   8
+  ],
+  "l-upper-leg": [
+   13428,
+   8
+  ],
+  "r-upper-leg": [
+   13436,
+   8
+  ],
+  "l-knee": [
+   13444,
+   8
+  ],
+  "r-knee": [
+   13452,
+   8
+  ],
+  "l-ankle": [
+   13460,
+   8
+  ],
+  "r-ankle": [
+   13468,
+   8
+  ],
+  "neck": [
+   13476,
+   8
+  ],
+  "head": [
+   13484,
+   8
+  ],
+  "head-2": [
+   13492,
+   8
+  ],
+  "pelvis": [
+   13500,
+   8
+  ],
+  "spine-1": [
+   13508,
+   8
+  ],
+  "spine-2": [
+   13516,
+   8
+  ],
+  "spine-3": [
+   13524,
+   8
+  ]
+ },
+ "landmarks": {
+  "acromionL": 8236,
+  "bustApexL": 8454,
+  "underbustL": 8523,
+  "acromionR": 1558,
+  "bustApexR": 1782,
+  "underbustR": 1851,
+  "nape": 1491
+ },
+ "positions": 0,
+ "quads": 162384,
+ "region": 269408,
+ "armWeightL": 282940,
+ "armWeightR": 296472,
+ "targets": [
+  {
+   "name": "asian-female-young",
+   "count": 13532,
+   "indices": 310004,
+   "deltas": 337068
+  },
+  {
+   "name": "universal-female-young-minmuscle-minweight",
+   "count": 13292,
+   "indices": 418260,
+   "deltas": 444844
+  },
+  {
+   "name": "universal-female-young-minmuscle-averageweight",
+   "count": 2847,
+   "indices": 524596,
+   "deltas": 530292
+  },
+  {
+   "name": "universal-female-young-minmuscle-maxweight",
+   "count": 6180,
+   "indices": 547376,
+   "deltas": 559736
+  },
+  {
+   "name": "universal-female-young-averagemuscle-minweight",
+   "count": 4051,
+   "indices": 596816,
+   "deltas": 604920
+  },
+  {
+   "name": "universal-female-young-averagemuscle-maxweight",
+   "count": 3355,
+   "indices": 629228,
+   "deltas": 635940
+  },
+  {
+   "name": "universal-female-young-maxmuscle-minweight",
+   "count": 4044,
+   "indices": 656072,
+   "deltas": 664160
+  },
+  {
+   "name": "universal-female-young-maxmuscle-averageweight",
+   "count": 3778,
+   "indices": 688424,
+   "deltas": 695980
+  },
+  {
+   "name": "universal-female-young-maxmuscle-maxweight",
+   "count": 4156,
+   "indices": 718648,
+   "deltas": 726960
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-mincup-minfirmness",
+   "count": 408,
+   "indices": 751896,
+   "deltas": 752712
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-mincup-averagefirmness",
+   "count": 408,
+   "indices": 755160,
+   "deltas": 755976
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-mincup-maxfirmness",
+   "count": 408,
+   "indices": 758424,
+   "deltas": 759240
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-averagecup-minfirmness",
+   "count": 242,
+   "indices": 761688,
+   "deltas": 762172
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-averagecup-maxfirmness",
+   "count": 210,
+   "indices": 763624,
+   "deltas": 764044
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-maxcup-minfirmness",
+   "count": 455,
+   "indices": 765304,
+   "deltas": 766216
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-maxcup-averagefirmness",
+   "count": 406,
+   "indices": 768948,
+   "deltas": 769760
+  },
+  {
+   "name": "female-young-averagemuscle-minweight-maxcup-maxfirmness",
+   "count": 406,
+   "indices": 772196,
+   "deltas": 773008
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-mincup-minfirmness",
+   "count": 402,
+   "indices": 775444,
+   "deltas": 776248
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-mincup-averagefirmness",
+   "count": 402,
+   "indices": 778660,
+   "deltas": 779464
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-mincup-maxfirmness",
+   "count": 402,
+   "indices": 781876,
+   "deltas": 782680
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-averagecup-minfirmness",
+   "count": 250,
+   "indices": 785092,
+   "deltas": 785592
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-averagecup-maxfirmness",
+   "count": 280,
+   "indices": 787092,
+   "deltas": 787652
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-maxcup-minfirmness",
+   "count": 463,
+   "indices": 789332,
+   "deltas": 790260
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+   "count": 404,
+   "indices": 793040,
+   "deltas": 793848
+  },
+  {
+   "name": "female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+   "count": 406,
+   "indices": 796272,
+   "deltas": 797084
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-mincup-minfirmness",
+   "count": 402,
+   "indices": 799520,
+   "deltas": 800324
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-mincup-averagefirmness",
+   "count": 402,
+   "indices": 802736,
+   "deltas": 803540
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-mincup-maxfirmness",
+   "count": 402,
+   "indices": 805952,
+   "deltas": 806756
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-averagecup-minfirmness",
+   "count": 256,
+   "indices": 809168,
+   "deltas": 809680
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-averagecup-maxfirmness",
+   "count": 280,
+   "indices": 811216,
+   "deltas": 811776
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-maxcup-minfirmness",
+   "count": 467,
+   "indices": 813456,
+   "deltas": 814392
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-maxcup-averagefirmness",
+   "count": 404,
+   "indices": 817196,
+   "deltas": 818004
+  },
+  {
+   "name": "female-young-averagemuscle-maxweight-maxcup-maxfirmness",
+   "count": 406,
+   "indices": 820428,
+   "deltas": 821240
+  },
+  {
+   "name": "asian-male-young",
+   "count": 13532,
+   "indices": 823676,
+   "deltas": 850740
+  },
+  {
+   "name": "universal-male-young-minmuscle-minweight",
+   "count": 4725,
+   "indices": 931932,
+   "deltas": 941384
+  },
+  {
+   "name": "universal-male-young-minmuscle-averageweight",
+   "count": 3585,
+   "indices": 969736,
+   "deltas": 976908
+  },
+  {
+   "name": "universal-male-young-minmuscle-maxweight",
+   "count": 7315,
+   "indices": 998420,
+   "deltas": 1013052
+  },
+  {
+   "name": "universal-male-young-averagemuscle-minweight",
+   "count": 3627,
+   "indices": 1056944,
+   "deltas": 1064200
+  },
+  {
+   "name": "universal-male-young-averagemuscle-maxweight",
+   "count": 3707,
+   "indices": 1085964,
+   "deltas": 1093380
+  },
+  {
+   "name": "universal-male-young-maxmuscle-minweight",
+   "count": 4109,
+   "indices": 1115624,
+   "deltas": 1123844
+  },
+  {
+   "name": "universal-male-young-maxmuscle-averageweight",
+   "count": 3911,
+   "indices": 1148500,
+   "deltas": 1156324
+  },
+  {
+   "name": "universal-male-young-maxmuscle-maxweight",
+   "count": 4667,
+   "indices": 1179792,
+   "deltas": 1189128
+  },
+  {
+   "name": "nipple-point-decr",
+   "count": 32,
+   "indices": 1217132,
+   "deltas": 1217196
+  },
+  {
+   "name": "nipple-size-decr",
+   "count": 162,
+   "indices": 1217388,
+   "deltas": 1217712
+  },
+  {
+   "name": "measure-ankle-circ-decr",
+   "count": 496,
+   "indices": 1218684,
+   "deltas": 1219676
+  },
+  {
+   "name": "measure-ankle-circ-incr",
+   "count": 496,
+   "indices": 1222652,
+   "deltas": 1223644
+  },
+  {
+   "name": "measure-bust-circ-decr",
+   "count": 1170,
+   "indices": 1226620,
+   "deltas": 1228960
+  },
+  {
+   "name": "measure-bust-circ-incr",
+   "count": 1169,
+   "indices": 1235980,
+   "deltas": 1238320
+  },
+  {
+   "name": "measure-calf-circ-decr",
+   "count": 416,
+   "indices": 1245336,
+   "deltas": 1246168
+  },
+  {
+   "name": "measure-calf-circ-incr",
+   "count": 416,
+   "indices": 1248664,
+   "deltas": 1249496
+  },
+  {
+   "name": "measure-frontchest-dist-decr",
+   "count": 586,
+   "indices": 1251992,
+   "deltas": 1253164
+  },
+  {
+   "name": "measure-frontchest-dist-incr",
+   "count": 502,
+   "indices": 1256680,
+   "deltas": 1257684
+  },
+  {
+   "name": "measure-hips-circ-decr",
+   "count": 692,
+   "indices": 1260696,
+   "deltas": 1262080
+  },
+  {
+   "name": "measure-hips-circ-incr",
+   "count": 707,
+   "indices": 1266232,
+   "deltas": 1267648
+  },
+  {
+   "name": "measure-knee-circ-decr",
+   "count": 528,
+   "indices": 1271892,
+   "deltas": 1272948
+  },
+  {
+   "name": "measure-knee-circ-incr",
+   "count": 534,
+   "indices": 1276116,
+   "deltas": 1277184
+  },
+  {
+   "name": "measure-lowerarm-length-decr",
+   "count": 3676,
+   "indices": 1280388,
+   "deltas": 1287740
+  },
+  {
+   "name": "measure-lowerarm-length-incr",
+   "count": 3584,
+   "indices": 1309796,
+   "deltas": 1316964
+  },
+  {
+   "name": "measure-lowerleg-height-decr",
+   "count": 2618,
+   "indices": 1338468,
+   "deltas": 1343704
+  },
+  {
+   "name": "measure-lowerleg-height-incr",
+   "count": 2570,
+   "indices": 1359412,
+   "deltas": 1364552
+  },
+  {
+   "name": "measure-napetowaist-dist-decr",
+   "count": 10076,
+   "indices": 1379972,
+   "deltas": 1400124
+  },
+  {
+   "name": "measure-napetowaist-dist-incr",
+   "count": 10080,
+   "indices": 1460580,
+   "deltas": 1480740
+  },
+  {
+   "name": "measure-neck-circ-decr",
+   "count": 358,
+   "indices": 1541220,
+   "deltas": 1541936
+  },
+  {
+   "name": "measure-neck-circ-incr",
+   "count": 636,
+   "indices": 1544084,
+   "deltas": 1545356
+  },
+  {
+   "name": "measure-neck-height-decr",
+   "count": 4366,
+   "indices": 1549172,
+   "deltas": 1557904
+  },
+  {
+   "name": "measure-neck-height-incr",
+   "count": 4366,
+   "indices": 1584100,
+   "deltas": 1592832
+  },
+  {
+   "name": "measure-shoulder-dist-decr",
+   "count": 4738,
+   "indices": 1619028,
+   "deltas": 1628504
+  },
+  {
+   "name": "measure-shoulder-dist-incr",
+   "count": 4564,
+   "indices": 1656932,
+   "deltas": 1666060
+  },
+  {
+   "name": "measure-thigh-circ-decr",
+   "count": 512,
+   "indices": 1693444,
+   "deltas": 1694468
+  },
+  {
+   "name": "measure-thigh-circ-incr",
+   "count": 520,
+   "indices": 1697540,
+   "deltas": 1698580
+  },
+  {
+   "name": "measure-underbust-circ-decr",
+   "count": 1067,
+   "indices": 1701700,
+   "deltas": 1703836
+  },
+  {
+   "name": "measure-underbust-circ-incr",
+   "count": 1107,
+   "indices": 1710240,
+   "deltas": 1712456
+  },
+  {
+   "name": "measure-upperarm-circ-decr",
+   "count": 522,
+   "indices": 1719100,
+   "deltas": 1720144
+  },
+  {
+   "name": "measure-upperarm-circ-incr",
+   "count": 522,
+   "indices": 1723276,
+   "deltas": 1724320
+  },
+  {
+   "name": "measure-upperarm-length-decr",
+   "count": 4172,
+   "indices": 1727452,
+   "deltas": 1735796
+  },
+  {
+   "name": "measure-upperarm-length-incr",
+   "count": 4178,
+   "indices": 1760828,
+   "deltas": 1769184
+  },
+  {
+   "name": "measure-upperleg-height-decr",
+   "count": 3341,
+   "indices": 1794252,
+   "deltas": 1800936
+  },
+  {
+   "name": "measure-upperleg-height-incr",
+   "count": 3194,
+   "indices": 1820984,
+   "deltas": 1827372
+  },
+  {
+   "name": "measure-waist-circ-decr",
+   "count": 818,
+   "indices": 1846536,
+   "deltas": 1848172
+  },
+  {
+   "name": "measure-waist-circ-incr",
+   "count": 818,
+   "indices": 1853080,
+   "deltas": 1854716
+  },
+  {
+   "name": "measure-waisttohip-dist-decr",
+   "count": 10240,
+   "indices": 1859624,
+   "deltas": 1880104
+  },
+  {
+   "name": "measure-waisttohip-dist-incr",
+   "count": 10018,
+   "indices": 1941544,
+   "deltas": 1961580
+  },
+  {
+   "name": "measure-wrist-circ-decr",
+   "count": 444,
+   "indices": 2021688,
+   "deltas": 2022576
+  },
+  {
+   "name": "measure-wrist-circ-incr",
+   "count": 446,
+   "indices": 2025240,
+   "deltas": 2026132
+  }
+ ]
+}
