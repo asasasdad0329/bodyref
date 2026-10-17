@@ -1,7 +1,7 @@
 import type { Sex } from '../../core/measurements';
 import { type BodyAsset, addTarget } from './asset';
 import { DEFAULT_SHARE, DEPOTS, type CompositionMaps, type Depot, SEGMENTS, type Segment, VISCERAL_SHARE, buildMaps } from './composition';
-import { type V3, adjacency, centroid, meshVolume, smooth, vertexAreas, vertexNormals } from './geometry';
+import { type V3, adjacency, centroid, meshVolume, smooth, taubin, vertexAreas, vertexNormals } from './geometry';
 import { MEASURE_KEYS, type Levels, type MeasureContext, type MeasureKey, type Measured, measure, measureContext } from './measure';
 
 // 把 MakeHuman 網格依「身體組成」變形成指定的數據。分層順序：
@@ -120,6 +120,8 @@ export class BodyModel {
   readonly ctx: MeasureContext;
   readonly adj: number[][];
   readonly nippleVerts: Uint32Array;
+  /** 顯示前要抹平的頂點（手、腳的細節保留） */
+  private readonly surfaceVerts: Uint32Array;
   private readonly sexData = new Map<Sex, SexData>();
   private jac: { key: string; cols: number[][] } | null = null;
   private last: { sex: Sex; q: Float64Array } | null = null;
@@ -136,6 +138,10 @@ export class BodyModel {
       }
     }
     this.nippleVerts = Uint32Array.from(near);
+    const tips = new Set(['handL', 'handR', 'footL', 'footR'].map((r) => asset.regions.indexOf(r)));
+    const surface: number[] = [];
+    for (let i = 0; i < asset.nBody; i++) if (!tips.has(asset.region[i])) surface.push(i);
+    this.surfaceVerts = Uint32Array.from(surface);
   }
 
   /** 每個性別：族群基礎形狀與脂肪分區圖（第一次用到時建立） */
@@ -408,10 +414,11 @@ export class BodyModel {
     return cols;
   }
 
-  /** 顯示用網格：乳頭附近抹平，手臂轉到指定的外展角度 */
+  /** 顯示用網格：乳頭附近抹平、整體表面去掉細小凹凸，手臂轉到指定的外展角度 */
   display(fit: FitResult, armAngle: number): { P: Float32Array; armRotation: { L: ArmPose; R: ArmPose } } {
     const P = new Float32Array(fit.rest);
     smooth(P, this.adj, this.nippleVerts, 15, 0.6);
+    taubin(P, this.adj, this.surfaceVerts, 4);
     const rot = { L: this.poseArm(P, 'L', armAngle), R: this.poseArm(P, 'R', armAngle) };
     return { P, armRotation: rot };
   }

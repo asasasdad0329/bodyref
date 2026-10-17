@@ -23,6 +23,7 @@ export class BodyView {
   private readonly surfaceMat = new THREE.MeshStandardMaterial({
     roughness: 0.86,
     metalness: 0,
+    vertexColors: true,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
@@ -65,12 +66,14 @@ export class BodyView {
     const pos = new THREE.BufferAttribute(out.positions, 3);
     bodyGeo.setAttribute('position', pos);
     bodyGeo.setIndex(new THREE.BufferAttribute(out.bodyIndex, 1));
+    bodyGeo.setAttribute('color', new THREE.BufferAttribute(cavityShade(out.cavity), 3));
     bodyGeo.computeVertexNormals();
     bodyGeo.computeBoundingSphere();
 
     const headGeo = new THREE.BufferGeometry();
     headGeo.setAttribute('position', new THREE.BufferAttribute(out.head.positions, 3));
     headGeo.setIndex(new THREE.BufferAttribute(out.head.index, 1));
+    headGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(out.head.positions.length).fill(1), 3));
     headGeo.computeVertexNormals();
     headGeo.computeBoundingSphere();
 
@@ -147,4 +150,14 @@ export class BodyView {
     this.grid = null;
     this.guides = null;
   }
+}
+
+/** 凹處壓暗：肚臍、腋下、指縫等處最多暗 35%，其他地方維持原色 */
+function cavityShade(c: Float32Array): Float32Array {
+  const rgb = new Float32Array(c.length * 3);
+  for (let i = 0; i < c.length; i++) {
+    const v = 1 - 0.35 * Math.sqrt(c[i]);
+    rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = v;
+  }
+  return rgb;
 }

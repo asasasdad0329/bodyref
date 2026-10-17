@@ -305,3 +305,29 @@ export function smoothField(F: Float32Array, adj: number[][], iterations: number
     F.set(tmp);
   }
 }
+
+/** Taubin 平滑（λ|μ）：去掉細小的凹凸，但不會像一般平滑那樣讓整體縮小 */
+export function taubin(P: Float32Array, adj: number[][], verts: Uint32Array, iterations: number): void {
+  for (let it = 0; it < iterations; it++) {
+    smooth(P, adj, verts, 1, 0.5);
+    smooth(P, adj, verts, 1, -0.53);
+  }
+}
+
+/**
+ * 每個頂點凹進去多深（0–1）：和抹平後的表面比較，低於平滑表面的是凹處（肚臍、腋下、指縫）。
+ * 用來做近似的環境光遮蔽，讓凹處稍微暗一點。
+ */
+export function cavity(P: Float32Array, quads: Uint16Array, adj: number[][], nVerts: number, depth = 0.5): Float32Array {
+  const Q = new Float32Array(P.subarray(0, nVerts * 3));
+  const all = Uint32Array.from({ length: nVerts }, (_, i) => i);
+  smooth(Q, adj, all, 12, 0.6);
+  const N = vertexNormals(P, quads, nVerts);
+  const C = new Float32Array(nVerts);
+  for (let i = 0; i < nVerts; i++) {
+    const d = (P[i * 3] - Q[i * 3]) * N[i * 3] + (P[i * 3 + 1] - Q[i * 3 + 1]) * N[i * 3 + 1] + (P[i * 3 + 2] - Q[i * 3 + 2]) * N[i * 3 + 2];
+    C[i] = Math.min(1, Math.max(0, -d / depth));
+  }
+  smoothField(C, adj, 1);
+  return C;
+}

@@ -1,6 +1,6 @@
 import type { BodyAsset } from './asset';
 import { type HeadParts, cutNeck, eggHead, headParts } from './egghead';
-import { type V3, centroid, vert } from './geometry';
+import { type V3, cavity, centroid, vert } from './geometry';
 import { GuideBuilder } from './guides';
 import { MEASURE_KEYS, type MeasureKey } from './measure';
 import { type ArmPose, BodyModel, type FitInput, type FitResult, rotateArmPoint } from './model';
@@ -21,6 +21,8 @@ export interface TapePath {
 
 export interface EngineOutput {
   positions: Float32Array;
+  /** 每個頂點的凹陷程度（0–1），畫面用來把凹處稍微壓暗 */
+  cavity: Float32Array;
   /** 可見的身體三角形 */
   bodyIndex: Uint32Array;
   /** 蛋形人台頭與頸部延伸 */
@@ -111,6 +113,7 @@ export class BodyEngine {
 
     return {
       positions: P.slice(0, a.nBody * 3),
+      cavity: cavity(P, a.quads, this.model.adj, a.nBody),
       bodyIndex: neckCut.bodyIndex,
       head: { positions: headPositions, index: headIndex },
       guides,

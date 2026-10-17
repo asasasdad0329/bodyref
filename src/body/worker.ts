@@ -24,7 +24,7 @@ ctx.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const t0 = performance.now();
   try {
     const output = engine.run(msg.input);
-    const transfer = [output.positions.buffer, output.bodyIndex.buffer, output.head.positions.buffer, output.head.index.buffer, ...output.guides.map((g) => g.buffer)];
+    const transfer = [output.positions.buffer, output.cavity.buffer, output.bodyIndex.buffer, output.head.positions.buffer, output.head.index.buffer, ...output.guides.map((g) => g.buffer)];
     ctx.postMessage({ type: 'result', id: msg.id, output, ms: performance.now() - t0 } satisfies WorkerResponse, transfer as Transferable[]);
   } catch (err) {
     ctx.postMessage({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) } satisfies WorkerResponse);
