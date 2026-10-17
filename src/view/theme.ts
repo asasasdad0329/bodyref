@@ -7,6 +7,7 @@ export interface SceneColors {
   floor: Color;
   mannequin: Color;
   grid: Color;
+  guide: Color;
   outline: Color;
   tape: Color;
   ruler: Color;
@@ -18,8 +19,9 @@ export function readSceneColors(): SceneColors {
   return {
     bg: c('--stage', '#e9edf1'),
     floor: c('--stage-floor', '#b9c3ce'),
-    mannequin: c('--mannequin', '#cfd7e0'),
-    grid: c('--mannequin-grid', '#58697c'),
+    mannequin: c('--mannequin', '#f1f1ef'),
+    grid: c('--mannequin-grid', '#7e8995'),
+    guide: c('--mannequin-guide', '#7b8590'),
     outline: c('--mannequin-edge', '#2a3542'),
     tape: c('--tape', '#e8b01e'),
     ruler: c('--ruler', '#7b8794'),

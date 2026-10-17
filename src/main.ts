@@ -69,12 +69,12 @@ function apply(): void {
   }
   const nextShapeKey = `${key}|${view.armAngle}`;
   if (nextShapeKey !== shapeKey || !shape) {
-    shape = generateBody(est.measurements, { quality: FINE, armAngle: view.armAngle });
+    shape = generateBody(est.measurements, { quality: FINE, armAngle: view.armAngle, guides: true });
     shapeKey = nextShapeKey;
     summary = summarize(est, state.weight, shape);
     viewer.setShape(shape, est.measurements);
   }
-  viewer.setDisplay({ grid: view.showGrid, outline: view.showOutline, measures: view.showMeasures });
+  viewer.setDisplay({ lineStyle: view.lineStyle, outline: view.showOutline, measures: view.showMeasures });
   panel.render(state, est, summary!);
   renderSummary(summaryEl, state, summary!);
   save(state);

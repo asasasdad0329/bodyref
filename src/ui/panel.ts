@@ -2,7 +2,7 @@ import type { Summary } from '../core/analysis';
 import type { BasicInputs, Estimate } from '../core/estimate';
 import { BODY_FAT_RANGE, HEIGHT_RANGE, MEASURES, type MeasureDef, type MeasureId, WEIGHT_RANGE } from '../core/measurements';
 import { CUP_TABLE, MUSCLE_OF_LEAN } from '../core/reference';
-import type { AppState, ViewSettings } from '../core/state';
+import { type AppState, LINE_STYLES, type ViewSettings } from '../core/state';
 
 // 右側輸入面板：基本數據（推算全身）、圍度、長度、顯示設定。
 // 每個量測欄位會標示目前是「推算」還是「手動」，手動的欄位可以一鍵改回推算。
@@ -81,7 +81,8 @@ export class Panel {
   private cupNote!: HTMLElement;
   private fatTag!: HTMLElement;
   private fatReset!: HTMLButtonElement;
-  private view: Record<'grid' | 'outline' | 'measures', HTMLInputElement> = {} as never;
+  private view: Record<'outline' | 'measures', HTMLInputElement> = {} as never;
+  private lineInputs: HTMLInputElement[] = [];
   private armAngle!: NumberField;
   private hovered: MeasureId | null = null;
   private focused: MeasureId | null = null;
@@ -203,14 +204,32 @@ export class Panel {
 
   private buildDisplay(): HTMLElement {
     const g = this.group('顯示', 'VIEW');
+    const styleRow = el('div', 'field');
+    const fs = el('fieldset', 'segmented');
+    fs.append(el('legend', 'field-label', '表面線條'));
+    for (const s of LINE_STYLES) {
+      const id = `line-${s.id}`;
+      const input = el('input');
+      input.type = 'radio';
+      input.name = 'lineStyle';
+      input.id = id;
+      input.value = s.id;
+      input.addEventListener('change', () => input.checked && this.cb.onView({ lineStyle: s.id }));
+      const lab = el('label', undefined, s.label);
+      lab.htmlFor = id;
+      fs.append(input, lab);
+      this.lineInputs.push(input);
+    }
+    styleRow.append(fs);
+    g.append(styleRow);
     const toggles = el('div', 'toggles');
-    for (const [key, text] of [['grid', '網格線'], ['outline', '輪廓線'], ['measures', '全部量測線']] as const) {
+    for (const [key, text] of [['outline', '輪廓線'], ['measures', '全部量測線']] as const) {
       const lab = el('label', 'toggle');
       const input = el('input');
       input.type = 'checkbox';
       input.id = `view-${key}`;
       input.addEventListener('change', () => {
-        const map = { grid: 'showGrid', outline: 'showOutline', measures: 'showMeasures' } as const;
+        const map = { outline: 'showOutline', measures: 'showMeasures' } as const;
         this.cb.onView({ [map[key]]: input.checked });
       });
       lab.append(input, el('span', undefined, text));
@@ -269,7 +288,7 @@ export class Panel {
       f.row.classList.toggle('is-manual', manual);
     }
 
-    this.view.grid.checked = state.view.showGrid;
+    for (const input of this.lineInputs) input.checked = input.value === state.view.lineStyle;
     this.view.outline.checked = state.view.showOutline;
     this.view.measures.checked = state.view.showMeasures;
     setValue(this.armAngle, state.view.armAngle, 0);

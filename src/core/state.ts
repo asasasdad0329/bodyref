@@ -4,9 +4,17 @@ import { MEASURES, type MeasureValues } from './measurements';
 // 網站狀態：基本輸入、手動指定的量測、顯示設定。
 // 會存在瀏覽器（下次打開時還原），也能編碼成網址分享。
 
+/** 人台表面的線條：結構線（白模）、密集網格、不畫 */
+export type LineStyle = 'guide' | 'grid' | 'none';
+export const LINE_STYLES: readonly { id: LineStyle; label: string }[] = [
+  { id: 'guide', label: '結構線' },
+  { id: 'grid', label: '網格' },
+  { id: 'none', label: '無' },
+];
+
 export interface ViewSettings {
   armAngle: number;
-  showGrid: boolean;
+  lineStyle: LineStyle;
   showOutline: boolean;
   showMeasures: boolean;
 }
@@ -16,7 +24,7 @@ export interface AppState extends BasicInputs {
   view: ViewSettings;
 }
 
-export const DEFAULT_VIEW: ViewSettings = { armAngle: 12, showGrid: true, showOutline: true, showMeasures: true };
+export const DEFAULT_VIEW: ViewSettings = { armAngle: 12, lineStyle: 'guide', showOutline: true, showMeasures: true };
 
 export interface Preset {
   id: string;
@@ -67,7 +75,7 @@ function sanitize(raw: unknown): AppState | null {
     overrides,
     view: {
       armAngle: num(view.armAngle, 0, 80) ?? DEFAULT_VIEW.armAngle,
-      showGrid: typeof view.showGrid === 'boolean' ? view.showGrid : DEFAULT_VIEW.showGrid,
+      lineStyle: LINE_STYLES.find((s) => s.id === view.lineStyle)?.id ?? DEFAULT_VIEW.lineStyle,
       showOutline: typeof view.showOutline === 'boolean' ? view.showOutline : DEFAULT_VIEW.showOutline,
       showMeasures: typeof view.showMeasures === 'boolean' ? view.showMeasures : DEFAULT_VIEW.showMeasures,
     },

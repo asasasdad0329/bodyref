@@ -1,10 +1,12 @@
-# 推送到 main 時自動測試、建置並發佈到 GitHub Pages。
-# 第一次使用前，請到 Settings → Pages，把 Source 設為「GitHub Actions」。
+# 建置並發佈到 GitHub Pages。
+# GitHub 免費方案只有公開儲存庫能用 Pages，所以目前只能手動執行（Actions → Deploy to GitHub Pages → Run workflow）。
+# 啟用 Pages（Settings → Pages → Source 選「GitHub Actions」）之後，可以把下面的 push 觸發條件取消註解，
+# 推送到 main 時就會自動發佈。
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [main]
+  # push:
+  #   branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,8 +22,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm

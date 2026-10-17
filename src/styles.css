@@ -2,8 +2,8 @@
    皮尺黃只用在「量測」本身：量測線、刻度條、手動指定的數值。 */
 :root {
   --bg: #e6eaee;
-  --stage: #edf0f3;
-  --stage-floor: #a9b5c2;
+  --stage: #e4e7ea;
+  --stage-floor: #a9b3bd;
   --surface: #fafbfc;
   --surface-2: #eff2f5;
   --ink: #17202b;
@@ -13,9 +13,10 @@
   --tape-ink: #7a5600;
   --tape-soft: rgba(229, 169, 18, 0.16);
   --tape-tick: rgba(35, 26, 0, 0.62);
-  --mannequin: #cdd5de;
-  --mannequin-grid: #5b6c80;
-  --mannequin-edge: #263241;
+  --mannequin: #f3f3f1;
+  --mannequin-grid: #7e8995;
+  --mannequin-guide: #7b8590;
+  --mannequin-edge: #3b4450;
   --ruler: #7c8896;
   --danger: #b03f2b;
   --danger-soft: rgba(176, 63, 43, 0.1);
@@ -45,9 +46,10 @@
     --tape-ink: #f3cb55;
     --tape-soft: rgba(240, 190, 46, 0.14);
     --tape-tick: rgba(35, 26, 0, 0.7);
-    --mannequin: #8d99a7;
-    --mannequin-grid: #2a3542;
-    --mannequin-edge: #0a0d11;
+    --mannequin: #c9cdd2;
+    --mannequin-grid: #59626d;
+    --mannequin-guide: #5a636e;
+    --mannequin-edge: #05070a;
     --ruler: #6f7c8b;
     --danger: #f08268;
     --danger-soft: rgba(240, 130, 104, 0.12);
@@ -70,9 +72,10 @@
   --tape-ink: #f3cb55;
   --tape-soft: rgba(240, 190, 46, 0.14);
   --tape-tick: rgba(35, 26, 0, 0.7);
-  --mannequin: #8d99a7;
-  --mannequin-grid: #2a3542;
-  --mannequin-edge: #0a0d11;
+  --mannequin: #c9cdd2;
+  --mannequin-grid: #59626d;
+  --mannequin-guide: #5a636e;
+  --mannequin-edge: #05070a;
   --ruler: #6f7c8b;
   --danger: #f08268;
   --danger-soft: rgba(240, 130, 104, 0.12);
@@ -692,9 +695,12 @@ input[type='range']::-moz-range-thumb {
   border-radius: 6px 0 0 6px;
 }
 
+.segmented label:not(:first-of-type) {
+  border-left: 0;
+}
+
 .segmented label:last-of-type {
   border-radius: 0 6px 6px 0;
-  border-left: 0;
 }
 
 .segmented input:checked + label {

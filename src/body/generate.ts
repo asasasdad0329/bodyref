@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import type { BodyMeasurements, MeasureId } from '../core/measurements';
+import { type Polyline, columnLine, liftLines, mirrorLines, planeLines, ringLine } from './guides';
 import { type Frame, type KeyRing, type Loft, frameFromAxis, loft, mirrorLoft, placeRing, sliceVolume } from './loft';
 import {
   type Bulge,
@@ -33,7 +34,12 @@ export const COARSE: Quality = { torsoCols: 32, limbCols: 20, headCols: 20, hand
 export interface BodyPart {
   name: string;
   loft: Loft;
+  /** 結構線（已稍微推離表面） */
+  guides: Polyline[];
 }
+
+/** 結構線離開表面的距離（cm） */
+const GUIDE_LIFT = 0.08;
 
 export interface MeasurePath {
   closed: boolean;
@@ -71,6 +77,8 @@ export interface GenerateOptions {
   quality: Quality;
   /** 手臂外展角度（度） */
   armAngle: number;
+  /** 是否計算結構線 */
+  guides?: boolean;
 }
 
 interface Ring {
@@ -215,7 +223,7 @@ export function generateBody(m: BodyMeasurements, opts: GenerateOptions): BodySh
 
   const armpitRel: SectionShape = female ? { hw: 1, df: 0.62, db: 0.74, n: 2.3 } : { hw: 1, df: 0.58, db: 0.72, n: 2.4 };
   const armpitBase = fitToGirth(armpitRel, female ? ub * 1.06 + 1.5 : ub * 1.08 + 2);
-  torsoRings.push(makeRing(withBreast(armpitBase, bustProfile.armpit), hFrame(ty(0.753)), tc));
+  const armpitKey = torsoRings.push(makeRing(withBreast(armpitBase, bustProfile.armpit), hFrame(ty(0.753)), tc)) - 1;
   const ap = extents(sectionPoints(armpitBase));
   const frontA = ap.vMax, backA = -ap.vMin, hwA = ap.uMax;
   const shHW = Math.max(shoulderHW, hwA * 0.95);
@@ -227,9 +235,10 @@ export function generateBody(m: BodyMeasurements, opts: GenerateOptions): BodySh
   torsoRings.push(makeRing({ hw: lerp(hwA, shHW, 0.68), df: frontA * (female ? 0.76 : 0.86), db: backA * 0.95, n: 2.6 }, hFrame(ty(0.846)), tc));
   const shoulderRing = makeRing({ hw: shHW, df: frontA * 0.5, db: backA * 0.8, n: 3, dv: -0.4 * s }, hFrame(ty(0.922)), tc);
   torsoRings.push(shoulderRing);
-  torsoRings.push(
-    makeRing({ hw: rNeck * 1.2 + 0.45 * (shHW - rNeck * 1.2), df: rNeck * 0.9 + 0.6 * s, db: backA * 0.62, n: 2.4, dv: -backA * 0.12 }, hFrame(ty(0.961)), tc),
-  );
+  const trapeziusKey =
+    torsoRings.push(
+      makeRing({ hw: rNeck * 1.2 + 0.45 * (shHW - rNeck * 1.2), df: rNeck * 0.9 + 0.6 * s, db: backA * 0.62, n: 2.4, dv: -backA * 0.12 }, hFrame(ty(0.961)), tc),
+    ) - 1;
 
   // 頸部：軸線微微前傾，截面垂直於軸線
   const neckZ = -backA * 0.28;
@@ -238,7 +247,8 @@ export function generateBody(m: BodyMeasurements, opts: GenerateOptions): BodySh
   const neckAxis = neckEnd.clone().sub(neckStart);
   const alongNeck = (y: number) => neckStart.clone().addScaledVector(neckAxis, (y - neckBaseY) / neckAxis.y);
   const neckFrame = (y: number) => frameFromAxis(alongNeck(y), neckAxis);
-  torsoRings.push(makeRing({ hw: rNeck * 1.12, df: rNeck * 1.12, db: rNeck * 1.12 }, frameFromAxis(neckStart, UP.clone().add(neckAxis.clone().normalize())), tc));
+  const neckBaseKey =
+    torsoRings.push(makeRing({ hw: rNeck * 1.12, df: rNeck * 1.12, db: rNeck * 1.12 }, frameFromAxis(neckStart, UP.clone().add(neckAxis.clone().normalize())), tc)) - 1;
   const neckRing = makeRing(fitToGirth({ hw: 1, df: 0.95, db: 1 }, m.neck), neckFrame(lerp(neckBaseY, chinY + 0.3 * headH, 0.4)), tc);
   torsoRings.push(neckRing);
   torsoRings.push(makeRing(fitToGirth({ hw: 1, df: 0.95, db: 1 }, m.neck * 0.96), neckFrame(chinY), tc));
@@ -391,18 +401,58 @@ export function generateBody(m: BodyMeasurements, opts: GenerateOptions): BodySh
     new Vector3(0, H + lift, headZ - 1.6 * headScale),
   );
 
+  // ── 結構線（只在顯示用時計算，推算體重時跳過） ───────────
+  // 軀幹：正中線、側縫線、經過胸點的公主線，以及頸根、下胸、腰、臀的橫線
+  const tk = torsoLoft.keyRows;
+  const bustPts = bustRing.dense.filter(([u]) => u > 0.15 * bustShape.hw);
+  const apexX = bustPts.reduce((best, p) => (p[1] > best[1] ? p : best), bustPts[0])[0];
+  const withGuides = opts.guides ?? false;
+  const guideLines = (l: Loft, lines: () => Polyline[]) => (withGuides ? liftLines(l, lines(), GUIDE_LIFT) : []);
+  const torsoGuides = guideLines(torsoLoft, () => [
+    ...[tk[3], tk[6], tk[8], tk[neckBaseKey]].map((r) => ringLine(torsoLoft, r)),
+    ...planeLines(torsoLoft, 'x', 0, 'max', tk[1], tk[neckChinKey]),
+    ...planeLines(torsoLoft, 'x', 0, 'min', tk[1], tk[neckChinKey]),
+    ...planeLines(torsoLoft, 'z', 'center', 'max', tk[1], tk[armpitKey]),
+    ...planeLines(torsoLoft, 'z', 'center', 'min', tk[1], tk[armpitKey]),
+    ...[apexX, -apexX].flatMap((x) => [
+      ...planeLines(torsoLoft, 'x', x, 'max', tk[2], tk[trapeziusKey]),
+      ...planeLines(torsoLoft, 'x', x, 'min', tk[2], tk[trapeziusKey]),
+    ]),
+  ]);
+  // 頭：繪畫人偶常用的十字線（正中線與眼睛高度），加上兩側經過耳朵的縱線
+  const hk = headLoft.keyRows;
+  const hHalf = Math.round(hc / 2);
+  const headGuides = guideLines(headLoft, () => [
+    [...columnLine(headLoft, 0, 0, headLoft.rows - 1, true), ...columnLine(headLoft, hHalf, 0, headLoft.rows - 1, true).reverse()],
+    ringLine(headLoft, hk[4]),
+    columnLine(headLoft, Math.round(hc / 4), hk[3], headLoft.rows - 1, true),
+    columnLine(headLoft, Math.round((3 * hc) / 4), hk[3], headLoft.rows - 1, true),
+  ]);
+  // 四肢：正面與外側的縱線，加上大腿中段、膝、小腿、手肘、手腕的橫線（欄位 cols/4 是外側）
+  const lk = legLoft.keyRows;
+  const legGuides = guideLines(legLoft, () => [
+    ...[lk[3], lk[5], lk[8]].map((r) => ringLine(legLoft, r)),
+    columnLine(legLoft, 0, lk[1], lk[10]),
+    columnLine(legLoft, Math.round(lc / 4), lk[1], lk[10]),
+  ]);
+  const ak = armLoft.keyRows;
+  const armGuides = guideLines(armLoft, () => [
+    ...[ak[5], ak[8]].map((r) => ringLine(armLoft, r)),
+    columnLine(armLoft, Math.round(lc / 4), ak[2], ak[8]),
+  ]);
+
   // ── 部位與體積 ───────────────────────────────────────────
   const parts: BodyPart[] = [
-    { name: 'torso', loft: torsoLoft },
-    { name: 'head', loft: headLoft },
-    { name: 'legL', loft: legLoft },
-    { name: 'legR', loft: mirrorLoft(legLoft) },
-    { name: 'footL', loft: footLoft },
-    { name: 'footR', loft: mirrorLoft(footLoft) },
-    { name: 'armL', loft: armLoft },
-    { name: 'armR', loft: mirrorLoft(armLoft) },
-    { name: 'handL', loft: handLoft },
-    { name: 'handR', loft: mirrorLoft(handLoft) },
+    { name: 'torso', loft: torsoLoft, guides: torsoGuides },
+    { name: 'head', loft: headLoft, guides: headGuides },
+    { name: 'legL', loft: legLoft, guides: legGuides },
+    { name: 'legR', loft: mirrorLoft(legLoft), guides: mirrorLines(legGuides) },
+    { name: 'footL', loft: footLoft, guides: [] },
+    { name: 'footR', loft: mirrorLoft(footLoft), guides: [] },
+    { name: 'armL', loft: armLoft, guides: armGuides },
+    { name: 'armR', loft: mirrorLoft(armLoft), guides: mirrorLines(armGuides) },
+    { name: 'handL', loft: handLoft, guides: [] },
+    { name: 'handR', loft: mirrorLoft(handLoft), guides: [] },
   ];
   const volume =
     sliceVolume(torsoLoft, torsoLoft.keyRows[1], torsoLoft.keyRows[neckChinKey]) +

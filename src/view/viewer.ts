@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { BodyShape } from '../body/generate';
 import type { MeasureValues } from '../core/measurements';
+import type { LineStyle } from '../core/state';
 import { BodyView } from './bodyView';
 import { MeasureOverlay } from './measureOverlay';
 import { type SceneColors, readSceneColors } from './theme';
@@ -35,7 +36,9 @@ export class Viewer {
   private readonly rulerMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.8 });
   private readonly floorGroup = new THREE.Group();
   private readonly shadowMat = new THREE.ShadowMaterial({ opacity: 0.16 });
-  private readonly keyLight = new THREE.DirectionalLight(0xffffff, 1.9);
+  /** 主光與輪廓光跟著鏡頭的水平角度轉，從任何角度看打光都一樣（像攝影棚） */
+  private readonly keyLight = new THREE.DirectionalLight(0xffffff, 1.45);
+  private readonly rimLight = new THREE.DirectionalLight(0xffffff, 0.45);
   private modelHeight = 0;
   /** 畫面左側被摘要卡蓋住的寬度（px），模型會置中在剩下的區域 */
   private leftInset = 0;
@@ -62,17 +65,13 @@ export class Viewer {
     this.controls.addEventListener('change', () => (this.dirty = true));
     this.controls.addEventListener('start', () => (this.tween = null));
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x7d8a99, 1.5));
-    this.keyLight.position.set(90, 380, 170);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x6f7883, 1.35));
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(2048, 2048);
     const sc = this.keyLight.shadow.camera;
     sc.left = -70; sc.right = 70; sc.top = 70; sc.bottom = -70; sc.near = 50; sc.far = 700;
     this.keyLight.shadow.bias = -0.0005;
-    this.scene.add(this.keyLight);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.55);
-    fill.position.set(-180, 120, -140);
-    this.scene.add(fill);
+    this.scene.add(this.keyLight, this.rimLight);
 
     const shadowPlane = new THREE.Mesh(new THREE.CircleGeometry(160, 48), this.shadowMat);
     shadowPlane.rotation.x = -Math.PI / 2;
@@ -116,10 +115,16 @@ export class Viewer {
     this.dirty = true;
   }
 
-  setDisplay(opts: { grid: boolean; outline: boolean; measures: boolean }): void {
+  setDisplay(opts: { lineStyle: LineStyle; outline: boolean; measures: boolean }): void {
     this.body.setVisibility(opts);
     this.measures.setShowAll(opts.measures);
     this.dirty = true;
+  }
+
+  /** 粗線材質（量測線、結構線）需要知道畫布的實際像素大小 */
+  private setLineResolution(w: number, h: number): void {
+    this.measures.setResolution(w, h);
+    this.body.setResolution(w, h);
   }
 
   refreshColors(): void {
@@ -177,11 +182,11 @@ export class Viewer {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     this.renderer.setPixelRatio(scale);
-    this.measures.setResolution(size.x * scale, size.y * scale);
+    this.setLineResolution(size.x * scale, size.y * scale);
     this.renderer.render(this.scene, this.camera);
     const url = this.renderer.domElement.toDataURL('image/png');
     this.renderer.setPixelRatio(ratio);
-    this.measures.setResolution(size.x * ratio, size.y * ratio);
+    this.setLineResolution(size.x * ratio, size.y * ratio);
     this.dirty = true;
     return url;
   }
@@ -198,17 +203,29 @@ export class Viewer {
     cam.position.set(Math.sin(azimuth) * 800, cy, Math.cos(azimuth) * 800);
     cam.lookAt(0, cy, 0);
     this.placeRuler(azimuth);
+    this.placeLights(azimuth);
     this.body.setOutlineWidth(((halfH * 2) / height) * 1.4);
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(width, height, false);
-    this.measures.setResolution(width, height);
+    this.setLineResolution(width, height);
     this.renderer.render(this.scene, cam);
     target.drawImage(this.renderer.domElement, dx, dy, width, height);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(size.x, size.y, false);
-    this.measures.setResolution(size.x * ratio, size.y * ratio);
+    this.setLineResolution(size.x * ratio, size.y * ratio);
     this.dirty = true;
     return { pxPerCm: height / (halfH * 2) };
+  }
+
+  /** 主光在鏡頭右上前方，輪廓光在左後方 */
+  private placeLights(azimuth: number): void {
+    const h = this.modelHeight || 160;
+    const key = azimuth + 0.6;
+    this.keyLight.position.set(Math.sin(key) * 200, h * 2.3, Math.cos(key) * 200);
+    const rim = azimuth + Math.PI + 0.9;
+    this.rimLight.position.set(Math.sin(rim) * 200, h * 0.9, Math.cos(rim) * 200);
+    this.rimLight.target.position.set(0, h * 0.5, 0);
+    this.rimLight.target.updateMatrixWorld();
   }
 
   /** 把身高尺放在指定水平視角的左側，刻度朝向模型 */
@@ -280,7 +297,7 @@ export class Viewer {
     else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     const ratio = this.renderer.getPixelRatio();
-    this.measures.setResolution(w * ratio, h * ratio);
+    this.setLineResolution(w * ratio, h * ratio);
     this.dirty = true;
   }
 
@@ -298,7 +315,9 @@ export class Viewer {
     if (!this.dirty) return;
     this.dirty = false;
     this.body.setOutlineWidth(Math.max(0.12, this.camera.position.distanceTo(this.controls.target) * 0.0011));
-    this.placeRuler(Math.atan2(this.camera.position.x, this.camera.position.z));
+    const azimuth = Math.atan2(this.camera.position.x - this.controls.target.x, this.camera.position.z - this.controls.target.z);
+    this.placeRuler(azimuth);
+    this.placeLights(azimuth);
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
   };
