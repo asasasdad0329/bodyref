@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>BodyRef 實尺人台</title>
+    <meta name="description" content="輸入身高、體重、三圍與各部位量測，即時生成依真實尺寸換算的 3D 人台。" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23E5A912'/%3E%3Cpath d='M6 8h2v8H6zm5 0h1.5v5H11zm4 0h2v8h-2zm5 0h1.5v5H20zm4 0h2v8h-2z' fill='%23231a00'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <div class="brand">
+            <span class="brand-mark">BodyRef</span>
+            <span class="brand-name">實尺人台</span>
+          </div>
+          <div class="topbar-actions">
+            <label class="visually-hidden" for="preset">範例體型</label>
+            <select id="preset" class="select select-preset" title="範例體型"></select>
+            <button id="share" class="btn" type="button">分享</button>
+            <button id="reset" class="btn btn-quiet" type="button">重設</button>
+          </div>
+        </div>
+        <div class="tape-strip" aria-hidden="true"></div>
+      </header>
+
+      <main class="layout">
+        <div class="stage-wrap">
+          <section id="stage" class="stage" aria-label="3D 人台預覽，可拖曳旋轉"></section>
+          <div class="hud hud-views" role="group" aria-label="視角">
+            <button type="button" class="hud-btn" data-view="front">正面</button>
+            <button type="button" class="hud-btn" data-view="quarter">斜側</button>
+            <button type="button" class="hud-btn" data-view="side">側面</button>
+            <button type="button" class="hud-btn" data-view="back">背面</button>
+          </div>
+          <div class="hud hud-export" role="group" aria-label="輸出圖片">
+            <button type="button" class="hud-btn" id="shot">截圖</button>
+            <button type="button" class="hud-btn" id="three-view">三視圖</button>
+          </div>
+          <p class="hud hud-hint">拖曳旋轉・右鍵平移・滾輪縮放</p>
+          <aside id="summary" class="summary" aria-live="polite"></aside>
+        </div>
+        <aside id="panel" class="panel" aria-label="量測數據"></aside>
+      </main>
+    </div>
+
+    <dialog id="export-dialog" class="dialog dialog-wide" aria-labelledby="export-title">
+      <header class="dialog-head">
+        <h2 id="export-title" class="dialog-title">匯出</h2>
+        <button id="export-close" class="btn btn-quiet" type="button">關閉</button>
+      </header>
+      <div class="export-preview"><img id="export-image" alt="" /></div>
+      <footer class="dialog-foot">
+        <a id="export-download" class="btn btn-primary" href="#">下載 PNG</a>
+        <p class="hint">若下載沒有反應，可在圖片上按右鍵（手機長按）另存。</p>
+      </footer>
+    </dialog>
+
+    <dialog id="share-dialog" class="dialog" aria-labelledby="share-title">
+      <header class="dialog-head">
+        <h2 id="share-title" class="dialog-title">分享這組數據</h2>
+        <button id="share-close" class="btn btn-quiet" type="button">關閉</button>
+      </header>
+      <div class="dialog-body">
+        <label class="field-label" for="share-link" data-share-link>連結</label>
+        <div class="copy-row" data-share-link>
+          <input id="share-link" class="text-input" type="text" readonly />
+          <button id="share-copy-link" class="btn" type="button">複製連結</button>
+        </div>
+        <label class="field-label" for="share-code">代碼（連結打不開時，對方可以貼上代碼載入）</label>
+        <div class="copy-row">
+          <textarea id="share-code" class="text-input code" rows="3" readonly></textarea>
+          <button id="share-copy-code" class="btn" type="button">複製代碼</button>
+        </div>
+        <p id="share-status" class="status" role="status"></p>
+        <hr class="rule" />
+        <label class="field-label" for="share-import">載入別人分享的代碼或連結</label>
+        <textarea id="share-import" class="text-input code" rows="3" placeholder="貼上代碼或連結"></textarea>
+        <div class="copy-row">
+          <button id="share-load" class="btn btn-primary" type="button">載入</button>
+          <p id="share-import-status" class="status" role="status"></p>
+        </div>
+      </div>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
