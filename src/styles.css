@@ -409,6 +409,11 @@ textarea {
   color: var(--danger);
 }
 
+.check[data-level='info'] .check-tag {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
 .checks-ok {
   margin: 0;
   font-size: 12.5px;

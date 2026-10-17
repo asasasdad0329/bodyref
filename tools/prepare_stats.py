@@ -79,7 +79,7 @@ def build(d, male, rng):
         if male:
             mean_diff, noise = 6 + 0.15 * (bf - 20), rng.normal(0, 1.8, n)
         else:
-            mean_diff, noise = 13 + 0.25 * (bf - 30), rng.normal(0, 3.2, n)
+            mean_diff, noise = 13 + 0.08 * (bf - 30), rng.normal(0, 3.4, n)
         ub = d['bust'] - mean_diff - 0.3 * noise
         bust = d['bust'] + 0.7 * noise
         cols = []

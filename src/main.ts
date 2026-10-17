@@ -1,7 +1,7 @@
 import './styles.css';
 import { BodyClient } from './body/client';
+import { goalsFor } from './body/goals';
 import type { EngineOutput } from './body/mh/engine';
-import { targetsFrom } from './body/mh/engine';
 import { type Summary, braSize, summarize } from './core/analysis';
 import { type Suggestion, type VarId, rarity, suggest } from './core/linkage';
 import type { MeasureId } from './core/measurements';
@@ -13,8 +13,9 @@ import { renderSummary, renderSummaryLoading } from './ui/summary';
 import { onThemeChange } from './view/theme';
 import { type ViewName, Viewer } from './view/viewer';
 
-// 資料流：狀態（你鎖定的數值）→ 連動模型給其他項目建議值 → 背景執行緒把人體網格變形成這組數值 → 顯示。
-// 面板上的數字立刻更新；網格算好後才換上去，拖動滑桿時畫面不會卡住。
+// 資料流：狀態（你鎖定的數值）→ 連動模型給其他項目建議值 → 背景執行緒依身體組成把人體網格變形 → 顯示。
+// 沒鎖定的圍度、體重、體脂率，面板上顯示的是網格上實際量到（模型算出）的數值。
+// 網格算好後才換上去，拖動滑桿時畫面不會卡住。
 
 const viewer = new Viewer(document.getElementById('stage')!);
 const summaryEl = document.getElementById('summary')!;
@@ -25,6 +26,8 @@ let state: AppState = stateFromUrl() ?? loadSaved() ?? structuredClone(DEFAULT_S
 let sug: Suggestion | null = null;
 let summary: Summary | null = null;
 let shown: { state: AppState; sug: Suggestion } | null = null;
+/** 上一次網格算出的數值：新的結果算好前，沒鎖定的欄位先顯示這些 */
+let meshValues: Suggestion['values'] | null = null;
 let requestedKey = '';
 let topologySet = false;
 let scheduled = false;
@@ -41,10 +44,13 @@ const client = new BodyClient<Tag>(
       viewer.setTopology(client.asset);
       topologySet = true;
     }
-    shown = { state: tag.state, sug: tag.sug };
     summary = summarize(tag.state, tag.sug, out, tag.bustDiff);
-    viewer.setShape(out, tag.sug.values);
+    meshValues = summary.values;
+    const sugShown = { ...tag.sug, values: summary.values };
+    shown = { state: tag.state, sug: sugShown };
+    viewer.setShape(out, summary.values);
     renderSummary(summaryEl, tag.state, summary);
+    if (tag.state === state) renderPanel(sugShown);
     statusEl.hidden = true;
   },
   (message) => {
@@ -96,22 +102,29 @@ function update(): void {
   requestAnimationFrame(apply);
 }
 
+/** 面板：鎖定的欄位顯示輸入值，其他欄位顯示網格量到的數值 */
+function renderPanel(s: Suggestion): void {
+  const diff = bustDiff(state);
+  const rare = Object.fromEntries(rarity({ sex: state.sex, locked: state.locked, bustDiff: diff }).map((r) => [r.id, r.percentile]));
+  panel.render(state, s, rare, state.sex === 'female' ? braSize(s.values.bust, s.values.underbust) : null);
+}
+
 function apply(): void {
   scheduled = false;
   const diff = bustDiff(state);
   sug = suggest({ sex: state.sex, locked: state.locked, bustDiff: diff });
-  const rare = Object.fromEntries(rarity({ sex: state.sex, locked: state.locked, bustDiff: diff }).map((r) => [r.id, r.percentile]));
-  panel.render(state, sug, rare, state.sex === 'female' ? braSize(sug.values.bust, sug.values.underbust) : null);
+  const pending = sug;
+  const values = { ...pending.values };
+  if (meshValues && shown?.state.sex === state.sex) {
+    for (const id of Object.keys(values) as (keyof typeof values)[]) if (!pending.locked[id]) values[id] = meshValues[id];
+  }
+  renderPanel({ ...pending, values });
   viewer.setDisplay({ lineStyle: state.view.lineStyle, outline: state.view.showOutline, measures: state.view.showMeasures });
 
   const key = JSON.stringify([state.sex, state.locked, state.cup, state.view.armAngle]);
   if (key !== requestedKey) {
     requestedKey = key;
-    const v = sug.values;
-    client.request(
-      { sex: state.sex, targets: targetsFrom(v), bmi: v.weight / (v.height / 100) ** 2, bodyFat: v.bodyFat, armAngle: state.view.armAngle },
-      { state: structuredClone(state), sug, bustDiff: diff },
-    );
+    client.request({ ...goalsFor({ sex: state.sex, sug, bustDiff: diff }), armAngle: state.view.armAngle }, { state, sug, bustDiff: diff });
   }
   save(state);
 }

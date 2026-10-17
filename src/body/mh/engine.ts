@@ -1,22 +1,14 @@
-import type { Sex } from '../../core/measurements';
-import { bodyDensity } from '../../core/reference';
 import type { BodyAsset } from './asset';
 import { type HeadParts, cutNeck, eggHead, headParts } from './egghead';
 import { type V3, centroid, vert } from './geometry';
 import { GuideBuilder } from './guides';
 import { MEASURE_KEYS, type MeasureKey } from './measure';
-import { type ArmPose, BodyModel, type FitResult, type Macro, type Targets, rotateArmPoint } from './model';
+import { type ArmPose, BodyModel, type FitInput, type FitResult, rotateArmPoint } from './model';
 
-// 把「一組完整數據」變成畫面需要的一切：顯示用網格、結構線、量測線、實際量到的數值與體積。
+// 把「一組求解目標」變成畫面需要的一切：顯示用網格、結構線、量測線、實際量到的數值、體重與身體組成。
 // 在 Web Worker 裡執行，避免拖動滑桿時卡住畫面。
 
-export interface EngineInput {
-  sex: Sex;
-  targets: Targets;
-  /** 由身高與（輸入或建議的）體重算出，決定整體胖瘦 */
-  bmi: number;
-  /** 體脂率（0–1），決定肌肉與脂肪的比例，也用來把體積換算成體重 */
-  bodyFat: number;
+export interface EngineInput extends FitInput {
   armAngle: number;
 }
 
@@ -35,44 +27,21 @@ export interface EngineOutput {
   head: { positions: Float32Array; index: Uint32Array };
   guides: Float32Array<ArrayBufferLike>[];
   tapes: Partial<Record<MeasureKey, TapePath>>;
-  values: Targets;
-  residual: Targets;
+  /** 網格上實際量到的數值（cm） */
+  values: Record<MeasureKey, number>;
+  /** 模型的體重（瘦體重 + 脂肪）與體脂率 */
+  weight: number;
+  bodyFat: number;
+  residual: FitResult['residual'];
+  composition: FitResult['composition'];
   /** 體積（cm³） */
   volume: number;
-  /** 依體積與體脂率換算的體重（kg） */
-  modelWeight: number;
   marks: { topY: number; crotchY: number; kneeY: number; ankleY: number };
-  macro: Macro;
-}
-
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-
-/** 從完整數據取出網格要符合的量測項目 */
-export function targetsFrom(values: Record<string, number>): Targets {
-  return Object.fromEntries(MEASURE_KEYS.map((k) => [k, values[k]])) as Targets;
-}
-
-/** Deurenberg 公式（25 歲）估算的體脂率，用來判斷肌肉量相對於 BMI 是多是少 */
-function expectedBodyFat(bmi: number, sex: Sex): number {
-  return (1.2 * bmi + 0.23 * 25 - 10.8 * (sex === 'male' ? 1 : 0) - 5.4) / 100;
-}
-
-/** 依數據選擇 MakeHuman 的整體體型滑桿（胖瘦、肌肉量）與罩杯的起始值 */
-export function macroFor(sex: Sex, t: Targets, bmi: number, bodyFat: number): { macro: Macro; cupPrior: number } {
-  const weight = bmi < 21.5 ? 0.5 - (21.5 - bmi) / 10 : 0.5 + (bmi - 21.5) / 21;
-  const muscle = 0.5 + (expectedBodyFat(bmi, sex) - bodyFat) / 0.16;
-  const diff = t.bust - t.underbust;
-  const cupPrior = diff < 12.5 ? 0.5 - (12.5 - diff) / 13 : 0.5 + (diff - 12.5) / 29;
-  return {
-    macro: { sex, muscle: clamp(muscle, 0, 1), weight: clamp(weight, 0, 1), firmness: 0.5 },
-    cupPrior: clamp(cupPrior, 0, 2),
-  };
 }
 
 export class BodyEngine {
   readonly model: BodyModel;
   private readonly guides: GuideBuilder;
-  private readonly calibration = new Map<Sex, number>();
   readonly head: HeadParts;
 
   constructor(readonly asset: BodyAsset) {
@@ -81,19 +50,8 @@ export class BodyEngine {
     this.head = headParts(asset);
   }
 
-  /** 讓參考體型的「體積 × 密度」等於參考體重的換算係數 */
-  setCalibration(sex: Sex, factor: number): void {
-    this.calibration.set(sex, factor);
-  }
-
-  fitOnly(input: Omit<EngineInput, 'armAngle'>): FitResult {
-    const { macro, cupPrior } = macroFor(input.sex, input.targets, input.bmi, input.bodyFat);
-    return this.model.fit(input.targets, macro, cupPrior);
-  }
-
   run(input: EngineInput): EngineOutput {
-    const { macro, cupPrior } = macroFor(input.sex, input.targets, input.bmi, input.bodyFat);
-    const fit = this.model.fit(input.targets, macro, cupPrior);
+    const fit = this.model.fit(input);
     const { P, armRotation } = this.model.display(fit, input.armAngle);
     const a = this.asset;
     const s = fit.scale;
@@ -151,8 +109,6 @@ export class BodyEngine {
     tapes.thighLen = seg([x, crotchY, knee[2]], [x, knee[1], knee[2]]);
     tapes.calfLen = seg([x, knee[1], knee[2]], [x, ankle[1], ankle[2]]);
 
-    const calib = this.calibration.get(input.sex) ?? 1;
-    const modelWeight = (fit.volume * calib * bodyDensity(input.bodyFat)) / 1000;
     return {
       positions: P.slice(0, a.nBody * 3),
       bodyIndex: neckCut.bodyIndex,
@@ -160,11 +116,12 @@ export class BodyEngine {
       guides,
       tapes,
       values: fit.values,
+      weight: fit.weight,
+      bodyFat: fit.bodyFat,
       residual: fit.residual,
+      composition: fit.composition,
       volume: fit.volume,
-      modelWeight,
       marks: { topY, crotchY, kneeY: knee[1], ankleY: ankle[1] },
-      macro,
     };
   }
 }

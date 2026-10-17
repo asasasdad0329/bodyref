@@ -246,3 +246,62 @@ export function smooth(P: Float32Array, adj: number[][], verts: Uint32Array, ite
     }
   }
 }
+
+/** 頂點法向量（四邊形拆成兩個三角形，面積加權） */
+export function vertexNormals(P: Float32Array, quads: Uint16Array, nVerts: number): Float32Array {
+  const N = new Float32Array(nVerts * 3);
+  const tri = (a: number, b: number, c: number) => {
+    const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+    const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    for (const i of [a, b, c]) {
+      N[i * 3] += nx;
+      N[i * 3 + 1] += ny;
+      N[i * 3 + 2] += nz;
+    }
+  };
+  for (let q = 0; q < quads.length; q += 4) {
+    tri(quads[q], quads[q + 1], quads[q + 2]);
+    tri(quads[q], quads[q + 2], quads[q + 3]);
+  }
+  // 讓法向量朝外：整體體積為負時翻轉
+  let sign = 0;
+  for (let i = 0; i < nVerts; i++) sign += N[i * 3] * P[i * 3] + N[i * 3 + 2] * P[i * 3 + 2];
+  const flip = sign < 0 ? -1 : 1;
+  for (let i = 0; i < nVerts; i++) {
+    const l = Math.hypot(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]) || 1;
+    N[i * 3] *= flip / l;
+    N[i * 3 + 1] *= flip / l;
+    N[i * 3 + 2] *= flip / l;
+  }
+  return N;
+}
+
+/** 每個頂點分到的表面積（四邊形面積平均分給四個角） */
+export function vertexAreas(P: Float32Array, quads: Uint16Array, nVerts: number): Float32Array {
+  const A = new Float32Array(nVerts);
+  const area = (a: number, b: number, c: number) => {
+    const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+    const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+    return Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+  };
+  for (let q = 0; q < quads.length; q += 4) {
+    const s = area(quads[q], quads[q + 1], quads[q + 2]) + area(quads[q], quads[q + 2], quads[q + 3]);
+    for (let k = 0; k < 4; k++) A[quads[q + k]] += s / 4;
+  }
+  return A;
+}
+
+/** 純量場的拉普拉斯平滑（讓分區權重的邊界變柔和） */
+export function smoothField(F: Float32Array, adj: number[][], iterations: number): void {
+  const tmp = new Float32Array(F.length);
+  for (let it = 0; it < iterations; it++) {
+    for (let i = 0; i < F.length; i++) {
+      const nb = adj[i];
+      let s = F[i];
+      for (const j of nb) s += F[j];
+      tmp[i] = s / (nb.length + 1);
+    }
+    F.set(tmp);
+  }
+}

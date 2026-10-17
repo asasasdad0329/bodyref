@@ -120,16 +120,16 @@ export function suggest(inp: LinkageInput): Suggestion {
   const useDiff = inp.bustDiff != null && !(inp.locked.bust !== undefined && inp.locked.underbust !== undefined);
   let post = condition(mu, S, base);
   if (useDiff) {
-    // 上胸圍 − 下胸圍 = d：以 exp(zb) − exp(zu) 在目前估計值附近線性化
+    // 上胸圍 − 下胸圍 = d：以 exp(zb) − exp(zu) 在「只考慮其他鎖定值」的估計附近線性化，只更新一次。
+    // 不反覆迭代：在對數空間裡罩杯是比例，迭代到底會變成「大罩杯 = 整個胸廓變大、體重變重」，
+    // 但罩杯應該主要是胸部本身的事。最後再把上胸圍對齊到下胸圍 + d。
     const ib = IDX.bust, iu = IDX.underbust;
-    for (let it = 0; it < 6; it++) {
-      const eb = Math.exp(post.mean[ib]), eu = Math.exp(post.mean[iu]);
-      const h = new Array(VARS.length).fill(0);
-      h[ib] = eb;
-      h[iu] = -eu;
-      const y = inp.bustDiff! - (eb - eu) + eb * post.mean[ib] - eu * post.mean[iu];
-      post = condition(mu, S, [...base, { h, y }]);
-    }
+    const eb = Math.exp(post.mean[ib]), eu = Math.exp(post.mean[iu]);
+    const h = new Array(VARS.length).fill(0);
+    h[ib] = eb;
+    h[iu] = -eu;
+    const y = inp.bustDiff! - (eb - eu) + eb * post.mean[ib] - eu * post.mean[iu];
+    post = condition(mu, S, [...base, { h, y }]);
   }
   const values = {} as Record<VarId, number>;
   const range = {} as Record<VarId, [number, number]>;
@@ -141,6 +141,10 @@ export function suggest(inp: LinkageInput): Suggestion {
     const sd = Math.sqrt(post.variance[i]);
     range[id] = [fromZ(i, post.mean[i] - Z90 * sd), fromZ(i, post.mean[i] + Z90 * sd)];
   });
+  if (useDiff) {
+    if (locked.bust) values.underbust = values.bust - inp.bustDiff!;
+    else values.bust = values.underbust + inp.bustDiff!;
+  }
   return { values, range, locked };
 }
 

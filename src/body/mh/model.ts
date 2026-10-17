@@ -1,265 +1,417 @@
 import type { Sex } from '../../core/measurements';
 import { type BodyAsset, addTarget } from './asset';
-import { adjacency, centroid, meshVolume, smooth, type V3 } from './geometry';
+import { DEFAULT_SHARE, DEPOTS, type CompositionMaps, type Depot, SEGMENTS, type Segment, VISCERAL_SHARE, buildMaps } from './composition';
+import { type V3, adjacency, centroid, meshVolume, smooth, vertexAreas, vertexNormals } from './geometry';
 import { MEASURE_KEYS, type Levels, type MeasureContext, type MeasureKey, type Measured, measure, measureContext } from './measure';
 
-// 把 MakeHuman 網格變形成指定的量測數據。
+// 把 MakeHuman 網格依「身體組成」變形成指定的數據。分層順序：
 //
-// 1. 整體體型：依性別、胖瘦、肌肉量、罩杯混合 MakeHuman 的整體形變目標（由藝術家製作，決定脂肪與肌肉的分佈）。
-// 2. 精確尺寸：用 MakeHuman 的量測形變目標（胸圍、腰圍、臂長……）微調，
-//    以高斯-牛頓法求出每個目標的權重與整體縮放，讓網格上量到的數值等於輸入值。
+// 1. 骨架：身高（整體縮放）、四肢長度、肩寬，以及頸、手腕、腳踝、下胸圍這些以骨架為主的圍度。
+// 2. 組成：手臂／軀幹／腿三段的肌肉量，加上各堆積區的脂肪量（kg）。脂肪沿皮膚往外長一層，
+//    體重 = 瘦體重 + 增加的脂肪，體脂率由此算出。
+// 3. 局部：罩杯（MakeHuman 的胸部形變，挺度隨大小自然變化）。
+// 4. 微調：胸、腰、臀、臂、大腿、小腿的量測形變，代價很高，只補組成解釋不了的部分。
+//
+// 求解時每個參數只能影響自己負責的量測（例如罩杯只管上下胸圍差），避免用胸部去湊腰圍。
 
-export interface Macro {
-  sex: Sex;
-  /** 0–1，0.5 為平均 */
-  muscle: number;
-  /** 0–1，0.5 為平均 */
-  weight: number;
-  /** 胸部挺度 0–1 */
-  firmness: number;
-}
-
-/** 求解的參數：量測目標（正值用 incr、負值用 decr），以及控制胸圍差的參數 */
-const PARAMS: { key: string; target: string; prior?: number }[] = [
-  { key: 'bust', target: 'measure-bust-circ' },
-  { key: 'underbust', target: 'measure-underbust-circ' },
-  { key: 'waist', target: 'measure-waist-circ' },
-  { key: 'hip', target: 'measure-hips-circ' },
-  { key: 'neck', target: 'measure-neck-circ' },
-  { key: 'upperArm', target: 'measure-upperarm-circ' },
-  { key: 'wrist', target: 'measure-wrist-circ' },
-  { key: 'thigh', target: 'measure-thigh-circ' },
-  { key: 'calf', target: 'measure-calf-circ' },
-  { key: 'ankle', target: 'measure-ankle-circ' },
-  { key: 'shoulder', target: 'measure-shoulder-dist' },
-  { key: 'upperArmLen', target: 'measure-upperarm-length' },
-  { key: 'forearmLen', target: 'measure-lowerarm-length' },
-  { key: 'thighLen', target: 'measure-upperleg-height' },
-  { key: 'calfLen', target: 'measure-lowerleg-height' },
+/** 量測修正：正值用 incr、負值用 decr。frame 為骨架型（便宜），否則為軟組織（昂貴） */
+const CORRECTIONS: { key: MeasureKey; target: string; frame: boolean }[] = [
+  { key: 'neck', target: 'measure-neck-circ', frame: true },
+  { key: 'wrist', target: 'measure-wrist-circ', frame: true },
+  { key: 'ankle', target: 'measure-ankle-circ', frame: true },
+  { key: 'underbust', target: 'measure-underbust-circ', frame: true },
+  { key: 'shoulder', target: 'measure-shoulder-dist', frame: true },
+  { key: 'upperArmLen', target: 'measure-upperarm-length', frame: true },
+  { key: 'forearmLen', target: 'measure-lowerarm-length', frame: true },
+  { key: 'thighLen', target: 'measure-upperleg-height', frame: true },
+  { key: 'calfLen', target: 'measure-lowerleg-height', frame: true },
+  { key: 'bust', target: 'measure-bust-circ', frame: false },
+  { key: 'waist', target: 'measure-waist-circ', frame: false },
+  { key: 'hip', target: 'measure-hips-circ', frame: false },
+  { key: 'upperArm', target: 'measure-upperarm-circ', frame: false },
+  { key: 'thigh', target: 'measure-thigh-circ', frame: false },
+  { key: 'calf', target: 'measure-calf-circ', frame: false },
 ];
-const NP = PARAMS.length;
-/** 第 NP 個參數：女性為罩杯（0–1.6，0.5 為平均），男性為胸廓前後厚度 */
-const DIFF = NP;
-const NQ = NP + 1;
-const MAX_P = 4;
-const MAX_CUP = 2;
-const LAMBDA = 2e-5;
 
-function macroClose(a: Macro, b: Macro): boolean {
-  return Math.abs(a.muscle - b.muscle) < 0.15 && Math.abs(a.weight - b.weight) < 0.15 && Math.abs(a.firmness - b.firmness) < 0.2;
+/** 參數向量的排列：修正、肌肉三段、罩杯、脂肪各區、額外瘦體重、縮放 */
+const NC = CORRECTIONS.length;
+const I_MUSCLE = NC;
+const I_CUP = NC + SEGMENTS.length;
+const I_FAT = I_CUP + 1;
+const I_LEAN = I_FAT + DEPOTS.length;
+const I_SCALE = I_LEAN + 1;
+const NQ = I_SCALE + 1;
+
+/** 瘦的基礎身體本身的體脂率 */
+const BASE_FAT: Record<Sex, number> = { female: 0.15, male: 0.08 };
+/** 脂肪與去脂組織的密度（g/cm³） */
+const FAT_DENSITY = 0.9;
+const LEAN_DENSITY = 1.1;
+/** 每區最多能比基礎身體再薄多少（cm） */
+const MIN_THICKNESS = -0.5;
+
+/** 求解的目標：量測值、體重、體脂率、上下胸圍差；sd 越小越要精確符合 */
+export type Goal =
+  | { kind: 'measure'; key: MeasureKey; value: number; sd: number }
+  | { kind: 'weight'; value: number; sd: number }
+  | { kind: 'bodyFat'; value: number; sd: number }
+  | { kind: 'diff'; value: number; sd: number };
+
+export interface FitInput {
+  sex: Sex;
+  goals: Goal[];
+  /** 先驗：體重與體脂率的預期值（決定脂肪總量的起點），以及上下胸圍差 */
+  prior: { weight: number; bodyFat: number; diff: number };
 }
-
-export type Targets = Record<MeasureKey, number>;
 
 export interface FitResult {
   /** 靜止姿勢（A 字站姿）的網格，已縮放並放在地面上（公分） */
   rest: Float32Array;
   measured: Measured;
-  /** 量測值（已縮放） */
-  values: Targets;
-  /** 和目標的差（cm） */
-  residual: Targets;
+  values: Record<MeasureKey, number>;
+  weight: number;
+  bodyFat: number;
+  /** 每個目標的誤差（模型值 − 目標值） */
+  residual: { goal: Goal; error: number }[];
   /** 身體體積（cm³） */
   volume: number;
   scale: number;
   offsetY: number;
-  q: Float64Array;
+  composition: {
+    muscle: Record<Segment, number>;
+    /** 各區脂肪比瘦的基礎身體多出的量（kg） */
+    fat: Record<Depot, number>;
+    /** 比基礎身體多出的去脂體重（kg）：體重大的人骨架、肌肉、內臟也比較重 */
+    lean: number;
+    cup: number;
+  };
 }
 
 /** 三段（min / average / max）滑桿在 v 時各段的權重 */
 function tri(v: number): [number, number, number] {
-  if (v <= 0.5) return [(0.5 - v) * 2, v * 2, 0];
-  return [0, (1 - v) * 2, (v - 0.5) * 2];
+  const c = Math.min(1, Math.max(0, v));
+  if (c <= 0.5) return [(0.5 - c) * 2, c * 2, 0];
+  return [0, (1 - c) * 2, (c - 0.5) * 2];
 }
 const LEVEL = ['min', 'average', 'max'] as const;
+
+/** 自然胸型：小罩杯偏挺，越大越往下垂一點（最大罩杯時為 MakeHuman 的中等挺度，避免過度下垂） */
+export function naturalFirmness(cup: number): number {
+  return Math.min(0.72, Math.max(0.5, 0.72 - 0.22 * cup));
+}
+
+/** Siri 公式：體脂率 → 人體平均密度 */
+const density = (bf: number) => 495 / (bf * 100 + 450);
+
+interface SexData {
+  asian: Float32Array;
+  maps: CompositionMaps;
+}
+
+interface Evaluation {
+  P: Float32Array;
+  meas: Measured;
+  weight: number;
+  bodyFat: number;
+  leanVolume: number;
+}
 
 export class BodyModel {
   readonly ctx: MeasureContext;
   readonly adj: number[][];
   readonly nippleVerts: Uint32Array;
-  private macroKey = '';
-  private macroBase: Float32Array | null = null;
-  private jac: { cols: number[][]; sex: Sex; macro: Macro } | null = null;
-  private lastQ: Float64Array | null = null;
-  private lastSex: Sex | null = null;
+  private readonly sexData = new Map<Sex, SexData>();
+  private jac: { key: string; cols: number[][] } | null = null;
+  private last: { sex: Sex; q: Float64Array } | null = null;
 
   constructor(readonly asset: BodyAsset) {
     this.ctx = measureContext(asset);
     this.adj = adjacency(asset.quads, asset.nBody);
     const B = asset.base;
-    // 乳頭附近：人台的胸部是平滑的
     const near: number[] = [];
     for (const name of ['bustApexL', 'bustApexR']) {
       const c = [B[asset.landmarks[name] * 3], B[asset.landmarks[name] * 3 + 1], B[asset.landmarks[name] * 3 + 2]];
       for (let i = 0; i < asset.nBody; i++) {
-        if (Math.hypot(B[i * 3] - c[0], B[i * 3 + 1] - c[1], B[i * 3 + 2] - c[2]) < 2) near.push(i);
+        if (Math.hypot(B[i * 3] - c[0], B[i * 3 + 1] - c[1], B[i * 3 + 2] - c[2]) < 2.2) near.push(i);
       }
     }
     this.nippleVerts = Uint32Array.from(near);
   }
 
-  /** 整體體型（不含罩杯與量測目標） */
-  private macroShape(m: Macro): Float32Array {
-    const key = `${m.sex}|${m.muscle.toFixed(3)}|${m.weight.toFixed(3)}|${m.firmness.toFixed(3)}`;
-    if (key === this.macroKey && this.macroBase) return this.macroBase;
+  /** 每個性別：族群基礎形狀與脂肪分區圖（第一次用到時建立） */
+  private data(sex: Sex): SexData {
+    let d = this.sexData.get(sex);
+    if (d) return d;
     const a = this.asset;
-    const P = new Float32Array(a.base);
-    addTarget(a, `asian-${m.sex}-young`, 1, P);
-    const mu = tri(m.muscle), wt = tri(m.weight);
-    for (let i = 0; i < 3; i++) {
-      for (let j = 0; j < 3; j++) {
-        if (i === 1 && j === 1) continue;
-        addTarget(a, `universal-${m.sex}-young-${LEVEL[i]}muscle-${LEVEL[j]}weight`, mu[i] * wt[j], P);
-      }
-    }
-    // 人台不需要乳頭細節
-    addTarget(a, 'nipple-point-decr', 1, P);
-    addTarget(a, 'nipple-size-decr', 1, P);
-    this.macroKey = key;
-    this.macroBase = P;
-    return P;
+    const asian = new Float32Array(a.base);
+    addTarget(a, `asian-${sex}-young`, 1, asian);
+    addTarget(a, 'nipple-size-decr', 1, asian);
+    const lean = new Float32Array(asian);
+    addTarget(a, `universal-${sex}-young-averagemuscle-minweight`, 1, lean);
+    const n = a.nBody;
+    const maps = buildMaps(a, sex, lean, vertexNormals(lean, a.quads, n), vertexAreas(lean, a.quads, n), this.adj, measure(this.ctx, lean).marks);
+    d = { asian, maps };
+    this.sexData.set(sex, d);
+    return d;
   }
 
-  /** 罩杯形變：依胖瘦、罩杯、挺度三個滑桿混合 */
-  private addBreast(m: Macro, cup: number, P: Float32Array): void {
-    if (m.sex !== 'female') return;
-    const wt = tri(m.weight);
-    const c = cup <= 1 ? tri(cup) : ([0, 0, 2 * cup - 1] as [number, number, number]);
-    const f = tri(m.firmness);
-    for (let w = 0; w < 3; w++) {
+  /** 加上依權重遮罩縮放的形變目標（肌肉分段用） */
+  private addMasked(name: string, w: number, mask: Float32Array, P: Float32Array): void {
+    if (!w) return;
+    const t = this.asset.targets.get(name);
+    if (!t) return;
+    const k = w * this.asset.deltaStep;
+    for (let j = 0; j < t.indices.length; j++) {
+      const i = t.indices[j];
+      const m = mask[i] ?? 1;
+      if (!m) continue;
+      P[i * 3] += t.deltas[j * 3] * k * m;
+      P[i * 3 + 1] += t.deltas[j * 3 + 1] * k * m;
+      P[i * 3 + 2] += t.deltas[j * 3 + 2] * k * m;
+    }
+  }
+
+  /** 由參數組出未縮放的網格，並回傳加脂肪前（瘦體）的體積 */
+  private build(sex: Sex, q: Float64Array, P: Float32Array): number {
+    const a = this.asset;
+    const d = this.data(sex);
+    P.set(d.asian);
+    // 肌肉：三段各自混合 MakeHuman 的肌肉形變（以偏瘦的版本當基礎）
+    SEGMENTS.forEach((seg, s) => {
+      const w = tri(q[I_MUSCLE + s]);
+      for (let l = 0; l < 3; l++) this.addMasked(`universal-${sex}-young-${LEVEL[l]}muscle-minweight`, w[l], d.maps.segment[seg], P);
+    });
+    // 骨架與量測修正
+    for (let k = 0; k < NC; k++) {
+      const p = q[k];
+      if (p) addTarget(a, `${CORRECTIONS[k].target}-${p > 0 ? 'incr' : 'decr'}`, Math.abs(p), P);
+    }
+    // 罩杯：挺度隨大小自然變化
+    if (sex === 'female') {
+      const cup = q[I_CUP];
+      const c = tri(cup), f = tri(naturalFirmness(cup));
       for (let i = 0; i < 3; i++) {
         for (let j = 0; j < 3; j++) {
           if (i === 1 && j === 1) continue;
-          const k = wt[w] * c[i] * f[j];
-          if (k) addTarget(this.asset, `female-young-averagemuscle-${LEVEL[w]}weight-${LEVEL[i]}cup-${LEVEL[j]}firmness`, k, P);
+          const k = c[i] * f[j];
+          if (k) addTarget(a, `female-young-averagemuscle-minweight-${LEVEL[i]}cup-${LEVEL[j]}firmness`, k, P);
         }
       }
     }
-  }
-
-  /** 由參數組出未縮放的網格 */
-  shape(m: Macro, q: Float64Array, out?: Float32Array): Float32Array {
-    const base = this.macroShape(m);
-    const P = out ?? new Float32Array(base.length);
-    P.set(base);
-    for (let k = 0; k < NP; k++) {
-      const p = q[k];
-      if (p) addTarget(this.asset, `${PARAMS[k].target}-${p > 0 ? 'incr' : 'decr'}`, Math.abs(p), P);
+    const leanVolume = meshVolume(P.subarray(0, a.nBody * 3), a.quads);
+    // 脂肪：各區厚度 = 脂肪體積 ÷ 面積（換算到縮放後的實際尺寸）
+    const s3 = q[I_SCALE] ** 3;
+    // 額外的去脂體重：和全身均勻的脂肪層同樣分佈，但密度較高
+    const leanT = (q[I_LEAN] * 1000) / LEAN_DENSITY / (d.maps.area.general * s3);
+    if (leanT) {
+      const F = d.maps.field.general;
+      for (let i = 0; i < F.length; i++) P[i] += F[i] * leanT;
     }
-    if (m.sex === 'female') this.addBreast(m, q[DIFF], P);
-    else if (q[DIFF]) addTarget(this.asset, `measure-frontchest-dist-${q[DIFF] > 0 ? 'incr' : 'decr'}`, Math.abs(q[DIFF]), P);
-    return P;
+    DEPOTS.forEach((dp, k) => {
+      const kg = q[I_FAT + k];
+      if (!kg) return;
+      const t = Math.max(MIN_THICKNESS / q[I_SCALE], (kg * 1000) / FAT_DENSITY / (d.maps.area[dp] * s3));
+      const F = d.maps.field[dp];
+      for (let i = 0; i < F.length; i++) P[i] += F[i] * t;
+    });
+    return leanVolume;
   }
 
-  private vec(meas: Measured): number[] {
-    return MEASURE_KEYS.map((k) => meas.values[k]);
+  private evaluate(sex: Sex, q: Float64Array, P: Float32Array, levels?: Levels): Evaluation {
+    const leanVolume = this.build(sex, q, P);
+    const meas = measure(this.ctx, P, levels);
+    const s = q[I_SCALE];
+    const w0 = (leanVolume * s ** 3 * density(BASE_FAT[sex])) / 1000;
+    let fat = 0;
+    for (let k = 0; k < DEPOTS.length; k++) fat += q[I_FAT + k];
+    const weight = w0 + fat + q[I_LEAN];
+    return { P, meas, weight, bodyFat: (BASE_FAT[sex] * w0 + fat) / weight, leanVolume };
   }
 
-  /** 在目前參數 q 附近，用中央差分算每個參數對各量測值的影響 */
-  private jacobian(m: Macro, q0: Float64Array, levels: Levels): number[][] {
-    const h = 0.3;
-    const cols: number[][] = [];
-    const P = new Float32Array(this.asset.base.length);
-    for (let k = 0; k < NQ; k++) {
-      const qa = Float64Array.from(q0), qb = Float64Array.from(q0);
-      qa[k] += h;
-      qb[k] -= h;
-      if (k === DIFF && m.sex === 'female') qb[k] = Math.max(0, qb[k]);
-      const va = this.vec(measure(this.ctx, this.shape(m, qa, P), levels));
-      const vb = this.vec(measure(this.ctx, this.shape(m, qb, P), levels));
-      const dq = qa[k] - qb[k];
-      cols.push(va.map((x, i) => (x - vb[i]) / dq));
-    }
-    return cols;
+  private goalValue(g: Goal, e: Evaluation, s: number): number {
+    if (g.kind === 'measure') return e.meas.values[g.key] * s;
+    if (g.kind === 'weight') return e.weight;
+    if (g.kind === 'bodyFat') return e.bodyFat;
+    return (e.meas.values.bust - e.meas.values.underbust) * s;
   }
 
-  fit(targets: Targets, m: Macro, cupPrior: number): FitResult {
+  /**
+   * 參數 k 是否可以影響目標 g（局部性：罩杯只管胸圍差，修正只管自己那一項）。
+   * 體重與體脂率例外：任何形變都會改變體積，所以一定算進去。
+   */
+  private allowed(k: number, g: Goal): boolean {
+    if (g.kind === 'weight' || g.kind === 'bodyFat') return true;
+    if (k < NC) return g.kind === 'measure' && g.key === CORRECTIONS[k].key;
+    if (k === I_CUP) return g.kind === 'diff' || (g.kind === 'measure' && (g.key === 'bust' || g.key === 'underbust'));
+    return true;
+  }
+
+  fit(inp: FitInput): FitResult {
+    const { sex, goals } = inp;
+    const a = this.asset;
+    const P = new Float32Array(a.base.length);
+    const share = DEFAULT_SHARE[sex];
+
+    // 起點與先驗
     const prior = new Float64Array(NQ);
-    prior[DIFF] = m.sex === 'female' ? cupPrior : 0;
-    let q = this.lastQ && this.lastSex === m.sex ? Float64Array.from(this.lastQ) : Float64Array.from(prior);
-    const T = MEASURE_KEYS.map((k) => targets[k]);
-    const nE = T.length;
-    let P = this.shape(m, q);
-    let meas = measure(this.ctx, P);
-    let levels = meas.levels;
-    let s = targets.height / meas.values.height;
-    // 體型差不多時沿用上一次的偏導數，不必每次重算
-    let J = this.jac && this.jac.sex === m.sex && macroClose(this.jac.macro, m) ? this.jac.cols : null;
+    const sigma = new Float64Array(NQ);
+    CORRECTIONS.forEach((c, k) => (sigma[k] = c.frame ? 2 : 0.3));
+    const height = goals.find((g) => g.kind === 'measure' && g.key === 'height')!.value;
+    const bmi = inp.prior.weight / (height / 100) ** 2;
+    const expectedFat = (1.2 * bmi + 0.23 * 25 - 10.8 * (sex === 'male' ? 1 : 0) - 5.4) / 100;
+    const muscle = Math.min(1, Math.max(0, 0.5 + (expectedFat - inp.prior.bodyFat) / 0.16));
+    for (let s = 0; s < SEGMENTS.length; s++) {
+      prior[I_MUSCLE + s] = muscle;
+      sigma[I_MUSCLE + s] = 0.25;
+    }
+    const diff = inp.prior.diff;
+    prior[I_CUP] = sex === 'female' ? Math.min(1, Math.max(0, diff < 12.5 ? 0.5 - (12.5 - diff) / 13 : 0.5 + (diff - 12.5) / 25)) : 0;
+    sigma[I_CUP] = sex === 'female' ? 0.35 : 1e-6;
+
+    // 以先驗的組成算出瘦體重，推得要增加多少脂肪，再依預設比例分到各區
+    const probe = Float64Array.from(prior);
+    probe[I_SCALE] = 1;
+    const e0 = this.evaluate(sex, probe, P);
+    probe[I_SCALE] = height / e0.meas.values.height;
+    const lean = this.evaluate(sex, probe, P);
+    const w0 = lean.weight;
+    const extra = inp.prior.bodyFat * inp.prior.weight - BASE_FAT[sex] * w0;
+    const extraLean = (1 - inp.prior.bodyFat) * inp.prior.weight - (1 - BASE_FAT[sex]) * w0;
+    prior[I_LEAN] = extraLean;
+    sigma[I_LEAN] = Math.max(1.5, 0.4 * Math.abs(extraLean));
+    DEPOTS.forEach((d, k) => {
+      let kg = extra * (1 - VISCERAL_SHARE[sex]) * share[d];
+      if (d === 'abdomen') kg += extra * VISCERAL_SHARE[sex];
+      prior[I_FAT + k] = kg;
+      sigma[I_FAT + k] = Math.max(0.4, 0.6 * Math.abs(kg) + 0.08 * Math.abs(extra));
+    });
+    prior[I_SCALE] = probe[I_SCALE];
+    sigma[I_SCALE] = 1;
+
+    // 從上一次的解出發（拖動滑桿時只差一點點），但縮放先對準新的身高
+    let q = this.last?.sex === sex ? Float64Array.from(this.last.q) : Float64Array.from(prior);
+    let e = this.evaluate(sex, q, P);
+    q[I_SCALE] = height / e.meas.values.height;
+    e = this.evaluate(sex, q, P);
+    let levels = e.meas.levels;
+    // 目標的組成（哪些數值是手動的）改變時，影響矩陣要重算
+    const jacKey = `${sex}|${goals.map((g) => (g.kind === 'measure' ? g.key : g.kind)).join(',')}`;
+    let J = this.jac?.key === jacKey ? this.jac.cols : null;
     let recomputed = 0;
     let researched = 0;
+    let prevCost = Infinity;
 
-    for (let it = 0; it < 30; it++) {
-      const mv = this.vec(meas);
-      const r = mv.map((x, i) => (s * x - T[i]) / T[i]);
-      const maxErr = Math.max(...mv.map((x, i) => Math.abs(s * x - T[i])));
-      if (maxErr < 0.05) {
-        // 收斂後重新搜尋「最細／最粗」的位置；位置變了就再修正
+    const residuals = (ev: Evaluation, qq: Float64Array) => goals.map((g) => (this.goalValue(g, ev, qq[I_SCALE]) - g.value) / g.sd);
+
+    for (let it = 0; it < 40; it++) {
+      const r = residuals(e, q);
+      const cost = r.reduce((s, x) => s + x * x, 0);
+      const worst = Math.max(...r.map(Math.abs));
+      if (worst < 0.5 || Math.abs(prevCost - cost) < 2e-3 * (1 + cost)) {
         const full = measure(this.ctx, P);
         const moved = Object.keys(levels).some((k) => Math.abs(full.levels[k as keyof Levels] - levels[k as keyof Levels]) > 0.01);
-        meas = full;
-        if (!moved || researched >= 2) break;
+        if (!moved || researched >= 2) {
+          e = { ...e, meas: full };
+          break;
+        }
         levels = full.levels;
+        e = this.evaluate(sex, q, P, levels);
         researched++;
+        prevCost = Infinity;
         continue;
       }
-      if (!J || (it > 0 && it % 6 === 0 && maxErr > 0.3 && recomputed < 2)) {
-        J = this.jacobian(m, q, levels);
-        this.jac = { cols: J, sex: m.sex, macro: { ...m } };
+      if (!J || (it > 0 && it % 8 === 0 && worst > 2 && recomputed < 2)) {
+        J = this.jacobian(sex, q, levels, goals);
+        this.jac = { key: jacKey, cols: J };
         recomputed++;
       }
-      // 正規方程式：未知數為 q（NQ 個）與縮放 s
-      const n = NQ + 1;
-      const cols = Array.from({ length: n }, (_, k) => (k === NQ ? mv.map((x, i) => x / T[i]) : J![k].map((x, i) => (s * x) / T[i])));
-      const A = Array.from({ length: n }, () => new Array(n).fill(0));
-      const b = new Array(n).fill(0);
-      for (let a = 0; a < n; a++) {
-        for (let c = a; c < n; c++) {
+      prevCost = cost;
+      // 加權最小平方：(JᵀJ + Σ⁻²) δ = −(Jᵀr + Σ⁻²(q − q₀))
+      const A = Array.from({ length: NQ }, () => new Array(NQ).fill(0));
+      const b = new Array(NQ).fill(0);
+      const cols = J.map((col, k) => col.map((v, i) => (this.allowed(k, goals[i]) ? v / goals[i].sd : 0)));
+      for (let x = 0; x < NQ; x++) {
+        for (let y = x; y < NQ; y++) {
           let sum = 0;
-          for (let i = 0; i < nE; i++) sum += cols[a][i] * cols[c][i];
-          A[a][c] = A[c][a] = sum;
+          for (let i = 0; i < goals.length; i++) sum += cols[x][i] * cols[y][i];
+          A[x][y] = A[y][x] = sum;
         }
         let sum = 0;
-        for (let i = 0; i < nE; i++) sum += cols[a][i] * r[i];
-        b[a] = -sum;
-        if (a < NQ) {
-          A[a][a] += LAMBDA;
-          b[a] -= LAMBDA * (q[a] - prior[a]);
-        }
+        for (let i = 0; i < goals.length; i++) sum += cols[x][i] * r[i];
+        const reg = 1 / sigma[x] ** 2;
+        A[x][x] += reg + 1e-6;
+        b[x] = -sum - reg * (q[x] - prior[x]);
       }
       const d = solveSym(A, b);
-      const next = Float64Array.from(q, (v, k) => v + d[k]);
-      for (let k = 0; k < NQ; k++) next[k] = Math.max(-MAX_P, Math.min(MAX_P, next[k]));
-      if (m.sex === 'female') next[DIFF] = Math.max(0, Math.min(MAX_CUP, next[DIFF]));
-      q = next;
-      s += d[NQ];
-      P = this.shape(m, q, P);
-      meas = measure(this.ctx, P, levels);
+      q = Float64Array.from(q, (v, k) => v + d[k]);
+      this.clampParams(sex, q);
+      e = this.evaluate(sex, q, P, levels);
     }
-    this.lastQ = q;
-    this.lastSex = m.sex;
+    this.last = { sex, q };
 
-    // 縮放並放到地面
-    const offsetY = -meas.marks.soleY * s;
+    const s = q[I_SCALE];
+    const offsetY = -e.meas.marks.soleY * s;
     const rest = new Float32Array(P.length);
     for (let i = 0; i < P.length; i += 3) {
       rest[i] = P[i] * s;
       rest[i + 1] = P[i + 1] * s + offsetY;
       rest[i + 2] = P[i + 2] * s;
     }
-    const values = {} as Targets;
-    const residual = {} as Targets;
-    for (const k of MEASURE_KEYS) {
-      values[k] = meas.values[k] * s;
-      residual[k] = values[k] - targets[k];
-    }
-    const volume = meshVolume(rest.subarray(0, this.asset.nBody * 3), this.asset.quads);
-    return { rest, measured: meas, values, residual, volume, scale: s, offsetY, q };
+    const values = {} as Record<MeasureKey, number>;
+    for (const k of MEASURE_KEYS) values[k] = e.meas.values[k] * s;
+    const composition = {
+      muscle: Object.fromEntries(SEGMENTS.map((seg, k) => [seg, q[I_MUSCLE + k]])) as Record<Segment, number>,
+      fat: Object.fromEntries(DEPOTS.map((d, k) => [d, q[I_FAT + k]])) as Record<Depot, number>,
+      lean: q[I_LEAN],
+      cup: q[I_CUP],
+    };
+    return {
+      rest,
+      measured: e.meas,
+      values,
+      weight: e.weight,
+      bodyFat: e.bodyFat,
+      residual: goals.map((g) => ({ goal: g, error: this.goalValue(g, e, s) - g.value })),
+      volume: meshVolume(rest.subarray(0, a.nBody * 3), a.quads),
+      scale: s,
+      offsetY,
+      composition,
+    };
   }
 
-  /** 顯示用網格：臉部平滑成人台頭，手臂轉到指定的外展角度 */
+  private clampParams(sex: Sex, q: Float64Array): void {
+    for (let k = 0; k < NC; k++) q[k] = Math.max(-3, Math.min(3, q[k]));
+    for (let s = 0; s < SEGMENTS.length; s++) q[I_MUSCLE + s] = Math.max(0, Math.min(1, q[I_MUSCLE + s]));
+    q[I_CUP] = sex === 'female' ? Math.max(0, Math.min(1, q[I_CUP])) : 0;
+    for (let k = 0; k < DEPOTS.length; k++) q[I_FAT + k] = Math.max(-3, Math.min(60, q[I_FAT + k]));
+    q[I_LEAN] = Math.max(-8, Math.min(40, q[I_LEAN]));
+  }
+
+  /** 每個參數對各目標的影響（前向差分） */
+  private jacobian(sex: Sex, q0: Float64Array, levels: Levels, goals: Goal[]): number[][] {
+    const P = new Float32Array(this.asset.base.length);
+    const e0 = this.evaluate(sex, q0, P, levels);
+    const base = goals.map((g) => this.goalValue(g, e0, q0[I_SCALE]));
+    const cols: number[][] = [];
+    for (let k = 0; k < NQ; k++) {
+      let h = k < NC ? 0.25 : k === I_SCALE ? 0.01 : k >= I_FAT ? 0.8 : 0.1;
+      const q = Float64Array.from(q0);
+      if ((k >= I_MUSCLE && k <= I_CUP && q[k] + h > 1) || (k === I_CUP && sex === 'male')) h = -h;
+      q[k] += h;
+      if (k === I_CUP && sex === 'male') {
+        cols.push(goals.map(() => 0));
+        continue;
+      }
+      const e = this.evaluate(sex, q, P, levels);
+      cols.push(goals.map((g, i) => (this.goalValue(g, e, q[I_SCALE]) - base[i]) / h));
+    }
+    return cols;
+  }
+
+  /** 顯示用網格：乳頭附近抹平，手臂轉到指定的外展角度 */
   display(fit: FitResult, armAngle: number): { P: Float32Array; armRotation: { L: ArmPose; R: ArmPose } } {
     const P = new Float32Array(fit.rest);
-    smooth(P, this.adj, this.nippleVerts, 12, 0.6);
+    smooth(P, this.adj, this.nippleVerts, 15, 0.6);
     const rot = { L: this.poseArm(P, 'L', armAngle), R: this.poseArm(P, 'R', armAngle) };
     return { P, armRotation: rot };
   }
@@ -282,7 +434,6 @@ export class BodyModel {
       P[i * 3 + 1] = sh[1] + y + (ry - y) * w;
     };
     for (let i = 0; i < a.nBody; i++) if (W[i] > 0) rotate(i, W[i]);
-    // 手臂上的關節輔助點跟著整隻手臂轉
     for (const name of [`${j}-elbow`, `${j}-hand`]) {
       const [st, cnt] = a.joints[name];
       for (let i = st; i < st + cnt; i++) rotate(i, 1);

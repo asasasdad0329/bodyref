@@ -4,15 +4,15 @@ import type { AppState } from '../core/state';
 // 摘要卡：關鍵數據與現實檢核
 
 const f1 = (v: number) => v.toFixed(1);
+const CHECK_TAG = { conflict: '數據矛盾', rare: '少見', info: '說明' } as const;
 
 export function renderSummary(root: HTMLElement, state: AppState, s: Summary): void {
   const female = state.sex === 'female';
-  const weightNote = Math.abs(s.modelWeight - s.weight) > 0.5 ? `模型體積換算 ${f1(s.modelWeight)} kg` : '和模型體積換算相符';
   const rows: [string, string, string?][] = [
     ['身高', `${f1(s.modelHeight)} cm`],
-    ['體重', `${f1(s.weight)} kg`, s.weightLocked ? weightNote : `建議值・${weightNote}`],
+    ['體重', `${f1(s.weight)} kg`, s.weightLocked ? undefined : '由體型推算'],
     ['BMI', f1(s.bmi), s.bmiLabel],
-    ['體脂率', `${f1(s.bodyFat * 100)}%`, s.bodyFatLocked ? undefined : '建議值'],
+    ['體脂率', `${f1(s.bodyFat * 100)}%`, s.bodyFatLocked ? undefined : '由體型推算'],
     ['骨骼肌率', `${f1(s.muscleRate * 100)}%`, `去脂體重 ${f1(s.leanMass)} kg`],
   ];
   if (female && s.braSize) rows.push(['罩杯', s.braSize, '台灣／日本尺寸']);
@@ -22,7 +22,7 @@ export function renderSummary(root: HTMLElement, state: AppState, s: Summary): v
     .map(([k, v, note]) => `<div class="stat"><dt>${k}</dt><dd><b>${v}</b>${note ? `<small>${note}</small>` : ''}</dd></div>`)
     .join('');
   const checks = s.checks.length
-    ? `<ul class="checks">${s.checks.map((c) => `<li class="check" data-level="${c.level}"><span class="check-tag">${c.level === 'conflict' ? '數據矛盾' : '少見'}</span>${c.text}</li>`).join('')}</ul>`
+    ? `<ul class="checks">${s.checks.map((c) => `<li class="check" data-level="${c.level}"><span class="check-tag">${CHECK_TAG[c.level]}</span>${c.text}</li>`).join('')}</ul>`
     : `<p class="checks-ok">你填的數值在實測資料中都屬於常見範圍。</p>`;
 
   root.innerHTML = `

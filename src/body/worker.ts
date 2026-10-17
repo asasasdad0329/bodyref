@@ -1,9 +1,6 @@
 /// <reference lib="webworker" />
-import { suggest } from '../core/linkage';
-import type { Sex } from '../core/measurements';
-import { REFERENCE, bodyDensity } from '../core/reference';
 import { parseBodyAsset } from './mh/asset';
-import { BodyEngine, type EngineInput, type EngineOutput, targetsFrom } from './mh/engine';
+import { BodyEngine, type EngineInput, type EngineOutput } from './mh/engine';
 
 // 背景執行緒：網格求解與生成都在這裡做，主畫面只負責顯示
 
@@ -16,20 +13,10 @@ export type WorkerResponse =
 let engine: BodyEngine | null = null;
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-/** 參考體型的模型體積 × 密度應等於參考體重，求出換算係數 */
-function calibrate(e: BodyEngine, sex: Sex): void {
-  const ref = REFERENCE[sex];
-  const v = suggest({ sex, locked: { height: ref.height, weight: ref.weight } }).values;
-  const fit = e.fitOnly({ sex, targets: targetsFrom(v), bmi: ref.weight / (ref.height / 100) ** 2, bodyFat: v.bodyFat });
-  e.setCalibration(sex, (ref.weight * 1000) / bodyDensity(v.bodyFat) / fit.volume);
-}
-
 ctx.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data;
   if (msg.type === 'init') {
     engine = new BodyEngine(parseBodyAsset(msg.buffer));
-    calibrate(engine, 'female');
-    calibrate(engine, 'male');
     ctx.postMessage({ type: 'ready' } satisfies WorkerResponse);
     return;
   }

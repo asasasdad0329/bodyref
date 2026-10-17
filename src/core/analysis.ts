@@ -1,5 +1,5 @@
 import type { EngineOutput } from '../body/mh/engine';
-import { type Rarity, type Suggestion, rarity } from './linkage';
+import { type Rarity, type Suggestion, type VarId, rarity } from './linkage';
 import { MEASURE_BY_ID, type MeasureId, type Sex, VAR_LABEL } from './measurements';
 import { MUSCLE_OF_LEAN, cupFromDiff } from './reference';
 import type { AppState } from './state';
@@ -8,7 +8,7 @@ import type { AppState } from './state';
 // 少見程度用連動模型計算：例如身高 160、體重 52 的女性，腰圍 56 大約落在第幾百分位。
 // 這是和成年人實測資料比較的統計結果，不是醫學判斷。
 
-export type CheckLevel = 'rare' | 'conflict';
+export type CheckLevel = 'rare' | 'conflict' | 'info';
 
 export interface Check {
   level: CheckLevel;
@@ -20,8 +20,6 @@ export interface Summary {
   bmiLabel: string;
   weight: number;
   weightLocked: boolean;
-  /** 依模型體積換算的體重 */
-  modelWeight: number;
   bodyFat: number;
   bodyFatLocked: boolean;
   leanMass: number;
@@ -35,6 +33,8 @@ export interface Summary {
   checks: Check[];
   /** 每個鎖定數值的百分位（給欄位標示「少見」） */
   rarity: Rarity[];
+  /** 顯示用的完整數值（見 resolveValues） */
+  values: Record<VarId, number>;
 }
 
 /** 台灣成人 BMI 分級 */
@@ -87,29 +87,54 @@ function share(p: number): string {
   return `只有約 ${v < 1 ? v.toFixed(1) : Math.round(v)}%`;
 }
 
+/** 顯示用的完整數值：手動的用輸入值，其他的用網格上實際量到的數值與模型的體重、體脂率 */
+export function resolveValues(sug: Suggestion, out: EngineOutput): Record<VarId, number> {
+  const v = { ...sug.values };
+  for (const id of Object.keys(v) as VarId[]) {
+    if (sug.locked[id]) continue;
+    if (id === 'weight') v.weight = out.weight;
+    else if (id === 'bodyFat') v.bodyFat = out.bodyFat;
+    else if (id in out.values) v[id] = out.values[id as keyof typeof out.values];
+  }
+  return v;
+}
+
+const SOFT_TISSUE: VarId[] = ['bust', 'underbust', 'waist', 'hip', 'upperArm', 'thigh', 'calf'];
+
 export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, bustDiff: number | null): Summary {
-  const v = sug.values;
+  const v = resolveValues(sug, out);
   const female = state.sex === 'female';
   const H = v.height;
   const bmi = v.weight / (H / 100) ** 2;
   const checks: Check[] = [];
   const add = (level: CheckLevel, text: string) => checks.push({ level, text });
 
-  // 模型做不到的數值
-  for (const [k, r] of Object.entries(out.residual)) {
-    if (Math.abs(r) > 0.5) {
-      add('conflict', `${VAR_LABEL[k] ?? k}：模型最接近只能做到 ${f1(out.values[k as keyof typeof out.values])} cm（目標 ${f1(v[k as keyof typeof v])} cm），這幾個數值彼此不太相容。`);
+  // 模型做不到的數值（只檢查手動填的）
+  for (const { goal, error } of out.residual) {
+    if (goal.kind === 'measure' && sug.locked[goal.key] && Math.abs(error) > 0.5) {
+      add('conflict', `${VAR_LABEL[goal.key]}：模型最接近只能做到 ${f1(goal.value + error)} cm（目標 ${f1(goal.value)} cm），這幾個數值彼此不太相容。`);
+    }
+    if (goal.kind === 'weight' && sug.locked.weight && Math.abs(error) > 0.5) {
+      add(
+        'conflict',
+        `要符合手動填的圍度，體重至少要${error > 0 ? '約' : '只有約'} ${f1(goal.value + error)} kg，比輸入的體重${error > 0 ? '重' : '輕'} ${f1(Math.abs(error))} kg。`,
+      );
+    }
+    if (goal.kind === 'diff' && bustDiff !== null && Math.abs(error) > 0.5) {
+      add('conflict', `罩杯：目前的人體模型最大約做到 ${cupFromDiff(goal.value + error)} 罩杯（上下胸圍差 ${f1(goal.value + error)} cm）。`);
+    }
+    if (goal.kind === 'bodyFat' && sug.locked.bodyFat && Math.abs(error) > 0.01) {
+      add('conflict', `體脂率：模型最接近只能做到 ${f1((goal.value + error) * 100)}%（目標 ${f1(goal.value * 100)}%）。`);
     }
   }
-  // 體積換算的體重和輸入差太多
-  const gap = out.modelWeight - v.weight;
-  if (sug.locked.weight && Math.abs(gap) / v.weight > 0.05) {
+  if (v.underbust > v.bust) add('conflict', '下胸圍比上胸圍大，請檢查兩個數值是否填反。');
+  const lockedSoft = SOFT_TISSUE.filter((id) => sug.locked[id]);
+  if (sug.locked.weight && lockedSoft.length) {
     add(
-      'conflict',
-      `依模型體積換算約 ${f1(out.modelWeight)} kg，比輸入的體重${gap > 0 ? '重' : '輕'} ${f1(Math.abs(gap))} kg。手動指定的圍度和體重可能不太相符。`,
+      'info',
+      `體重已手動指定：${lockedSoft.map((id) => VAR_LABEL[id]).join('、')}變粗所需的脂肪，會從其他沒填的部位（四肢、肌肉量）扣回來。想讓體重跟著變，請把體重改回建議。`,
     );
   }
-  if (v.underbust > v.bust) add('conflict', '下胸圍比上胸圍大，請檢查兩個數值是否填反。');
 
   // 和實測資料比較的少見程度
   const rar = rarity({ sex: state.sex, locked: state.locked, bustDiff });
@@ -133,7 +158,6 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
     bmiLabel: bmiLabel(bmi),
     weight: v.weight,
     weightLocked: sug.locked.weight,
-    modelWeight: out.modelWeight,
     bodyFat: v.bodyFat,
     bodyFatLocked: sug.locked.bodyFat,
     leanMass,
@@ -145,5 +169,6 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
     shape: bodyShapeType(v.bust, v.waist, v.hip, state.sex),
     checks,
     rarity: rar,
+    values: v,
   };
 }
