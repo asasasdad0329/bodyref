@@ -95,6 +95,8 @@ interface Prepared {
   wThighL: Float32Array;
   wThighR: Float32Array;
   wBreast: Float32Array;
+  /** 素體抹平過的法向量（軟組織量體沿這個方向長出來） */
+  normals: Float32Array;
   breastSets: { L: Uint32Array; R: Uint32Array; rimL: Uint32Array; rimR: Uint32Array };
   armSet: Uint32Array;
 }
@@ -203,9 +205,12 @@ export class RingBody {
     const armRegions = new Set(['shoulderL', 'shoulderR', 'upperarmL', 'upperarmR', 'forearmL', 'forearmR', 'handL', 'handR'].map(R));
     const armSet = Uint32Array.from({ length: n }, (_, i) => i).filter((i) => armRegions.has(a.region[i]));
     const acromionY = (B[a.landmarks.acromionL * 3 + 1] + B[a.landmarks.acromionR * 3 + 1]) / 2;
+    const normals = vertexNormals(B, a.quads, n);
+    smoothVectors(normals, this.adj, 10);
     return {
       B,
       marks: m.marks,
+      normals,
       acromionY,
       torsoZ,
       thighC: (y) => [thighX(y), thighZ(y)],
@@ -267,7 +272,7 @@ export class RingBody {
     out.set(B);
     const L = mk.underbustY - mk.crotchY;
     const dU = q.ub - 1, dH = q.hip - 1, dT = q.thigh - 1;
-    const W = MODULES.waist(q.waist - 1), H = MODULES.hip(dH), U = MODULES.underbust(dU), T = MODULES.thigh(dT);
+    const W = MODULES.waist(q.waist - 1), U = MODULES.underbust(dU), T = MODULES.thigh(dT);
 
     // 軀幹的控制點（由下往上）：胯下、臀、腰、下胸、腋下、肩
     const yA = mk.underbustY + 0.55 * (p.acromionY - mk.underbustY);
@@ -277,20 +282,18 @@ export class RingBody {
     // 後面（側面看到的背線）：臀下 → 臀最翹 → 後腰 → 下胸 → 腋下 → 肩
     const one = 1;
     const armK = 1 + 0.5 * dU;
+    // 骨架曲線只負責大輪廓（骨盆寬、腰窩、胸廓）；臀部、下腹、臀側的「肉」由下面的量體負責
     const tSide = pchip(
       [mk.crotchY - 0.12 * L, mk.hipY, mk.waistY, mk.underbustY, yA, p.acromionY],
-      [1 + 0.95 * dH, H.side, W.side, U.side, armK, one],
+      [1 + 0.45 * dH, 1 + 0.55 * dH, W.side, U.side, armK, one],
     );
-    // 下腹與恥骨一帶跟著骨盆（臀圍）一起長一層，腰收細時不會被拉進去
-    const lowerBelly = 1 + 0.6 * dH + (W.front - 1) * 0.6;
     const tFront = pchip(
-      [mk.crotchY, mk.crotchY + 0.25 * L, mk.waistY, mk.underbustY, yA, p.acromionY],
-      // 恥骨一帶延續下腹的弧度往下收，不在兩者之間形成一條橫向的台階
-      [1 + 0.9 * (Math.max(lowerBelly, W.front) - 1), Math.max(lowerBelly, W.front), W.front, U.front, armK, one],
+      [mk.crotchY, mk.waistY, mk.underbustY, yA, p.acromionY],
+      [1 + 0.2 * dH, W.front, U.front, armK, one],
     );
     const tBack = pchip(
       [mk.crotchY - 0.12 * L, mk.hipY, mk.waistY, mk.underbustY, yA, p.acromionY],
-      [1 + 0.95 * dH, H.back, W.back, U.back, armK, one],
+      [1 + 0.1 * dH, 1 + 0.2 * dH, W.back, U.back, armK, one],
     );
 
     // 大腿的控制點（由下往上）：膝、大腿中段、量大腿圍處、胯下
@@ -298,9 +301,7 @@ export class RingBody {
     const midY = mk.kneeY + 0.45 * (mk.crotchY - mk.kneeY);
     const tY = [mk.kneeY, midY, thighY, mk.crotchY + 0.05 * L];
     const mid: Aniso = { side: 1 + 0.55 * dT, front: 1 + 0.5 * dT, back: 1 + 0.55 * dT };
-    // 大腿上段的後側接住臀部下緣，避免臀部像一顆球放在大腿上
-    const top: Aniso = { side: T.side, front: T.front, back: Math.max(T.back, 1 + 0.75 * dH) };
-    const legRing = [{ side: 1, front: 1, back: 1 }, mid, { ...T, back: (T.back + top.back) / 2 }, top];
+    const legRing = [{ side: 1, front: 1, back: 1 }, mid, T, T];
     const lSide = pchip(tY, legRing.map((r) => r.side)), lFront = pchip(tY, legRing.map((r) => r.front)), lBack = pchip(tY, legRing.map((r) => r.back));
     // 大腿內側：中段長得比外側多一點，但到了大腿根部收回來，避免把恥骨三角區夾成凹陷
     const inner = (y: number) => 1 + (lSide(y) - 1) * (1.15 - 0.4 * smoothstep(thighY - 0.1 * L, mk.crotchY, y));
@@ -351,6 +352,45 @@ export class RingBody {
     for (let i = 0; i < n * 3; i++) D[i] = out[i] - B[i];
     smoothVectors(D, this.adj, 25);
     for (let i = 0; i < n * 3; i++) out[i] = B[i] + D[i];
+
+    // 軟組織量體：每一團都是有形狀的圓頂，沿表面法向量長出來，大的時候帶一點下墜
+    const pos = Math.max(0, dH);
+    const masses: Mass[] = [
+      // 臀部（左右各一團）：上緣沿後腰緩緩接上來，最飽滿處偏下，下緣圓圓地收進臀下折線
+      { y: mk.hipY - 0.04 * L, up: 0.55 * L, down: 0.38 * L, angle: Math.PI - 0.6, width: 0.72, amp: 26 * pos, sag: 0.12, taper: 0 },
+      { y: mk.hipY - 0.04 * L, up: 0.55 * L, down: 0.38 * L, angle: -(Math.PI - 0.6), width: 0.72, amp: 26 * pos, sag: 0.12, taper: 0 },
+      // 臀側到大腿外側：讓骨盆到大腿是一條連續往外的弧線
+      { y: mk.crotchY - 0.05 * L, up: 0.45 * L, down: 0.5 * L, angle: Math.PI / 2 + 0.2, width: 0.85, amp: 9 * pos, sag: 0.05, taper: 0 },
+      { y: mk.crotchY - 0.05 * L, up: 0.45 * L, down: 0.5 * L, angle: -(Math.PI / 2 + 0.2), width: 0.85, amp: 9 * pos, sag: 0.05, taper: 0 },
+      // 下腹：肚臍到恥骨之間的一團，越往下越窄（下緣是 U 形，不是一條橫線或 V）
+      { y: mk.crotchY + 0.3 * L, up: 0.3 * L, down: 0.38 * L, angle: 0, width: 1.25, amp: 5 * pos + 12 * Math.max(0, q.waist - 1), sag: 0.12, taper: 0.55 },
+    ];
+    const M = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const w = Math.min(1, p.wTorso[i] + p.wThighL[i] + p.wThighR[i]);
+      if (w < 0.01) continue;
+      const x = B[i * 3], y = B[i * 3 + 1], z = B[i * 3 + 2];
+      const theta = Math.atan2(x, z - p.torsoZ(y));
+      let push = 0, drop = 0;
+      for (const m of masses) {
+        if (!m.amp) continue;
+        const uy = (y - m.y) / (y > m.y ? m.up : m.down);
+        let dt = Math.abs(theta - m.angle);
+        if (dt > Math.PI) dt = 2 * Math.PI - dt;
+        const width = m.width * (1 - m.taper * smoothstep(0, 1, -uy));
+        const u2 = uy * uy + (dt / width) ** 2;
+        if (u2 >= 1) continue;
+        const dome = Math.pow(1 - u2, 1.5);
+        push += m.amp * dome;
+        drop += m.amp * m.sag * dome * dome;
+      }
+      if (!push) continue;
+      M[i * 3] = w * push * p.normals[i * 3];
+      M[i * 3 + 1] = w * (push * p.normals[i * 3 + 1] - drop);
+      M[i * 3 + 2] = w * push * p.normals[i * 3 + 2];
+    }
+    smoothVectors(M, this.adj, 8);
+    for (let i = 0; i < n * 3; i++) out[i] += M[i];
     // 手臂跟著肩膀附近的軀幹側面平移（不變形）
     const shoulderY = (mk.underbustY + p.acromionY) / 2;
     for (const i of p.armSet) {
@@ -415,6 +455,19 @@ export class RingBody {
     }
     return { P, values: m.values, params: q, iterations: it };
   }
+}
+
+/** 一團軟組織：中心高度與角度（0 = 正前方，π = 正後方），上下與左右的範圍，厚度（cm）與下墜比例 */
+interface Mass {
+  y: number;
+  up: number;
+  down: number;
+  angle: number;
+  width: number;
+  amp: number;
+  sag: number;
+  /** 往下緣變窄的比例 */
+  taper: number;
 }
 
 function smoothVectors(F: Float32Array, adj: number[][], iterations: number): void {
