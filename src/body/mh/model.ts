@@ -370,12 +370,14 @@ export class BodyModel {
         A[x][x] += reg + 1e-6;
         b[x] = -sum - reg * (q[x] - prior[x]);
       }
-      const d = solveSym(A, b);
-      // 只接受讓總代價變小的步長（太大就減半），避免目標很遠時一路發散
+      // Levenberg–Marquardt：只接受讓總代價變小的一步；不行就加大阻尼（步子變小、方向更接近梯度），
+      // 避免目標很遠時一路發散
       const current = objective(e, q);
       let accepted = false;
-      for (let t = 1; t >= 1 / 32; t /= 2) {
-        const qn = Float64Array.from(q, (v, k) => v + d[k] * t);
+      for (const lam of [0, 0.01, 0.1, 1, 10, 100]) {
+        const Ad = A.map((row, i) => row.map((v, j) => (i === j ? v * (1 + lam) : v)));
+        const d = solveSym(Ad, b);
+        const qn = Float64Array.from(q, (v, k) => v + d[k]);
         this.clampParams(sex, qn);
         const en = this.evaluate(sex, qn, P, levels);
         if (objective(en, qn) < current) {
@@ -387,7 +389,7 @@ export class BodyModel {
       }
       if (!accepted) {
         // 影響矩陣可能已經不準：重算一次再試，仍然不行就停在目前最好的解
-        if (recomputed < 3) {
+        if (recomputed < 4) {
           J = null;
           e = this.evaluate(sex, q, P, levels);
           continue;
