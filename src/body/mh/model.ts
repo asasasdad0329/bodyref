@@ -294,11 +294,35 @@ export class BodyModel {
     prior[I_SCALE] = probe[I_SCALE];
     sigma[I_SCALE] = 1;
 
-    // 從上一次的解出發（拖動滑桿時只差一點點），但縮放先對準新的身高
-    let q = this.last?.sex === sex ? Float64Array.from(this.last.q) : Float64Array.from(prior);
+    const residuals = (ev: Evaluation, qq: Float64Array) => goals.map((g) => (this.goalValue(g, ev, qq[I_SCALE]) - g.value) / g.sd);
+    /** 要最小化的總代價：目標誤差 + 偏離先驗的代價 */
+    const objective = (ev: Evaluation, qq: Float64Array) => {
+      let c = 0;
+      for (const x of residuals(ev, qq)) c += x * x;
+      for (let k = 0; k < NQ; k++) c += ((qq[k] - prior[k]) / sigma[k]) ** 2;
+      return Number.isFinite(c) ? c : Infinity;
+    };
+    const start = (from: Float64Array) => {
+      const qq = Float64Array.from(from);
+      const ev = this.evaluate(sex, qq, P);
+      qq[I_SCALE] = height / ev.meas.values.height;
+      return qq;
+    };
+
+    // 從上一次的解出發（拖動滑桿時只差一點點），但縮放先對準新的身高；
+    // 如果上一次的解比先驗還差（例如上一組數值很極端），改從先驗出發
+    let q = start(prior);
     let e = this.evaluate(sex, q, P);
-    q[I_SCALE] = height / e.meas.values.height;
-    e = this.evaluate(sex, q, P);
+    if (this.last?.sex === sex) {
+      const qw = start(this.last.q);
+      const ew = this.evaluate(sex, qw, P);
+      if (objective(ew, qw) < objective(e, q)) {
+        q = qw;
+        e = ew;
+      } else {
+        e = this.evaluate(sex, q, P);
+      }
+    }
     let levels = e.meas.levels;
     // 目標的組成（哪些數值是手動的）改變時，影響矩陣要重算
     const jacKey = `${sex}|${goals.map((g) => (g.kind === 'measure' ? g.key : g.kind)).join(',')}`;
@@ -306,8 +330,6 @@ export class BodyModel {
     let recomputed = 0;
     let researched = 0;
     let prevCost = Infinity;
-
-    const residuals = (ev: Evaluation, qq: Float64Array) => goals.map((g) => (this.goalValue(g, ev, qq[I_SCALE]) - g.value) / g.sd);
 
     for (let it = 0; it < 40; it++) {
       const r = residuals(e, q);
@@ -349,9 +371,30 @@ export class BodyModel {
         b[x] = -sum - reg * (q[x] - prior[x]);
       }
       const d = solveSym(A, b);
-      q = Float64Array.from(q, (v, k) => v + d[k]);
-      this.clampParams(sex, q);
-      e = this.evaluate(sex, q, P, levels);
+      // 只接受讓總代價變小的步長（太大就減半），避免目標很遠時一路發散
+      const current = objective(e, q);
+      let accepted = false;
+      for (let t = 1; t >= 1 / 32; t /= 2) {
+        const qn = Float64Array.from(q, (v, k) => v + d[k] * t);
+        this.clampParams(sex, qn);
+        const en = this.evaluate(sex, qn, P, levels);
+        if (objective(en, qn) < current) {
+          q = qn;
+          e = en;
+          accepted = true;
+          break;
+        }
+      }
+      if (!accepted) {
+        // 影響矩陣可能已經不準：重算一次再試，仍然不行就停在目前最好的解
+        if (recomputed < 3) {
+          J = null;
+          e = this.evaluate(sex, q, P, levels);
+          continue;
+        }
+        e = this.evaluate(sex, q, P);
+        break;
+      }
     }
     this.last = { sex, q };
 
