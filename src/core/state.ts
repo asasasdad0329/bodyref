@@ -1,6 +1,7 @@
 import type { VarId } from './linkage';
 import { VARS } from './linkage';
 import type { Sex } from './measurements';
+import { RATIOS, type Ratios } from './proportions';
 import { CUP_TABLE } from './reference';
 
 // 網站狀態：哪些數值是使用者鎖定（手動）的、罩杯、顯示設定。
@@ -30,6 +31,8 @@ export interface AppState {
   locked: Locked & { height: number };
   /** 指定的罩杯（只對女性有效） */
   cup: string | null;
+  /** 指定的身體比例（和對應的長度互斥，見 proportions.ts） */
+  ratios: Ratios;
   view: ViewSettings;
 }
 
@@ -41,29 +44,31 @@ export interface Preset {
   state: Omit<AppState, 'view'>;
 }
 
-// 範例體型，用來快速比較；不是任何真人的數據
+// 範例體型，用來快速比較；不是任何真人的數據。
+// 預設只填身高：體重由體型推算，改圍度時體重會跟著變。
 export const PRESETS: readonly Preset[] = [
-  { id: 'f-avg', label: '女性・平均（160 cm／52 kg）', state: { sex: 'female', locked: { height: 160, weight: 52 }, cup: null } },
-  { id: 'f-slim', label: '女性・纖細（165 cm／46 kg・A）', state: { sex: 'female', locked: { height: 165, weight: 46 }, cup: 'A' } },
-  { id: 'f-curvy', label: '女性・豐滿（162 cm／60 kg・E）', state: { sex: 'female', locked: { height: 162, weight: 60, bodyFat: 0.3 }, cup: 'E' } },
-  { id: 'f-fit', label: '女性・運動（167 cm／57 kg・體脂 20%）', state: { sex: 'female', locked: { height: 167, weight: 57, bodyFat: 0.2 }, cup: 'B' } },
+  { id: 'f-avg', label: '女性・平均（160 cm）', state: { sex: 'female', locked: { height: 160 }, cup: null, ratios: {} } },
+  { id: 'f-slim', label: '女性・纖細（165 cm／46 kg・A）', state: { sex: 'female', locked: { height: 165, weight: 46 }, cup: 'A', ratios: {} } },
+  { id: 'f-curvy', label: '女性・豐滿（162 cm・體脂 30%・E）', state: { sex: 'female', locked: { height: 162, bodyFat: 0.3 }, cup: 'E', ratios: {} } },
+  { id: 'f-fit', label: '女性・運動（167 cm／57 kg・體脂 20%）', state: { sex: 'female', locked: { height: 167, weight: 57, bodyFat: 0.2 }, cup: 'B', ratios: {} } },
+  { id: 'f-long', label: '女性・長腿（168 cm・腿長比 49%）', state: { sex: 'female', locked: { height: 168 }, cup: null, ratios: { legRatio: 0.49 } } },
   {
     id: 'f-hourglass',
     label: '女性・誇張沙漏（插畫常見比例）',
-    state: { sex: 'female', locked: { height: 160, weight: 50, bust: 94, underbust: 66, waist: 56, hip: 94 }, cup: null },
+    state: { sex: 'female', locked: { height: 160, bust: 94, underbust: 66, waist: 56, hip: 94 }, cup: null, ratios: {} },
   },
-  { id: 'm-avg', label: '男性・平均（172 cm／68 kg）', state: { sex: 'male', locked: { height: 172, weight: 68 }, cup: null } },
-  { id: 'm-lean', label: '男性・精實（178 cm／74 kg・體脂 12%）', state: { sex: 'male', locked: { height: 178, weight: 74, bodyFat: 0.12 }, cup: null } },
-  { id: 'm-big', label: '男性・壯碩（176 cm／92 kg・體脂 24%）', state: { sex: 'male', locked: { height: 176, weight: 92, bodyFat: 0.24 }, cup: null } },
+  { id: 'm-avg', label: '男性・平均（172 cm）', state: { sex: 'male', locked: { height: 172 }, cup: null, ratios: {} } },
+  { id: 'm-lean', label: '男性・精實（178 cm／74 kg・體脂 12%）', state: { sex: 'male', locked: { height: 178, weight: 74, bodyFat: 0.12 }, cup: null, ratios: {} } },
+  { id: 'm-big', label: '男性・壯碩（176 cm／92 kg・體脂 24%）', state: { sex: 'male', locked: { height: 176, weight: 92, bodyFat: 0.24 }, cup: null, ratios: {} } },
 ];
 
 export function presetState(p: Preset, view: ViewSettings = DEFAULT_VIEW): AppState {
-  return { sex: p.state.sex, locked: { ...p.state.locked }, cup: p.state.cup, view: { ...view } };
+  return { sex: p.state.sex, locked: { ...p.state.locked }, cup: p.state.cup, ratios: { ...p.state.ratios }, view: { ...view } };
 }
 
 export const DEFAULT_STATE: AppState = presetState(PRESETS[0]);
 
-const STORAGE_KEY = 'bodyref:v2';
+const STORAGE_KEY = 'bodyref:v3';
 
 function sanitize(raw: unknown): AppState | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -78,11 +83,18 @@ function sanitize(raw: unknown): AppState | null {
     if (v !== null) locked[id] = v;
   }
   if (locked.height === undefined) return null;
+  const srcRatios = (r.ratios ?? {}) as Record<string, unknown>;
+  const ratios: Ratios = {};
+  for (const d of RATIOS) {
+    const v = num(srcRatios[d.id], d.min / d.scale, d.max / d.scale);
+    if (v !== null) ratios[d.id] = v;
+  }
   const view = (r.view ?? {}) as Record<string, unknown>;
   return {
     sex,
     locked: locked as AppState['locked'],
     cup: typeof r.cup === 'string' && CUP_TABLE.some((c) => c.cup === r.cup) ? r.cup : null,
+    ratios,
     view: {
       armAngle: num(view.armAngle, 0, 60) ?? DEFAULT_VIEW.armAngle,
       lineStyle: LINE_STYLES.find((s) => s.id === view.lineStyle)?.id ?? DEFAULT_VIEW.lineStyle,

@@ -1,3 +1,4 @@
+import { ANKLE_HEIGHT, applyRatios, ratiosOf } from '../src/core/proportions';
 import { describe, expect, it } from 'vitest';
 import { rarity, suggest } from '../src/core/linkage';
 
@@ -40,5 +41,28 @@ describe('數值連動', () => {
     const r = rarity({ sex: 'female', locked: { height: 160, weight: 52, waist: 56 } });
     const waist = r.find((x) => x.id === 'waist')!;
     expect(waist.percentile).toBeLessThan(0.05);
+  });
+});
+
+describe('身體比例', () => {
+  it('腿長比換算成大腿長與小腿長，股下符合指定比例', () => {
+    const { locked, derived } = applyRatios({ sex: 'female', locked: { height: 168 } }, { legRatio: 0.49 });
+    expect(derived).toEqual(['thighLen', 'calfLen']);
+    expect((locked.thighLen! + locked.calfLen!) / 168 + ANKLE_HEIGHT).toBeCloseTo(0.49, 4);
+  });
+
+  it('同時指定腿長比與大腿：小腿時，兩者都符合', () => {
+    const { locked } = applyRatios({ sex: 'female', locked: { height: 160 } }, { legRatio: 0.46, thighCalf: 0.8 });
+    expect(locked.thighLen! / locked.calfLen!).toBeCloseTo(0.8, 4);
+    const r = ratiosOf(suggest({ sex: 'female', locked }).values);
+    expect(r.legRatio).toBeCloseTo(0.46, 4);
+  });
+
+  it('只指定上臂：前臂時，手臂總長維持建議值', () => {
+    const inp = { sex: 'male' as const, locked: { height: 175 } };
+    const base = suggest(inp).values;
+    const { locked } = applyRatios(inp, { upperFore: 1.4 });
+    expect(locked.upperArmLen! + locked.forearmLen!).toBeCloseTo(base.upperArmLen + base.forearmLen, 4);
+    expect(locked.upperArmLen! / locked.forearmLen!).toBeCloseTo(1.4, 4);
   });
 });

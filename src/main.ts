@@ -5,11 +5,13 @@ import type { EngineOutput } from './body/mh/engine';
 import { type Summary, braSize, summarize } from './core/analysis';
 import { type Suggestion, type VarId, rarity, suggest } from './core/linkage';
 import type { MeasureId } from './core/measurements';
+import { type RatioId, applyRatios, groupOfLength, groupOfRatio } from './core/proportions';
 import { cupDiff } from './core/reference';
 import { type AppState, DEFAULT_STATE, PRESETS, loadSaved, presetState, save, stateFromUrl } from './core/state';
 import { ExportDialog, ShareDialog, composeThreeView } from './ui/dialogs';
 import { Panel } from './ui/panel';
 import { renderSummary, renderSummaryLoading } from './ui/summary';
+import { DisplayToolbar } from './ui/toolbar';
 import { onThemeChange } from './view/theme';
 import { type ViewName, Viewer } from './view/viewer';
 
@@ -28,6 +30,8 @@ let summary: Summary | null = null;
 let shown: { state: AppState; sug: Suggestion } | null = null;
 /** 上一次網格算出的數值：新的結果算好前，沒鎖定的欄位先顯示這些 */
 let meshValues: Suggestion['values'] | null = null;
+/** 依比例推算的長度 */
+let derived: MeasureId[] = [];
 let requestedKey = '';
 let topologySet = false;
 let scheduled = false;
@@ -68,6 +72,7 @@ const panel = new Panel(document.getElementById('panel')!, {
     // 換性別時，其他手動數值大多不再適用，只保留身高與體重
     const { height, weight } = state.locked;
     state = { ...state, sex, cup: null, locked: weight === undefined ? { height } : { height, weight } };
+    meshValues = null;
     presetSelect.value = '';
     update();
   },
@@ -78,7 +83,30 @@ const panel = new Panel(document.getElementById('panel')!, {
     } else {
       locked[id] = value;
     }
-    state = { ...state, locked };
+    // 改長度時，對應的比例變回由長度算出
+    const g = value === null ? undefined : groupOfLength(id);
+    const ratios = { ...state.ratios };
+    if (g) {
+      delete ratios[g.total];
+      delete ratios[g.split];
+    }
+    state = { ...state, locked, ratios };
+    presetSelect.value = '';
+    update();
+  },
+  onRatio(id: RatioId, value: number | null) {
+    const ratios = { ...state.ratios };
+    const locked = { ...state.locked };
+    if (value === null) {
+      delete ratios[id];
+    } else {
+      ratios[id] = value;
+      // 改比例時，對應的長度改成依比例推算
+      const g = groupOfRatio(id);
+      delete locked[g.upper];
+      delete locked[g.lower];
+    }
+    state = { ...state, ratios, locked };
     presetSelect.value = '';
     update();
   },
@@ -87,13 +115,14 @@ const panel = new Panel(document.getElementById('panel')!, {
     presetSelect.value = '';
     update();
   },
-  onView(patch) {
-    state = { ...state, view: { ...state.view, ...patch } };
-    update();
-  },
   onFocusMeasure(id: MeasureId | null) {
     viewer.setActiveMeasure(id);
   },
+});
+
+const toolbar = new DisplayToolbar(document.getElementById('display-bar')!, (patch) => {
+  state = { ...state, view: { ...state.view, ...patch } };
+  update();
 });
 
 function update(): void {
@@ -106,13 +135,15 @@ function update(): void {
 function renderPanel(s: Suggestion): void {
   const diff = bustDiff(state);
   const rare = Object.fromEntries(rarity({ sex: state.sex, locked: state.locked, bustDiff: diff }).map((r) => [r.id, r.percentile]));
-  panel.render(state, s, rare, state.sex === 'female' ? braSize(s.values.bust, s.values.underbust) : null);
+  panel.render(state, s, rare, state.sex === 'female' ? braSize(s.values.bust, s.values.underbust) : null, derived);
 }
 
 function apply(): void {
   scheduled = false;
   const diff = bustDiff(state);
-  sug = suggest({ sex: state.sex, locked: state.locked, bustDiff: diff });
+  const withRatios = applyRatios({ sex: state.sex, locked: state.locked, bustDiff: diff }, state.ratios);
+  derived = withRatios.derived;
+  sug = suggest({ sex: state.sex, locked: withRatios.locked, bustDiff: diff });
   const pending = sug;
   const values = { ...pending.values };
   if (meshValues && shown?.state.sex === state.sex) {
@@ -120,8 +151,9 @@ function apply(): void {
   }
   renderPanel({ ...pending, values });
   viewer.setDisplay({ lineStyle: state.view.lineStyle, outline: state.view.showOutline, measures: state.view.showMeasures });
+  toolbar.render(state.view);
 
-  const key = JSON.stringify([state.sex, state.locked, state.cup, state.view.armAngle]);
+  const key = JSON.stringify([state.sex, state.locked, state.cup, state.ratios, state.view.armAngle]);
   if (key !== requestedKey) {
     requestedKey = key;
     client.request({ ...goalsFor({ sex: state.sex, sug, bustDiff: diff }), armAngle: state.view.armAngle }, { state, sug, bustDiff: diff });

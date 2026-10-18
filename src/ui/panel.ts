@@ -8,20 +8,26 @@ import {
   type Sex,
   WEIGHT_RANGE,
 } from '../core/measurements';
+import { RATIOS, type RatioId, ratiosOf } from '../core/proportions';
 import { CUP_TABLE, MUSCLE_OF_LEAN } from '../core/reference';
-import { type AppState, LINE_STYLES, type ViewSettings } from '../core/state';
+import type { AppState } from '../core/state';
 
-// 右側輸入面板。每個數值不是「手動」（你填的）就是「建議」（依你填的數值連動推算）。
-// 建議值旁邊顯示常見範圍；手動的數值如果在實測資料中很少見，會標上「少見」。
+// 右側輸入面板。每個數值不是「手動」（你填的）就是「推算」（依你填的數值與體型算出）。
+// 推算值旁邊顯示常見範圍；手動的數值如果在實測資料中很少見，會標上「少見」。
+// 外層只放常用的數值（三圍、腿圍、比例），其他量測收在「細部調整」裡。
 
 export interface PanelCallbacks {
   onSex(sex: Sex): void;
-  /** value 為 null 表示改回建議值 */
+  /** value 為 null 表示改回推算值 */
   onLock(id: VarId, value: number | null): void;
+  onRatio(id: RatioId, value: number | null): void;
   onCup(cup: string | null): void;
-  onView(patch: Partial<ViewSettings>): void;
   onFocusMeasure(id: MeasureId | null): void;
 }
+
+/** 外層的圍度；其餘量測放在「細部調整」 */
+const MAIN_GIRTHS: MeasureId[] = ['bust', 'underbust', 'waist', 'hip', 'thigh', 'calf'];
+const DETAIL: MeasureId[] = ['neck', 'upperArm', 'wrist', 'ankle', 'shoulder', 'upperArmLen', 'forearmLen', 'thighLen', 'calfLen'];
 
 interface NumberField {
   range: HTMLInputElement;
@@ -84,6 +90,7 @@ function numberControl(
 }
 
 function setValue(f: NumberField, v: number, digits = 1): void {
+  if (!Number.isFinite(v)) return;
   if (document.activeElement !== f.num) f.num.value = v.toFixed(digits);
   if (document.activeElement !== f.range || Math.abs(Number(f.range.value) - v) > 1e-6) f.range.value = String(v);
 }
@@ -95,21 +102,21 @@ export class Panel {
   private height!: NumberField;
   private muscle!: NumberField;
   private sexInputs: HTMLInputElement[] = [];
-  private lineInputs: HTMLInputElement[] = [];
   private cupSelect!: HTMLSelectElement;
   private cupRow!: HTMLElement;
   private cupNote!: HTMLElement;
-  private view: Record<'outline' | 'measures', HTMLInputElement> = {} as never;
-  private armAngle!: NumberField;
+  private details!: HTMLDetailsElement;
+  private detailCount!: HTMLElement;
+  private proportionNote!: HTMLElement;
   private hovered: MeasureId | null = null;
   private focused: MeasureId | null = null;
 
   constructor(root: HTMLElement, private readonly cb: PanelCallbacks) {
     root.append(
       this.buildBasic(),
-      this.buildMeasures('girth', '圍度', 'GIRTH'),
-      this.buildMeasures('length', '長度', 'LENGTH'),
-      this.buildDisplay(),
+      this.buildMeasures(MAIN_GIRTHS, '三圍與腿圍', 'GIRTH'),
+      this.buildProportions(),
+      this.buildDetails(),
       el(
         'footer',
         'credits',
@@ -146,7 +153,7 @@ export class Panel {
     let reset: HTMLButtonElement | null = null;
     top.append(lab, tag);
     if (unlock) {
-      reset = el('button', 'field-reset', '改回建議');
+      reset = el('button', 'field-reset', '改回推算');
       reset.type = 'button';
       reset.addEventListener('click', unlock);
       top.append(reset);
@@ -163,7 +170,7 @@ export class Panel {
     const g = this.group(
       '基本數據',
       'BASE',
-      '填你知道的數值就好。沒填的項目會依實測資料，跟著你填的數值連動出建議值，並列出一般人的常見範圍。',
+      '填你知道的數值就好。沒填的項目會依實測資料與體型推算（例如把腰圍改粗，體重會跟著變重），並列出一般人的常見範圍。',
     );
 
     const sexRow = el('div', 'field');
@@ -222,7 +229,7 @@ export class Panel {
     cupTop.append(cupLab);
     this.cupSelect = el('select', 'select');
     this.cupSelect.id = 'cup';
-    this.cupSelect.append(new Option('建議（依其他數值連動）', ''));
+    this.cupSelect.append(new Option('推算（依其他數值）', ''));
     for (const c of CUP_TABLE) this.cupSelect.append(new Option(`${c.cup}（上下胸圍差 ${c.diff} cm）`, c.cup));
     this.cupSelect.addEventListener('change', () => this.cb.onCup(this.cupSelect.value || null));
     this.cupNote = el('p', 'hint');
@@ -232,62 +239,40 @@ export class Panel {
     return g;
   }
 
-  private buildMeasures(group: MeasureDef['group'], title: string, eyebrow: string): HTMLElement {
+  private measureRow(d: MeasureDef): HTMLElement {
+    const row = this.lockRow(d.id, d.label, d, 'cm', d.hint, (v) => this.cb.onLock(d.id, v), () => this.cb.onLock(d.id, null));
+    row.addEventListener('pointerenter', () => this.setHover(d.id));
+    row.addEventListener('pointerleave', () => this.setHover(null));
+    row.addEventListener('focusin', () => this.setFocus(d.id));
+    row.addEventListener('focusout', () => this.setFocus(null));
+    return row;
+  }
+
+  private buildMeasures(ids: MeasureId[], title: string, eyebrow: string): HTMLElement {
     const g = this.group(title, eyebrow);
-    for (const d of MEASURES.filter((m) => m.group === group)) {
-      const row = this.lockRow(d.id, d.label, d, 'cm', d.hint, (v) => this.cb.onLock(d.id, v), () => this.cb.onLock(d.id, null));
-      row.addEventListener('pointerenter', () => this.setHover(d.id));
-      row.addEventListener('pointerleave', () => this.setHover(null));
-      row.addEventListener('focusin', () => this.setFocus(d.id));
-      row.addEventListener('focusout', () => this.setFocus(null));
-      g.append(row);
-    }
+    for (const id of ids) g.append(this.measureRow(MEASURES.find((m) => m.id === id)!));
     return g;
   }
 
-  private buildDisplay(): HTMLElement {
-    const g = this.group('顯示', 'VIEW');
-    const styleRow = el('div', 'field');
-    const fs = el('fieldset', 'segmented');
-    fs.append(el('legend', 'field-label', '表面線條'));
-    for (const s of LINE_STYLES) {
-      const id = `line-${s.id}`;
-      const input = el('input');
-      input.type = 'radio';
-      input.name = 'lineStyle';
-      input.id = id;
-      input.value = s.id;
-      input.addEventListener('change', () => input.checked && this.cb.onView({ lineStyle: s.id }));
-      const lab = el('label', undefined, s.label);
-      lab.htmlFor = id;
-      fs.append(input, lab);
-      this.lineInputs.push(input);
+  private buildProportions(): HTMLElement {
+    const g = this.group('比例', 'PROPORTION', '比例和「細部調整」裡的四肢長度是同一件事：改比例時長度跟著算，改長度時比例跟著變。');
+    for (const d of RATIOS) {
+      const range = { min: d.min, max: d.max, step: d.step };
+      g.append(this.lockRow(d.id, d.label, range, d.unit, d.hint, (v) => this.cb.onRatio(d.id, v / d.scale), () => this.cb.onRatio(d.id, null)));
     }
-    styleRow.append(fs);
-    const toggles = el('div', 'toggles');
-    for (const [key, text] of [['outline', '輪廓線'], ['measures', '全部量測線']] as const) {
-      const lab = el('label', 'toggle');
-      const input = el('input');
-      input.type = 'checkbox';
-      input.id = `view-${key}`;
-      input.addEventListener('change', () => {
-        const map = { outline: 'showOutline', measures: 'showMeasures' } as const;
-        this.cb.onView({ [map[key]]: input.checked });
-      });
-      lab.append(input, el('span', undefined, text));
-      toggles.append(lab);
-      this.view[key] = input;
-    }
-    const armRow = el('div', 'field');
-    const top = el('div', 'field-top');
-    const lab = el('label', 'field-label', '手臂張開角度');
-    lab.htmlFor = 'n-armAngle';
-    top.append(lab);
-    const ctl = numberControl('armAngle', '手臂張開角度', { min: 0, max: 45, step: 1 }, '°', (v) => this.cb.onView({ armAngle: v }));
-    armRow.append(top, ctl.node, el('p', 'hint', '只影響姿勢，不影響任何量測數值。'));
-    this.armAngle = ctl.field;
-    g.append(styleRow, toggles, armRow);
+    this.proportionNote = el('p', 'hint proportion-note');
+    g.append(this.proportionNote);
     return g;
+  }
+
+  private buildDetails(): HTMLElement {
+    this.details = el('details', 'group details');
+    const summary = el('summary', 'group-head details-head');
+    this.detailCount = el('span', 'details-count');
+    summary.append(el('span', 'eyebrow', 'DETAIL'), el('h2', 'group-title', '細部調整'), this.detailCount);
+    this.details.append(summary, el('p', 'group-desc', '頸、臂、手腕、腳踝、肩寬與四肢長度。沒填的會依其他數值推算。'));
+    for (const id of DETAIL) this.details.append(this.measureRow(MEASURES.find((m) => m.id === id)!));
+    return this.details;
   }
 
   private setHover(id: MeasureId | null): void {
@@ -300,7 +285,11 @@ export class Panel {
     this.cb.onFocusMeasure(this.hovered ?? this.focused);
   }
 
-  render(state: AppState, sug: Suggestion, rarity: Partial<Record<VarId, number>>, braSize: string | null): void {
+  /**
+   * @param sug 顯示用的數值（鎖定的是輸入值，其他是網格量到的數值）
+   * @param derived 依比例推算的長度
+   */
+  render(state: AppState, sug: Suggestion, rarity: Partial<Record<VarId, number>>, braSize: string | null, derived: MeasureId[]): void {
     for (const input of this.sexInputs) input.checked = input.value === state.sex;
     setValue(this.height, state.locked.height);
     setValue(this.muscle, MUSCLE_OF_LEAN * (1 - sug.values.bodyFat) * 100);
@@ -314,28 +303,40 @@ export class Panel {
       ? `上下胸圍都已手動填寫，罩杯為 ${braSize ?? ''}。`
       : `目前 ${braSize ?? ''}（台灣／日本尺寸：罩杯字母 + 下胸圍）。`;
 
+    const mark = (r: Row, mode: 'manual' | 'rare' | 'auto' | 'derived') => {
+      r.tag.textContent = { manual: '手動', rare: '手動・少見', auto: '推算', derived: '依比例' }[mode];
+      r.tag.dataset.state = mode;
+      if (r.reset) r.reset.hidden = mode === 'auto' || mode === 'derived';
+      r.row.classList.toggle('is-manual', mode === 'manual' || mode === 'rare');
+    };
     const show = (id: VarId, scale = 1) => {
       const r = this.rows.get(id);
       if (!r) return;
-      const locked = sug.locked[id];
+      const isDerived = derived.includes(id as MeasureId);
+      const locked = sug.locked[id] && !isDerived;
       setValue(r.field, sug.values[id] * scale);
       const p = rarity[id];
-      const rare = locked && p !== undefined && (p < 0.05 || p > 0.95);
-      r.tag.textContent = locked ? (rare ? '手動・少見' : '手動') : '建議';
-      r.tag.dataset.state = locked ? (rare ? 'rare' : 'manual') : 'auto';
-      if (r.reset) r.reset.hidden = !locked;
-      r.row.classList.toggle('is-manual', locked);
+      mark(r, isDerived ? 'derived' : locked ? (p !== undefined && (p < 0.05 || p > 0.95) ? 'rare' : 'manual') : 'auto');
       const [lo, hi] = sug.range[id];
       const hint = MEASURES.find((m) => m.id === id)?.hint ?? '';
-      r.note.textContent = locked ? hint : `常見 ${fmt(lo * scale)}–${fmt(hi * scale)}${hint ? `・${hint}` : ''}`;
+      r.note.textContent = locked || isDerived ? hint : `常見 ${fmt(lo * scale)}–${fmt(hi * scale)}${hint ? `・${hint}` : ''}`;
     };
     show('weight');
     show('bodyFat', 100);
     for (const d of MEASURES) show(d.id);
 
-    for (const input of this.lineInputs) input.checked = input.value === state.view.lineStyle;
-    this.view.outline.checked = state.view.showOutline;
-    this.view.measures.checked = state.view.showMeasures;
-    setValue(this.armAngle, state.view.armAngle, 0);
+    const ratios = ratiosOf(sug.values);
+    for (const d of RATIOS) {
+      const r = this.rows.get(d.id)!;
+      const locked = state.ratios[d.id] !== undefined;
+      setValue(r.field, (state.ratios[d.id] ?? ratios[d.id]) * d.scale, d.digits);
+      mark(r, locked ? 'manual' : 'auto');
+      r.note.textContent = locked ? d.hint : `目前由長度算出・${d.hint}`;
+    }
+    const inseam = (ratios.legRatio * sug.values.height);
+    this.proportionNote.textContent = `股下約 ${fmt(inseam)} cm，上身（頭頂到胯下）約 ${fmt(sug.values.height - inseam)} cm，上身：下身 ≈ 1 : ${(inseam / (sug.values.height - inseam)).toFixed(2)}。`;
+
+    const detailLocked = DETAIL.filter((id) => sug.locked[id] && !derived.includes(id)).length;
+    this.detailCount.textContent = detailLocked ? `${detailLocked} 項手動` : '';
   }
 }

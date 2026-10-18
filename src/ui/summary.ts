@@ -16,7 +16,7 @@ export function renderSummary(root: HTMLElement, state: AppState, s: Summary): v
     ['骨骼肌率', `${f1(s.muscleRate * 100)}%`, `去脂體重 ${f1(s.leanMass)} kg`],
   ];
   if (female && s.braSize) rows.push(['罩杯', s.braSize, '台灣／日本尺寸']);
-  rows.push(['腰臀比', s.whr.toFixed(2)], ['股下', `${f1(s.inseam)} cm`], ['體型', s.shape, '依三圍分類']);
+  rows.push(['腰臀比', s.whr.toFixed(2)], ['股下', `${f1(s.inseam)} cm`, `腿長比 ${f1((s.inseam / s.modelHeight) * 100)}%`], ['體型', s.shape, '依三圍分類']);
 
   const dl = rows
     .map(([k, v, note]) => `<div class="stat"><dt>${k}</dt><dd><b>${v}</b>${note ? `<small>${note}</small>` : ''}</dd></div>`)
