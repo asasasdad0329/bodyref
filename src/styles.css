@@ -305,16 +305,14 @@ textarea {
   color: var(--surface);
 }
 
-/* 顯示工具列：畫面右上角 */
+/* 顯示工具列：畫面右上角，直向排列，避開中間的人台與左側的身高尺 */
 .hud-display {
   top: 16px;
   right: 16px;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 6px;
-  max-width: calc(100% - 340px);
 }
 
 .tool-group,
@@ -1079,7 +1077,9 @@ input[type='range']::-moz-range-thumb {
 
   .hud-display {
     position: static;
-    max-width: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-start;
     padding: 8px max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
     border-top: 1px solid var(--line);
