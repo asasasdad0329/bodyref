@@ -105,8 +105,8 @@ export class Panel {
   private cupSelect!: HTMLSelectElement;
   private cupRow!: HTMLElement;
   private cupNote!: HTMLElement;
-  private details!: HTMLDetailsElement;
   private detailCount!: HTMLElement;
+  private ratioCount!: HTMLElement;
   private proportionNote!: HTMLElement;
   private hovered: MeasureId | null = null;
   private focused: MeasureId | null = null;
@@ -254,25 +254,37 @@ export class Panel {
     return g;
   }
 
+  /** 預設收合的群組；標題旁顯示裡面有幾項是手動的 */
+  private collapsible(title: string, eyebrow: string, desc: string): { node: HTMLDetailsElement; count: HTMLElement } {
+    const node = el('details', 'group details');
+    const summary = el('summary', 'group-head details-head');
+    const count = el('span', 'details-count');
+    summary.append(el('span', 'eyebrow', eyebrow), el('h2', 'group-title', title), count);
+    node.append(summary, el('p', 'group-desc', desc));
+    return { node, count };
+  }
+
   private buildProportions(): HTMLElement {
-    const g = this.group('比例', 'PROPORTION', '比例和「細部調整」裡的四肢長度是同一件事：改比例時長度跟著算，改長度時比例跟著變。');
+    const { node, count } = this.collapsible(
+      '比例',
+      'PROPORTION',
+      '腿長比、大腿：小腿、手臂長比、上臂：前臂。比例和「細部調整」裡的四肢長度是同一件事：改比例時長度跟著算，改長度時比例跟著變。',
+    );
+    this.ratioCount = count;
     for (const d of RATIOS) {
       const range = { min: d.min, max: d.max, step: d.step };
-      g.append(this.lockRow(d.id, d.label, range, d.unit, d.hint, (v) => this.cb.onRatio(d.id, v / d.scale), () => this.cb.onRatio(d.id, null)));
+      node.append(this.lockRow(d.id, d.label, range, d.unit, d.hint, (v) => this.cb.onRatio(d.id, v / d.scale), () => this.cb.onRatio(d.id, null)));
     }
     this.proportionNote = el('p', 'hint proportion-note');
-    g.append(this.proportionNote);
-    return g;
+    node.append(this.proportionNote);
+    return node;
   }
 
   private buildDetails(): HTMLElement {
-    this.details = el('details', 'group details');
-    const summary = el('summary', 'group-head details-head');
-    this.detailCount = el('span', 'details-count');
-    summary.append(el('span', 'eyebrow', 'DETAIL'), el('h2', 'group-title', '細部調整'), this.detailCount);
-    this.details.append(summary, el('p', 'group-desc', '頸、臂、手腕、腳踝、肩寬與四肢長度。沒填的會依其他數值推算。'));
-    for (const id of DETAIL) this.details.append(this.measureRow(MEASURES.find((m) => m.id === id)!));
-    return this.details;
+    const { node, count } = this.collapsible('細部調整', 'DETAIL', '頸、臂、手腕、腳踝、肩寬與四肢長度。沒填的會依其他數值推算。');
+    this.detailCount = count;
+    for (const id of DETAIL) node.append(this.measureRow(MEASURES.find((m) => m.id === id)!));
+    return node;
   }
 
   private setHover(id: MeasureId | null): void {
@@ -338,5 +350,7 @@ export class Panel {
 
     const detailLocked = DETAIL.filter((id) => sug.locked[id] && !derived.includes(id)).length;
     this.detailCount.textContent = detailLocked ? `${detailLocked} 項手動` : '';
+    const ratioLocked = RATIOS.filter((d) => state.ratios[d.id] !== undefined).length;
+    this.ratioCount.textContent = ratioLocked ? `${ratioLocked} 項手動` : '';
   }
 }
