@@ -13,6 +13,7 @@ it('proto cases', { timeout: 600000 }, () => {
     avg: { height: 160, bust: 83, underbust: 70, waist: 64, hip: 89, thigh: 51 },
     slim: { height: 165, bust: 86, underbust: 68, waist: 57, hip: 90, thigh: 50 },
     heavy: { height: 162, bust: 108, underbust: 92, waist: 98, hip: 118, thigh: 68 },
+    curvy: { height: 160, bust: 88, underbust: 68, waist: 62, hip: 94, thigh: 54 },
   };
   for (const [name, T] of Object.entries(cases)) {
     const f = rb.fit('female', T, { neutralize: true });

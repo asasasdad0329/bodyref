@@ -36,7 +36,8 @@ const MODULES: Record<'underbust' | 'waist' | 'hip' | 'thigh', (d: number) => An
   // 胸廓：均勻
   underbust: (d) => ({ side: 1 + d, front: 1 + d, back: 1 + d }),
   // 腰：變細時主要收側面、保留厚度；變粗時肚子往前、腰側往外
-  waist: (d) => (d < 0 ? { side: 1 + 1.35 * d, front: 1 + 0.55 * d, back: 1 + 0.45 * d } : { side: 1 + 1.0 * d, front: 1 + 1.2 * d, back: 1 + 0.6 * d }),
+  // 腰：變細時幾乎只收側面（腰窩），前面的肚子與後腰只收一點；變粗時肚子往前、腰側往外
+  waist: (d) => (d < 0 ? { side: 1 + 1.5 * d, front: 1 + 0.25 * d, back: 1 + 0.4 * d } : { side: 1 + 1.0 * d, front: 1 + 1.2 * d, back: 1 + 0.6 * d }),
   // 臀：往後（臀部）與側面長，前面少
   hip: (d) => ({ side: 1 + 1.2 * d, front: 1 + 0.5 * d, back: 1 + 1.05 * d }),
   // 大腿（局部座標：side = 外側，front/back 同上；內側另外處理）
@@ -228,6 +229,8 @@ export class RingBody {
       if (!ok.has(a.region[i])) continue;
       const y = B[i * 3 + 1];
       w[i] = smoothstep(mk.crotchY - 0.45 * L, mk.crotchY - 0.1 * L, y) * (1 - smoothstep(mk.crotchY + 0.45 * L, mk.crotchY + 0.75 * L, y));
+      // 正中線附近（下腹、恥骨、臀溝）保留原本的弧度，只抹掉兩側斜下來的 V 字折線
+      w[i] *= 0.5 + 0.5 * smoothstep(3, 9, Math.abs(B[i * 3]));
     }
     const tmp = new Float32Array(B.length);
     for (let it = 0; it < 30; it++) {
@@ -268,12 +271,27 @@ export class RingBody {
 
     // 軀幹的控制點（由下往上）：胯下、臀、腰、下胸、腋下、肩
     const yA = mk.underbustY + 0.55 * (p.acromionY - mk.underbustY);
-    const ctrlY = [mk.crotchY - 0.12 * L, mk.hipY, mk.waistY, mk.underbustY, yA, p.acromionY];
-    const crotch: Aniso = { side: 1 + 0.9 * dH, front: 1 + 0.35 * dH, back: 1 + 0.95 * dH };
-    const arm: Aniso = { side: 1 + 0.5 * dU, front: 1 + 0.5 * dU, back: 1 + 0.5 * dU };
-    const ring = [crotch, H, W, U, arm, { side: 1, front: 1, back: 1 }];
-    const curve = (k: keyof Aniso) => pchip(ctrlY, ring.map((r) => r[k]));
-    const tSide = curve('side'), tFront = curve('front'), tBack = curve('back');
+    // 軀幹的輪廓分成三條曲線，各有自己的控制點（由下往上）：
+    // 側面（正面看到的左右輪廓）：大腿根 → 臀側最寬 → 腰窩 → 下胸 → 腋下 → 肩
+    // 前面（側面看到的肚子線）：恥骨 → 下腹 → 腰（臍） → 下胸 → 腋下 → 肩
+    // 後面（側面看到的背線）：臀下 → 臀最翹 → 後腰 → 下胸 → 腋下 → 肩
+    const one = 1;
+    const armK = 1 + 0.5 * dU;
+    const tSide = pchip(
+      [mk.crotchY - 0.12 * L, mk.hipY, mk.waistY, mk.underbustY, yA, p.acromionY],
+      [1 + 0.95 * dH, H.side, W.side, U.side, armK, one],
+    );
+    // 下腹與恥骨一帶跟著骨盆（臀圍）一起長一層，腰收細時不會被拉進去
+    const lowerBelly = 1 + 0.6 * dH + (W.front - 1) * 0.6;
+    const tFront = pchip(
+      [mk.crotchY, mk.crotchY + 0.25 * L, mk.waistY, mk.underbustY, yA, p.acromionY],
+      // 恥骨一帶延續下腹的弧度往下收，不在兩者之間形成一條橫向的台階
+      [1 + 0.9 * (Math.max(lowerBelly, W.front) - 1), Math.max(lowerBelly, W.front), W.front, U.front, armK, one],
+    );
+    const tBack = pchip(
+      [mk.crotchY - 0.12 * L, mk.hipY, mk.waistY, mk.underbustY, yA, p.acromionY],
+      [1 + 0.95 * dH, H.back, W.back, U.back, armK, one],
+    );
 
     // 大腿的控制點（由下往上）：膝、大腿中段、量大腿圍處、胯下
     const thighY = mk.crotchY - 0.1 * (mk.crotchY - mk.kneeY);
@@ -284,7 +302,8 @@ export class RingBody {
     const top: Aniso = { side: T.side, front: T.front, back: Math.max(T.back, 1 + 0.75 * dH) };
     const legRing = [{ side: 1, front: 1, back: 1 }, mid, { ...T, back: (T.back + top.back) / 2 }, top];
     const lSide = pchip(tY, legRing.map((r) => r.side)), lFront = pchip(tY, legRing.map((r) => r.front)), lBack = pchip(tY, legRing.map((r) => r.back));
-    const inner = (y: number) => 1 + (lSide(y) - 1) * 1.15;
+    // 大腿內側：中段長得比外側多一點，但到了大腿根部收回來，避免把恥骨三角區夾成凹陷
+    const inner = (y: number) => 1 + (lSide(y) - 1) * (1.15 - 0.4 * smoothstep(thighY - 0.1 * L, mk.crotchY, y));
 
     const torsoDisp = (x: number, y: number, z: number): [number, number] => {
       const zc = p.torsoZ(y);
