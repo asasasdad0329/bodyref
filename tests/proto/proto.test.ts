@@ -15,6 +15,7 @@ const CASES: Record<string, [Sex, Record<string, number>]> = {
   heavy: ['female', { height: 162, weight: 85 }],
   male: ['male', { height: 175 }],
   maleHeavy: ['male', { height: 175, weight: 100 }],
+  male97: ['male', { height: 170, weight: 97 }],
 };
 
 it('ring prototype', { timeout: 900000 }, () => {
