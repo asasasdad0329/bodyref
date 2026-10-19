@@ -8,7 +8,7 @@
 
 ### 2026-10-19 · claude
 
-- 做了：網站換成截面圈 + 身體組成的新模型；整理交接文件、開發歷程、協作規則；改用 AGPL-3.0-or-later 授權並補上第三方授權清單。倉庫改名為 `bodyref` 並公開；`main` 已受保護（必須走 PR、通過 CI、禁止 force push）。網站改成推送 `stable-*` 標籤時發佈到 GitHub Pages，頁首加了原始碼連結，建置輸出附上授權全文與第三方授權聲明。
+- 做了：網站換成截面圈 + 身體組成的新模型；整理交接文件、開發歷程、協作規則；改用 AGPL-3.0-or-later 授權並補上第三方授權清單。倉庫改名為 `bodyref` 並公開；`main` 已受保護（必須走 PR、通過 CI、禁止 force push）。網站改成作者發佈 `stable-*` Release 時部署到 GitHub Pages（雲端代理不能推標籤，所以標籤由作者建立），頁首加了原始碼連結，建置輸出附上授權全文與第三方授權聲明。
 - 例外紀錄：公開前曾對 `main` 強制推送一次（`9edd319` → `2ca72dd`），只為把最後一筆 commit 的作者信箱換成 GitHub 的代替信箱，內容完全相同。之後不再有例外。
 - 下一步：由作者決定。候選項目見下方「已知問題」第 1 項與「還沒做的規劃」。
 
@@ -67,7 +67,7 @@
 
 **倉庫與發佈**
 
-- 網站已設定成推送 `stable-*` 標籤時發佈到 GitHub Pages（`.github/workflows/deploy.yml`）；倉庫首頁的 About 可以填上網站網址。
+- 網站在作者發佈 `stable-*` Release 時部署到 GitHub Pages（`.github/workflows/deploy.yml`，步驟見 `AGENTS.md`「切換代理時的檢查點」）；倉庫首頁的 About 可以填上網站網址。
 
 ## 設計原則（不要推翻）
 

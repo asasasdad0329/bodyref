@@ -1,12 +1,14 @@
 # 建置並發佈到 GitHub Pages。
-# 只有推送 stable-* 標籤（切換代理時的檢查點，見 AGENTS.md）才會發佈，main 上的每次合併不會直接上線；
-# 也可以手動執行（Actions → Deploy to GitHub Pages → Run workflow）。
+# 只有建立 stable-* 標籤（切換代理時的檢查點，由作者在 Releases 頁面建立，見 AGENTS.md）才會發佈，
+# main 上的每次合併不會直接上線；也可以手動執行（Actions → Deploy to GitHub Pages → Run workflow）。
 # 需要先在 Settings → Pages → Source 選「GitHub Actions」。
 name: Deploy to GitHub Pages
 
 on:
   push:
     tags: ['stable-*']
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -20,6 +22,8 @@ concurrency:
 
 jobs:
   build:
+    # Release 只認 stable-* 標籤；同一次發佈同時觸發 push 與 release 時，concurrency 會取消重複的那一次
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'stable-')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
