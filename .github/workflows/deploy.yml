@@ -1,12 +1,12 @@
 # 建置並發佈到 GitHub Pages。
-# GitHub 免費方案只有公開儲存庫能用 Pages，所以目前只能手動執行（Actions → Deploy to GitHub Pages → Run workflow）。
-# 啟用 Pages（Settings → Pages → Source 選「GitHub Actions」）之後，可以把下面的 push 觸發條件取消註解，
-# 推送到 main 時就會自動發佈。
+# 只有推送 stable-* 標籤（切換代理時的檢查點，見 AGENTS.md）才會發佈，main 上的每次合併不會直接上線；
+# 也可以手動執行（Actions → Deploy to GitHub Pages → Run workflow）。
+# 需要先在 Settings → Pages → Source 選「GitHub Actions」。
 name: Deploy to GitHub Pages
 
 on:
-  # push:
-  #   branches: [main]
+  push:
+    tags: ['stable-*']
   workflow_dispatch:
 
 permissions:
