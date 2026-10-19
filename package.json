@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "以真實量測數據即時生成 3D 人台的體型參照網站",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "vite",
