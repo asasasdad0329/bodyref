@@ -1,29 +1,18 @@
 import type { Suggestion } from '../core/linkage';
 import type { Sex } from '../core/measurements';
-import type { FitInput, Goal } from './mh/model';
 import type { MeasureKey } from './mh/measure';
+import type { CompositionInput, RingTargets, SoftGoal } from './mh/rings';
 
-// 把面板上的狀態換成網格求解的目標。
+// 把面板上的狀態換成人體網格的輸入。
 //
-// - 手動填的數值一定要精確符合。
-// - 骨架類的數值（身高、四肢長度）沒填時也用建議值，因為組成（胖瘦）改變不了骨架。
-// - 肩寬、頸圍、手腕、腳踝、下胸圍沒填時只當作「大致在這附近」。
-// - 胸、腰、臀、臂、大腿、小腿沒填時不設目標，由身體組成（脂肪分佈、肌肉量）自然決定。
-// - 體重、體脂率沒填時只當作起點，會被手動填的圍度帶著走（例如把腰圍改粗，體重會跟著變重）。
+// - 骨架類（身高、四肢長度、肩寬、頸、手腕、腳踝、下胸圍）：手動的照填，沒填的用連動建議。
+//   女性的上胸圍也在這裡（決定胸部大小），沒指定罩杯時用建議值。
+// - 軟組織類（腰、臀、大腿、小腿、上臂；男性的上胸圍）：只有手動填的才固定，
+//   沒填的由體重、體脂率與脂肪、肌肉的分配自然長出來。
+// - 體重沒鎖定時只當作起點：手動把腰圍改粗，體重會跟著變重。
 
-const HARD = 0.02;
-
-/** 沒填時的寬鬆程度（cm） */
-const SOFT: Partial<Record<MeasureKey, number>> = {
-  shoulder: 1.5,
-  neck: 1,
-  wrist: 0.5,
-  ankle: 0.7,
-  underbust: 2.5,
-};
-
-const LENGTHS: MeasureKey[] = ['upperArmLen', 'forearmLen', 'thighLen', 'calfLen'];
-const SOFT_TISSUE: MeasureKey[] = ['bust', 'waist', 'hip', 'upperArm', 'thigh', 'calf'];
+const FRAME: MeasureKey[] = ['height', 'shoulder', 'neck', 'wrist', 'ankle', 'underbust', 'upperArmLen', 'forearmLen', 'thighLen', 'calfLen'];
+const SOFT: SoftGoal[] = ['bust', 'waist', 'hip', 'thigh', 'calf', 'upperArm'];
 
 export interface GoalInput {
   sex: Sex;
@@ -32,20 +21,29 @@ export interface GoalInput {
   bustDiff: number | null;
 }
 
-export function goalsFor({ sex, sug, bustDiff }: GoalInput): FitInput {
+export interface BodyInput extends CompositionInput {
+  /** 手動填的量測（用來列出做不到的項目） */
+  userLocked: MeasureKey[];
+  bodyFatLocked: boolean;
+  bustDiff: number | null;
+}
+
+export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
   const v = sug.values;
   const L = sug.locked;
-  const goals: Goal[] = [{ kind: 'measure', key: 'height', value: v.height, sd: 0.02 }];
-  for (const key of LENGTHS) goals.push({ kind: 'measure', key, value: v[key], sd: HARD });
-  for (const [key, sd] of Object.entries(SOFT) as [MeasureKey, number][]) {
-    goals.push({ kind: 'measure', key, value: v[key], sd: L[key] ? HARD : sd });
-  }
-  for (const key of SOFT_TISSUE) {
-    if (L[key]) goals.push({ kind: 'measure', key, value: v[key], sd: HARD });
-  }
-  const diff = bustDiff ?? v.bust - v.underbust;
-  if (sex === 'female' && !(L.bust && L.underbust)) goals.push({ kind: 'diff', value: diff, sd: bustDiff !== null ? 0.05 : 3 });
-  goals.push({ kind: 'weight', value: v.weight, sd: L.weight ? 0.05 : 4 });
-  goals.push({ kind: 'bodyFat', value: v.bodyFat, sd: L.bodyFat ? 0.001 : 0.035 });
-  return { sex, goals, prior: { weight: v.weight, bodyFat: v.bodyFat, diff } };
+  const frame = Object.fromEntries(FRAME.map((k) => [k, v[k]])) as RingTargets;
+  if (sex === 'female') Object.assign(frame, { bust: v.bust, underbust: v.underbust });
+  const locked: CompositionInput['locked'] = {};
+  for (const k of SOFT) if (L[k] && !(k === 'bust' && sex === 'female')) locked[k] = v[k];
+  return {
+    sex,
+    frame,
+    weight: v.weight,
+    bodyFat: v.bodyFat,
+    weightLocked: L.weight,
+    locked,
+    userLocked: (Object.keys(L) as MeasureKey[]).filter((k) => L[k as keyof typeof L] && k in v && k !== ('weight' as MeasureKey) && k !== ('bodyFat' as MeasureKey)),
+    bodyFatLocked: L.bodyFat,
+    bustDiff,
+  };
 }

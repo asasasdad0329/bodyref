@@ -1,14 +1,23 @@
 import type { BodyAsset } from './asset';
 import { type HeadParts, cutNeck, eggHead, headParts } from './egghead';
-import { type V3, cavity, centroid, vert } from './geometry';
+import { type V3, cavity, centroid, meshVolume, vert } from './geometry';
 import { GuideBuilder } from './guides';
+import type { BodyInput } from '../goals';
 import { MEASURE_KEYS, type MeasureKey } from './measure';
-import { type ArmPose, BodyModel, type FitInput, type FitResult, rotateArmPoint } from './model';
+import { type ArmPose, BodyModel, rotateArmPoint } from './model';
+import { RingBody, type Soft } from './rings';
 
-// 把「一組求解目標」變成畫面需要的一切：顯示用網格、結構線、量測線、實際量到的數值、體重與身體組成。
+// 把「骨架 + 身體組成 + 手動數值」變成畫面需要的一切：顯示用網格、結構線、量測線、實際量到的數值、體重與身體組成。
 // 在 Web Worker 裡執行，避免拖動滑桿時卡住畫面。
 
-export interface EngineInput extends FitInput {
+/** 手動填的目標：量測值、體重、體脂率、上下胸圍差 */
+export type Goal =
+  | { kind: 'measure'; key: MeasureKey; value: number }
+  | { kind: 'weight'; value: number }
+  | { kind: 'bodyFat'; value: number }
+  | { kind: 'diff'; value: number };
+
+export interface EngineInput extends BodyInput {
   armAngle: number;
 }
 
@@ -34,8 +43,10 @@ export interface EngineOutput {
   /** 模型的體重（瘦體重 + 脂肪）與體脂率 */
   weight: number;
   bodyFat: number;
-  residual: FitResult['residual'];
-  composition: FitResult['composition'];
+  /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
+  residual: { goal: Goal; error: number }[];
+  /** 各區脂肪與肌肉比素體多出的公斤數 */
+  composition: Soft;
   /** 體積（cm³） */
   volume: number;
   marks: { topY: number; crotchY: number; kneeY: number; ankleY: number };
@@ -43,35 +54,35 @@ export interface EngineOutput {
 
 export class BodyEngine {
   readonly model: BodyModel;
+  readonly rings: RingBody;
   private readonly guides: GuideBuilder;
   readonly head: HeadParts;
 
   constructor(readonly asset: BodyAsset) {
     this.model = new BodyModel(asset);
+    this.rings = new RingBody(asset);
     this.guides = new GuideBuilder(asset);
     this.head = headParts(asset);
   }
 
   run(input: EngineInput): EngineOutput {
-    const fit = this.model.fit(input);
-    const { P, armRotation } = this.model.display(fit, input.armAngle);
+    const res = this.rings.fitComposition(input, { neutralize: true });
+    const { P, armRotation } = this.model.display(res.P, input.armAngle);
     const a = this.asset;
-    const s = fit.scale;
-    const toDisplay = (p: V3): V3 => [p[0] * s, p[1] * s + fit.offsetY, p[2] * s];
-    const m = fit.measured;
+    const m = res.measured;
 
     const J = (n: string) => centroid(P, ...a.joints[n]);
     const knee = J('l-knee'), ankle = J('l-ankle');
     let topY = -Infinity;
     for (let i = 0; i < a.nBody; i++) topY = Math.max(topY, P[i * 3 + 1]);
-    const crotchY = m.marks.crotchY * s + fit.offsetY;
+    const crotchY = m.marks.crotchY;
 
     const guides: Float32Array[] = this.guides.build(P, {
-      underbustY: m.marks.underbustY * s + fit.offsetY,
-      waistY: m.marks.waistY * s + fit.offsetY,
-      hipY: m.marks.hipY * s + fit.offsetY,
+      underbustY: m.marks.underbustY,
+      waistY: m.marks.waistY,
+      hipY: m.marks.hipY,
       topY,
-      height: fit.values.height,
+      height: res.values.height,
     }).map((line) => Float32Array.from(line.flat()));
     const egg = eggHead(P, this.head);
     const neckCut = cutNeck(P, a, this.head);
@@ -82,13 +93,13 @@ export class BodyEngine {
     const eggCount = egg.positions.length / 3;
     const headIndex = Uint32Array.from([...egg.index, ...Array.from(neckCut.plug.index, (i) => i + eggCount)]);
 
-    // 量測線：從量測時的截面換到顯示座標；手臂上的跟著手臂轉
+    // 量測線：手臂上的跟著手臂轉
     const tapes: EngineOutput['tapes'] = {};
     const armKeys: MeasureKey[] = ['upperArm', 'wrist'];
     for (const key of MEASURE_KEYS) {
       const path = m.tapes[key];
       if (!path) continue;
-      let pts = path.map(toDisplay);
+      let pts = path;
       if (armKeys.includes(key)) pts = pts.map((p) => rotateArmPoint(p, armRotation.L as ArmPose));
       tapes[key] = closedTape(pts, key !== 'shoulder', ['upperArm', 'wrist', 'thigh', 'calf', 'ankle'].includes(key));
     }
@@ -118,12 +129,12 @@ export class BodyEngine {
       head: { positions: headPositions, index: headIndex },
       guides,
       tapes,
-      values: fit.values,
-      weight: fit.weight,
-      bodyFat: fit.bodyFat,
-      residual: fit.residual,
-      composition: fit.composition,
-      volume: fit.volume,
+      values: res.values,
+      weight: res.weight,
+      bodyFat: res.bodyFat,
+      residual: residualOf(input, res.values, res.weight, res.bodyFat),
+      composition: res.kg,
+      volume: meshVolume(res.P.subarray(0, a.nBody * 3), a.quads),
       marks: { topY, crotchY, kneeY: knee[1], ankleY: ankle[1] },
     };
   }
@@ -145,4 +156,21 @@ function closedTape(pts: V3[], closed: boolean, lateral: boolean): TapePath {
   }
   if (!closed) anchor = pushed[Math.floor(pushed.length / 2)];
   return { closed, points: Float32Array.from(pushed.flat()), anchor };
+}
+
+/** 手動填的數值和模型做到的差距 */
+function residualOf(input: EngineInput, values: Record<MeasureKey, number>, weight: number, bodyFat: number): EngineOutput['residual'] {
+  const out: EngineOutput['residual'] = [];
+  for (const key of input.userLocked) {
+    if (!(key in values)) continue;
+    const target = key in input.locked ? input.locked[key as keyof typeof input.locked]! : input.frame[key as keyof typeof input.frame];
+    if (target === undefined) continue;
+    out.push({ goal: { kind: 'measure', key, value: target }, error: values[key] - target });
+  }
+  if (input.weightLocked) out.push({ goal: { kind: 'weight', value: input.weight }, error: weight - input.weight });
+  if (input.bodyFatLocked) out.push({ goal: { kind: 'bodyFat', value: input.bodyFat }, error: bodyFat - input.bodyFat });
+  if (input.sex === 'female' && input.bustDiff !== null) {
+    out.push({ goal: { kind: 'diff', value: input.bustDiff }, error: values.bust - values.underbust - input.bustDiff });
+  }
+  return out;
 }

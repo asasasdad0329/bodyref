@@ -132,7 +132,7 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
   if (sug.locked.weight && lockedSoft.length) {
     add(
       'info',
-      `體重已手動指定：${lockedSoft.map((id) => VAR_LABEL[id]).join('、')}變粗所需的脂肪，會從其他沒填的部位（四肢、肌肉量）扣回來。想讓體重跟著變，請把體重改回建議。`,
+      `體重已手動指定，總脂肪量固定：${lockedSoft.map((id) => VAR_LABEL[id]).join('、')}比預設多用（或省下）的脂肪，會從其他沒填的部位扣掉（或補到那裡）。想讓體重跟著變，請把體重改回建議。`,
     );
   }
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { goalsFor } from '../src/body/goals';
+import { bodyInputFor } from '../src/body/goals';
 import { parseBodyAsset } from '../src/body/mh/asset';
 import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
@@ -17,7 +17,7 @@ beforeAll(() => {
 function run(sex: Sex, locked: Record<string, number>, cup: string | null = null): EngineOutput {
   const bustDiff = cup ? cupDiff(cup)! : null;
   const sug = suggest({ sex, locked, bustDiff });
-  return engine.run({ ...goalsFor({ sex, sug, bustDiff }), armAngle: 16 });
+  return engine.run({ ...bodyInputFor({ sex, sug, bustDiff }), armAngle: 16 });
 }
 
 describe('人體網格', () => {
@@ -28,6 +28,8 @@ describe('人體網格', () => {
     ['偏胖', 'female', { height: 158, weight: 80 }, null],
     ['高壯男性', 'male', { height: 190, weight: 95, bodyFat: 0.24 }, null],
     ['G 罩杯', 'female', { height: 168, thigh: 56, calf: 36 }, 'G'],
+    ['S 罩杯', 'female', { height: 160, underbust: 70 }, 'S'],
+    ['細腰但體重重', 'female', { height: 160, weight: 75, waist: 64 }, null],
   ];
   for (const [name, sex, locked, cup] of cases) {
     it(`${name}：手動填的數值都符合（圍度 0.5 cm、體重 0.5 kg 內）`, () => {
@@ -50,6 +52,17 @@ describe('人體網格', () => {
       expect(Math.abs(out.values.waist - ref.girths.waist), `${sex} waist`).toBeLessThan(5);
       expect(Math.abs(out.values.hip - ref.girths.hip), `${sex} hip`).toBeLessThan(4);
     }
+  });
+
+  it('結果不受上一次輸入影響（拖動滑桿時會沿用上一次的解當起點）', () => {
+    const fresh = run('female', { height: 160 });
+    run('female', { height: 160, weight: 75, waist: 64 });
+    run('female', { height: 160, bodyFat: 0.35, hip: 110 });
+    const again = run('female', { height: 160 });
+    for (const key of ['bust', 'waist', 'hip', 'thigh', 'upperArm'] as const) {
+      expect(Math.abs(again.values[key] - fresh.values[key]), key).toBeLessThan(0.3);
+    }
+    expect(Math.abs(again.weight - fresh.weight)).toBeLessThan(0.3);
   });
 
   it('罩杯只影響胸部：體脂相同時，A 到 G 的腰圍與臀圍幾乎不變', () => {

@@ -1,6 +1,6 @@
 import './styles.css';
 import { BodyClient } from './body/client';
-import { goalsFor } from './body/goals';
+import { bodyInputFor } from './body/goals';
 import type { EngineOutput } from './body/mh/engine';
 import { type Summary, braSize, summarize } from './core/analysis';
 import { type Suggestion, type VarId, rarity, suggest } from './core/linkage';
@@ -40,6 +40,8 @@ interface Tag {
   state: AppState;
   sug: Suggestion;
   bustDiff: number | null;
+  /** 請求的鍵：內容相同但物件不同的狀態（例如輸入框失焦時再送一次同樣的值）也算同一次 */
+  key: string;
 }
 
 const client = new BodyClient<Tag>(
@@ -54,7 +56,7 @@ const client = new BodyClient<Tag>(
     shown = { state: tag.state, sug: sugShown };
     viewer.setShape(out, summary.values);
     renderSummary(summaryEl, tag.state, summary);
-    if (tag.state === state) renderPanel(sugShown);
+    if (tag.key === requestedKey) renderPanel(sugShown);
     statusEl.hidden = true;
   },
   (message) => {
@@ -156,7 +158,7 @@ function apply(): void {
   const key = JSON.stringify([state.sex, state.locked, state.cup, state.ratios, state.view.armAngle]);
   if (key !== requestedKey) {
     requestedKey = key;
-    client.request({ ...goalsFor({ sex: state.sex, sug, bustDiff: diff }), armAngle: state.view.armAngle }, { state, sug, bustDiff: diff });
+    client.request({ ...bodyInputFor({ sex: state.sex, sug, bustDiff: diff }), armAngle: state.view.armAngle }, { state, sug, bustDiff: diff, key });
   }
   save(state);
 }

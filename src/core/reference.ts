@@ -76,6 +76,8 @@ export const CUP_TABLE: readonly { cup: string; diff: number }[] = [
   { cup: 'I', diff: 30 },
   { cup: 'J', diff: 32.5 },
   { cup: 'K', diff: 35 },
+  // 以下照同樣每 2.5 cm 一級往上排；網格大約做到 S，再大兩邊會黏成一塊
+  ...'LMNOPQRS'.split('').map((cup, i) => ({ cup, diff: 37.5 + 2.5 * i })),
 ];
 
 export function cupDiff(cup: string): number | undefined {
