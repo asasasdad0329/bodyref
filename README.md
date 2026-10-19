@@ -71,7 +71,10 @@ npm install
 npm run dev      # 開發伺服器
 npm test         # 連動模型與網格的測試
 npm run build    # 輸出到 dist/
+npm run build:single   # 另外打包成單一 HTML（dist/bodyref-single.html），不需要伺服器就能打開
 ```
+
+多人（含 AI 服務）協作的規則寫在 `AGENTS.md`；目前狀態、已知問題與還沒做的規劃在 `docs/HANDOFF.md`，開發過程與每次轉向的理由在 `docs/HISTORY.md`。
 
 需要 Node.js 20 以上。
 
