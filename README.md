@@ -74,7 +74,7 @@ npm run build    # 輸出到 dist/
 npm run build:single   # 另外打包成單一 HTML（dist/bodyref-single.html），不需要伺服器就能打開
 ```
 
-多人（含 AI 服務）協作的規則寫在 `AGENTS.md`；目前狀態、已知問題與還沒做的規劃在 `docs/HANDOFF.md`，開發過程與每次轉向的理由在 `docs/HISTORY.md`。
+協作規則（含 AI 編碼代理）寫在 `AGENTS.md`；目前狀態、已知問題與還沒做的規劃在 `docs/HANDOFF.md`，開發過程與每次轉向的理由在 `docs/HISTORY.md`。
 
 需要 Node.js 20 以上。
 
@@ -133,10 +133,19 @@ tools/                  產生資料檔的腳本
 - **型態指定（胸型、臀型）**：每一塊肉的位置、範圍、下垂與變薄方式都寫在 `rings.ts` 的 `build`；胸型、臀型可以做成這些數值的預設組合（例如水滴、圓盤、碗公），不影響總量分配。
 - **姿勢**：MakeHuman 的骨架與蒙皮權重（CC0）可以直接用；目前只用來轉手臂角度。
 
+## 這個專案怎麼做出來的
+
+構想、需求、體型與比例的判斷、每一版的驗收由作者負責；程式碼與文件由 AI 編碼代理（Claude Code 等）依討論結果撰寫。開發過程中幾次推翻重來的理由記錄在 `docs/HISTORY.md`。
+
 ## 授權與來源
 
-- 人體網格、形變目標、骨架權重：MakeHuman 1.x 資產，CC0 1.0。本專案只使用其資產檔，沒有使用 MakeHuman 的程式碼（AGPL）。
+本專案以 [GNU Affero General Public License v3.0 或更新版本](LICENSE)（AGPL-3.0-or-later）釋出：可以自由使用、修改、散布，但散布修改版或拿修改版架設網路服務時，必須以同樣的授權公開完整原始碼，並保留原作者的著作權聲明。
+
+Copyright (C) 2026 asasasdad0329
+
+- 人體網格、形變目標、骨架權重：MakeHuman 1.x 資產，CC0 1.0。本專案只使用其資產檔，沒有使用 MakeHuman 的程式碼。
 - 人體計測資料：ANSUR II，美國政府公有領域資料。
+- 其他第三方程式庫與字型的授權見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
 ## 規劃中
 
