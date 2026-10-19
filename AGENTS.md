@@ -26,7 +26,7 @@
 
 1. **交棒**：把成果合併或至少推上分支，更新 `docs/HANDOFF.md` 的「接力紀錄」（做了什麼、下一步、未決問題）。
 2. **接棒**：先讀 `AGENTS.md`、`docs/HANDOFF.md`，再看上一個 `stable-*` 標籤以來的所有改動（`git log stable-…..main`），向作者回報理解的現況與發現的問題。
-3. 檢查沒問題就打標籤 `stable-YYYY-MM-DD`；有問題就只回滾那一筆。
+3. 有問題就只回滾那一筆；檢查沒問題就請作者發佈：作者在 GitHub 的 Releases → Create a new release 建立標籤 `stable-YYYY-MM-DD`（Target 為 `main`）並按 Publish，網站會自動部署到 GitHub Pages。標籤一律由作者建立：雲端代理通常沒有推送標籤的權限，而且上線這一步由作者拍板。
 
 ## 回滾
 
