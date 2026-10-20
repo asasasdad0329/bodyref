@@ -27,7 +27,9 @@ try {
   await server.listen();
   const port = server.httpServer.address().port;
   const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
-  const ids = selected[0] === 'all' ? BODY_CASES.map((c) => c.id) : selected.length ? selected : ['T2', 'T4', 'H130', 'T5-125', 'CUP-S', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
+  const representative = ['T2', 'T4', 'H130', 'T5-125', 'CUP-S', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
+  const ids = selected[0] === 'all' ? [...new Set([...representative, ...BODY_CASES.map((c) => c.id)])]
+    : selected.length ? selected : representative;
   const cases = ids.map((id) => {
     const c = BODY_CASES.find((c) => c.id === id); if (!c) throw new Error(`未知案例：${id}`); return c;
   });
@@ -62,6 +64,7 @@ try {
   for (const c of cases) {
     errors.length = 0;
     const code = Buffer.from(JSON.stringify({ sex: c.sex, locked: c.locked, cup: c.cup ?? null, ratios: {} })).toString('base64url');
+    await evaluate('window.__bodySearch=null;window.__bodyResults=[]');
     await send('Page.navigate', { url: `http://127.0.0.1:${port}/?b=${code}` });
     await until(async () => {
       try { return await evaluate(`window.__bodySearch === ${JSON.stringify('?b=' + code)} && window.__bodyResults?.length > 0 && document.querySelector("#stage-status")?.hidden`); }

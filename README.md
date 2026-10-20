@@ -83,7 +83,7 @@ npm run build:single   # 另外打包成單一 HTML（dist/bodyref-single.html�
 
 協作規則（含 AI 編碼代理）寫在 `AGENTS.md`；目前狀態、已知問題與還沒做的規劃在 `docs/HANDOFF.md`，開發過程與每次轉向的理由在 `docs/HISTORY.md`。
 
-開發與 CI 使用 Node.js 22（22.12 以上）。CI 另保存代表案例的 `body-visual` 圖片附件；數值與四視圖工具都只寫入指定的倉庫外目錄，不把產物放入 Git。
+開發與 CI 使用 Node.js 22（22.12 以上）。CI 另保存代表案例的 `body-visual` 圖片附件（正面、側面、背面、斜後）；四視圖工具加上 `all` 可跑全部自身案例。數值與四視圖工具都只寫入指定的倉庫外目錄，不把產物放入 Git。
 
 ### 重新產生資料檔
 
