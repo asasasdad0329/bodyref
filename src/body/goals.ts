@@ -47,14 +47,14 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
       target: preferenceSuggestion.values[k],
       scale: Math.max(0.045, Math.log(hi / lo) / (2 * 1.2816)),
       // 來源的上臂與腰量法不同，先降低偏好強度，不捏造公分換算。
-      confidence: k === 'upperArm' ? 0.55 : k === 'waist' ? 0.65 : 1,
+      confidence: k === 'upperArm' ? 0.55 : k === 'waist' ? 0.9 : 1,
     };
   }
   return {
     sex,
     frame,
-    weight: v.weight,
-    bodyFat: v.bodyFat,
+    weight: L.weight ? v.weight : preferenceSuggestion.values.weight,
+    bodyFat: L.bodyFat ? v.bodyFat : preferenceSuggestion.values.bodyFat,
     muscleRate: L.muscleRate ? v.muscleRate : undefined,
     weightLocked: L.weight,
     locked,

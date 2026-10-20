@@ -40,6 +40,7 @@ describe('數值連動', () => {
     const base = suggest({ sex: 'female', locked: { height: 160, weight: 52 } }).values;
     const e = suggest({ sex: 'female', locked: { height: 160, weight: 52 }, bustDiff: 20 }).values;
     expect(e.bust - e.underbust).toBeCloseTo(20, 1);
+    for (const key of ['underbust', 'weight', 'waist', 'hip', 'upperArmLen'] as const) expect(e[key]).toBe(base[key]);
     expect(e.bust - base.bust).toBeGreaterThan(base.underbust - e.underbust);
   });
 

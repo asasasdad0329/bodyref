@@ -57,7 +57,7 @@ describe('人體網格', () => {
     }
   });
 
-  it('結果不受上一次輸入影響（拖動滑桿時會沿用上一次的解當起點）', () => {
+  it('結果不受上一次輸入影響（每次從確定起點求解）', () => {
     const fresh = run('female', { height: 160 });
     run('female', { height: 160, weight: 75, waist: 64 });
     run('female', { height: 160, bodyFat: 0.35, hip: 110 });
@@ -200,6 +200,103 @@ describe('人體網格', () => {
     const out = regression('T6');
     expect(out.composition.upperBack).toBeLessThan(2);
     expect(Math.abs(out.weight - 97)).toBeLessThan(0.5);
+  });
+
+  const anatomyOutputs = new Map<string, EngineOutput>();
+  const anatomyCase = (id: string) => {
+    if (!anatomyOutputs.has(id)) anatomyOutputs.set(id, regression(id));
+    return anatomyOutputs.get(id)!;
+  };
+  const anatomyIds = BODY_CASES.filter((c) => /^(LOCK-|F-|M-)/.test(c.id)).map((c) => c.id);
+  for (const id of anatomyIds) {
+    it(`${id}：固定圍度時仍校正重量、脂肪與獨立肌肉，三類重量完整記帳`, () => {
+      const out = anatomyCase(id);
+      for (const { goal, error } of out.residual) {
+        expect(Math.abs(error), goal.kind === 'measure' ? goal.key : goal.kind).toBeLessThan(
+          goal.kind === 'bodyFat' || goal.kind === 'muscleRate' ? 0.01 : 0.5);
+      }
+      expect(out.positions.every(Number.isFinite)).toBe(true);
+      expect(Object.values(out.tissueMass).every((kg) => kg > 0)).toBe(true);
+      expect(out.tissueMass.fat + out.tissueMass.muscle + out.tissueMass.otherLean).toBeCloseTo(out.weight, 8);
+      expect(out.tissueMass.fat / out.weight).toBeCloseTo(out.bodyFat, 8);
+      expect(out.tissueMass.muscle / out.weight).toBeCloseTo(out.muscleRate, 8);
+      // 不准把自由重量藏在沒有獨立量測的胸大肌或背部。
+      if (id.startsWith('LOCK-')) expect(out.composition.pectoralMuscle).toBeLessThan(2);
+    });
+  }
+
+  const regionRms = (a: EngineOutput, b: EngineOutput, lo: number, hi: number, front: boolean) => {
+    let sum = 0, count = 0;
+    const regions = new Set(['torso', 'breastL', 'breastR', 'thighL', 'thighR'].map((name) => engine.asset.regions.indexOf(name)));
+    for (let i = 0; i < engine.asset.nBody; i++) {
+      const y = a.positions[i * 3 + 1];
+      if (!regions.has(engine.asset.region[i]) || y < lo || y > hi) continue;
+      if (front && a.positions[i * 3 + 2] < 0) continue;
+      sum += [0, 1, 2].reduce((s, k) => s + (a.positions[i * 3 + k] - b.positions[i * 3 + k]) ** 2, 0); count++;
+    }
+    expect(count).toBeGreaterThan(20);
+    return Math.sqrt(sum / count);
+  };
+
+  it('固定腰臀與脂肪時，獨立肌肉率仍改變女性腰腹臀形，而非只改顯示數字', () => {
+    const a = anatomyCase('F-M30'), b = anatomyCase('F-M43');
+    expect(b.tissueMass.muscle - a.tissueMass.muscle).toBeGreaterThan(7);
+    expect(Math.abs(a.bodyFat - b.bodyFat)).toBeLessThan(0.002);
+    expect(regionRms(a, b, a.marks.crotchY - 3, a.marks.crotchY + 30, false)).toBeGreaterThan(0.2);
+  });
+
+  it('同樣胸腰臀仍有不同脂肪覆蓋；女性胸部與腰腹都參與形變', () => {
+    const a = anatomyCase('F-SHAPE-BF18'), b = anatomyCase('F-SHAPE-BF35');
+    expect(b.composition.chest).toBeGreaterThan(a.composition.chest);
+    expect(regionRms(a, b, 105, 135, true)).toBeGreaterThan(0.15);
+    expect(regionRms(a, b, a.marks.crotchY + 5, 105, true)).toBeGreaterThan(0.2);
+  });
+
+  it('男性固定胸圍、體脂時，肌肉率能改變胸前形態', () => {
+    const a = anatomyCase('M-CHEST-M30'), b = anatomyCase('M-CHEST-M45');
+    expect(regionRms(a, b, 115, 145, true)).toBeGreaterThan(0.15);
+    expect(b.tissueMass.muscle - a.tissueMass.muscle).toBeGreaterThan(10);
+  });
+
+  it('臀圍增大也增加正面臀側及大腿上外側的寬度，即使大腿圍固定', () => {
+    const base = { height: 165, bust: 97, underbust: 76, waist: 68, thigh: 56 };
+    const a = run('female', { ...base, hip: 94 }), b = run('female', { ...base, hip: 114 });
+    const span = (out: EngineOutput) => {
+      let width = 0;
+      const regions = new Set(['torso', 'thighL', 'thighR'].map((name) => engine.asset.regions.indexOf(name)));
+      for (let i = 0; i < engine.asset.nBody; i++) {
+        const y = out.positions[i * 3 + 1];
+        if (regions.has(engine.asset.region[i]) && Math.abs(y - out.marks.crotchY) < 3) width = Math.max(width, 2 * Math.abs(out.positions[i * 3]));
+      }
+      return width;
+    };
+    expect(Math.abs(b.values.thigh - 56)).toBeLessThan(0.5);
+    expect(span(b) - span(a)).toBeGreaterThan(1);
+  }, 15000);
+
+  it('改肌肉與體脂後回到原狀，形態校準不受歷史影響', () => {
+    const a = anatomyCase('F-M30'); anatomyCase('M-CHEST-BF32'); anatomyCase('F-SHAPE-BF35');
+    const b = regression('F-M30');
+    expect(Math.max(...a.positions.map((v, i) => Math.abs(v - b.positions[i])))).toBeLessThan(0.01);
+    expect(Math.abs(a.muscleRate - b.muscleRate)).toBeLessThan(0.0001);
+  });
+
+  it('同一罩杯格點內的小數尺寸不污染骨架與形態快取', () => {
+    const locked = { height: 165, underbust: 74, bust: 90.2, waist: 68, hip: 100 };
+    const a = run('female', locked);
+    run('female', { ...locked, bust: 90.4 });
+    const sug = suggest({ sex: 'female', locked });
+    const input = { ...bodyInputFor({ sex: 'female', sug, bustDiff: null }), armAngle: 16 };
+    const b = new BodyEngine(engine.asset).run(input);
+    expect(Math.max(...a.positions.map((v, i) => Math.abs(v - b.positions[i])))).toBeLessThan(0.01);
+  }, 15000);
+
+  it('脂肪加肌肉要求超過可用重量時保留組成殘差，不回報虛假的達標', () => {
+    const out = run('female', { height: 165, weight: 62, bodyFat: 0.45, muscleRate: 0.5 });
+    const residual = out.residual.find((r) => r.goal.kind === 'muscleRate')!;
+    expect(Math.abs(residual.error)).toBeGreaterThan(0.03);
+    expect(out.tissueMass.otherLean).toBeGreaterThan(0);
+    expect(out.positions.every(Number.isFinite)).toBe(true);
   });
 
 });

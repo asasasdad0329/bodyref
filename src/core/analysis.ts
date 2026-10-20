@@ -24,6 +24,8 @@ export interface Summary {
   bodyFatLocked: boolean;
   leanMass: number;
   muscleRate: number;
+  muscleMass: number;
+  otherLeanMass: number;
   /** 例如 "B70"；男性為 null */
   braSize: string | null;
   whr: number;
@@ -165,6 +167,8 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
     bodyFatLocked: sug.locked.bodyFat,
     leanMass,
     muscleRate: out.muscleRate,
+    muscleMass: out.tissueMass.muscle,
+    otherLeanMass: out.tissueMass.otherLean,
     braSize: female ? braSize(v.bust, v.underbust) : null,
     whr: v.waist / v.hip,
     inseam: out.marks.crotchY,
