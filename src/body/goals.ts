@@ -47,19 +47,18 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
       target: preferenceSuggestion.values[k],
       scale: Math.max(0.045, Math.log(hi / lo) / (2 * 1.2816)),
       // 來源的上臂與腰量法不同，先降低偏好強度，不捏造公分換算。
-      confidence: k === 'upperArm' ? 0.55 : k === 'waist' ? 0.9 : 1,
+      confidence: k === 'upperArm' ? 0.55 : k === 'waist' ? 0.65 : 1,
     };
   }
   return {
     sex,
     frame,
-    weight: L.weight ? v.weight : preferenceSuggestion.values.weight,
-    bodyFat: L.bodyFat ? v.bodyFat : preferenceSuggestion.values.bodyFat,
-    muscleRate: L.muscleRate ? v.muscleRate : undefined,
+    weight: v.weight,
+    bodyFat: v.bodyFat,
     weightLocked: L.weight,
     locked,
     preferred,
-    userLocked: (Object.keys(L) as MeasureKey[]).filter((k) => L[k as keyof typeof L] && k in v && k !== ('weight' as MeasureKey) && k !== ('bodyFat' as MeasureKey) && k !== ('muscleRate' as MeasureKey)),
+    userLocked: (Object.keys(L) as MeasureKey[]).filter((k) => L[k as keyof typeof L] && k in v && k !== ('weight' as MeasureKey) && k !== ('bodyFat' as MeasureKey)),
     bodyFatLocked: L.bodyFat,
     bustDiff,
   };

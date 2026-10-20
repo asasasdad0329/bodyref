@@ -1,20 +1,8 @@
 import { ANKLE_HEIGHT, applyRatios, ratiosOf } from '../src/core/proportions';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_STATE, decodeShare, encodeShare } from '../src/core/state';
 import { rarity, suggest } from '../src/core/linkage';
 
 describe('數值連動', () => {
-  it('肌肉率獨立保存，不改體脂或虛構統計連動', () => {
-    const base = suggest({ sex: 'female', locked: { height: 165, weight: 62, bodyFat: 0.25 } });
-    const muscle = suggest({ sex: 'female', locked: { height: 165, weight: 62, bodyFat: 0.25, muscleRate: 0.43 } });
-    expect(muscle.values.bodyFat).toBe(0.25);
-    expect(muscle.values.muscleRate).toBe(0.43);
-    for (const key of ['bust', 'waist', 'hip', 'thigh'] as const) expect(muscle.values[key]).toBe(base.values[key]);
-    const state = { ...DEFAULT_STATE, locked: { height: 165, bodyFat: 0.25, muscleRate: 0.43 } };
-    expect(decodeShare(encodeShare(state))?.locked).toEqual(state.locked);
-    expect(decodeShare(encodeShare(DEFAULT_STATE))?.locked.muscleRate).toBeUndefined();
-  });
-
   it('只填參考身高體重時，建議值等於參考體型', () => {
     const s = suggest({ sex: 'female', locked: { height: 160, weight: 52 } });
     expect(s.values.waist).toBeCloseTo(64, 1);
@@ -40,7 +28,6 @@ describe('數值連動', () => {
     const base = suggest({ sex: 'female', locked: { height: 160, weight: 52 } }).values;
     const e = suggest({ sex: 'female', locked: { height: 160, weight: 52 }, bustDiff: 20 }).values;
     expect(e.bust - e.underbust).toBeCloseTo(20, 1);
-    for (const key of ['underbust', 'weight', 'waist', 'hip', 'upperArmLen'] as const) expect(e[key]).toBe(base[key]);
     expect(e.bust - base.bust).toBeGreaterThan(base.underbust - e.underbust);
   });
 

@@ -1,7 +1,7 @@
 import type { EngineOutput } from '../body/mh/engine';
 import { type Rarity, type Suggestion, type VarId, rarity } from './linkage';
 import { MEASURE_BY_ID, type MeasureId, type Sex, VAR_LABEL } from './measurements';
-import { cupFromDiff } from './reference';
+import { MUSCLE_OF_LEAN, cupFromDiff } from './reference';
 import type { AppState } from './state';
 
 // 摘要數據與現實檢核。
@@ -24,8 +24,6 @@ export interface Summary {
   bodyFatLocked: boolean;
   leanMass: number;
   muscleRate: number;
-  muscleMass: number;
-  otherLeanMass: number;
   /** 例如 "B70"；男性為 null */
   braSize: string | null;
   whr: number;
@@ -96,7 +94,6 @@ export function resolveValues(sug: Suggestion, out: EngineOutput): Record<VarId,
     if (sug.locked[id]) continue;
     if (id === 'weight') v.weight = out.weight;
     else if (id === 'bodyFat') v.bodyFat = out.bodyFat;
-    else if (id === 'muscleRate') v.muscleRate = out.muscleRate;
     else if (id in out.values) v[id] = out.values[id as keyof typeof out.values];
   }
   return v;
@@ -130,14 +127,12 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
       add('conflict', `體脂率：模型最接近只能做到 ${f1((goal.value + error) * 100)}%（目標 ${f1(goal.value * 100)}%）。`);
     }
   }
-  if (out.tissueMass.otherLean < out.weight * 0.12) add('conflict', '脂肪與骨骼肌已占用過多重量，其餘去脂組織不足；請調整體重或組成。');
-  if (state.locked.muscleRate !== undefined && Math.abs(out.muscleRate - state.locked.muscleRate) > 0.01) add('conflict', `骨骼肌率：模型目前為 ${f1(out.muscleRate * 100)}%，請調整組成或圍度。`);
   if (v.underbust > v.bust) add('conflict', '下胸圍比上胸圍大，請檢查兩個數值是否填反。');
   const lockedSoft = SOFT_TISSUE.filter((id) => sug.locked[id]);
   if (sug.locked.weight && lockedSoft.length) {
     add(
       'info',
-      `體重已手動指定，總重量固定：${lockedSoft.map((id) => VAR_LABEL[id]).join('、')}比預設多用（或省下）的組織重量，會從其他沒填的部位扣掉（或補到那裡）。想讓體重跟著變，請把體重改回建議。`,
+      `體重已手動指定，總脂肪量固定：${lockedSoft.map((id) => VAR_LABEL[id]).join('、')}比預設多用（或省下）的脂肪，會從其他沒填的部位扣掉（或補到那裡）。想讓體重跟著變，請把體重改回建議。`,
     );
   }
 
@@ -166,9 +161,7 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
     bodyFat: v.bodyFat,
     bodyFatLocked: sug.locked.bodyFat,
     leanMass,
-    muscleRate: out.muscleRate,
-    muscleMass: out.tissueMass.muscle,
-    otherLeanMass: out.tissueMass.otherLean,
+    muscleRate: MUSCLE_OF_LEAN * (1 - v.bodyFat),
     braSize: female ? braSize(v.bust, v.underbust) : null,
     whr: v.waist / v.hip,
     inseam: out.marks.crotchY,

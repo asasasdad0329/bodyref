@@ -40,15 +40,14 @@ try {
     const again = engine.run(input);
     const warmMs = performance.now() - warmStarted;
     const row = { ...c, suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
-      bodyFat: out.bodyFat, muscleRate: out.muscleRate, tissueMass: out.tissueMass, composition: out.composition, residual: out.residual, volume: out.volume,
+      bodyFat: out.bodyFat, composition: out.composition, residual: out.residual, volume: out.volume,
       timing: { coldMs, warmMs, cachedMs }, repeat: { values: again.values, weight: again.weight, bodyFat: again.bodyFat } };
-    const hardPass = out.residual.every(({ goal, error }) => Number.isFinite(error) && Math.abs(error) < ((goal.kind === 'bodyFat' || goal.kind === 'muscleRate') ? 0.01 : 0.5));
+    const hardPass = out.residual.every(({ goal, error }) => Number.isFinite(error) && Math.abs(error) < (goal.kind === 'bodyFat' ? 0.01 : 0.5));
     const repeatPass = Object.keys(out.values).every((k) => Math.abs(out.values[k] - again.values[k]) < 0.01)
       && Math.abs(out.weight - again.weight) < 0.01 && Math.abs(out.bodyFat - again.bodyFat) < 0.0001;
-    const ledgerPass = Object.values(out.tissueMass).every((v) => Number.isFinite(v) && v > 0) && Math.abs(Object.values(out.tissueMass).reduce((a, b) => a + b, 0) - out.weight) < 1e-6;
     const geometryPass = out.positions.every(Number.isFinite) && out.head.positions.every(Number.isFinite);
-    row.checks = { hardPass, repeatPass, geometryPass, ledgerPass };
-    if (!hardPass || !repeatPass || !geometryPass || !ledgerPass) failures.push(c.id);
+    row.checks = { hardPass, repeatPass, geometryPass };
+    if (!hardPass || !repeatPass || !geometryPass) failures.push(c.id);
     results.push(row);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, JSON.stringify(results, null, 2));
