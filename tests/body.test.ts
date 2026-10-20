@@ -270,6 +270,7 @@ describe('人體網格', () => {
       }
       return width;
     };
+    for (const out of [a, b]) for (const r of out.residual) expect(Math.abs(r.error), r.goal.kind).toBeLessThan(0.5);
     expect(Math.abs(b.values.thigh - 56)).toBeLessThan(0.5);
     expect(span(b) - span(a)).toBeGreaterThan(1);
   }, 15000);

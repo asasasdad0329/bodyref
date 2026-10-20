@@ -27,7 +27,7 @@ try {
   await server.listen();
   const port = server.httpServer.address().port;
   const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
-  const ids = selected.length ? selected : ['T2', 'T4', 'H130', 'T5-125', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115'];
+  const ids = selected.length ? selected : ['T2', 'T4', 'H130', 'T5-125', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
   const cases = ids.map((id) => {
     const c = BODY_CASES.find((c) => c.id === id); if (!c) throw new Error(`未知案例：${id}`); return c;
   });
