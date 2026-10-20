@@ -29,10 +29,10 @@ export function redistributionStep(
   preferences: GirthPreferences, protectedKeys: MeasureKey[], bias: Soft, capacity: Soft,
 ): Soft {
   const result = Object.fromEntries(Object.keys(bias).map((k) => [k, 0])) as Soft;
-  const anchorFor = (muscle: boolean) => free.filter((k) => k !== 'structureLean' && k.endsWith('Muscle') === muscle)
+  const anchorFor = (muscle: boolean) => free.filter((k) => k.endsWith('Muscle') === muscle)
     .sort((a, b) => capacity[b] - capacity[a])[0];
   const fatAnchor = anchorFor(false), leanAnchor = anchorFor(true);
-  const columns = free.filter((k) => k !== 'structureLean' && k !== fatAnchor && k !== leanAnchor).map((key) => ({
+  const columns = free.filter((k) => k !== fatAnchor && k !== leanAnchor).map((key) => ({
     key, anchor: (key.endsWith('Muscle') ? leanAnchor : fatAnchor),
   })).filter((c): c is { key: SoftKey; anchor: SoftKey } => c.anchor !== undefined);
   const n = columns.length;
