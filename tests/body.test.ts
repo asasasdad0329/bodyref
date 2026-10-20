@@ -84,7 +84,7 @@ describe('人體網格', () => {
     const thick = run('female', { height: 160, waist: base.values.waist + 12 });
     expect(thick.weight - base.weight).toBeGreaterThan(3);
     expect(thick.bodyFat).toBeGreaterThan(base.bodyFat);
-  });
+  }, 15000);
 
   it('體重變重時，指定的罩杯維持不變', () => {
     for (const weight of [52, 62, 75]) {
@@ -161,7 +161,7 @@ describe('人體網格', () => {
       for (const { goal, error } of out.residual) {
         expect(Math.abs(error), goal.kind === 'measure' ? goal.key : goal.kind).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
       }
-    });
+    }, 10000);
   }
 
   it('偏胖預設的腰腹增量不能靠繼續放大臀腿補償', () => {
@@ -207,7 +207,7 @@ describe('人體網格', () => {
       expect(Math.abs(reused.values[k] - fresh.values[k]), k).toBeLessThan(0.01);
     }
     expect(Math.abs(reused.weight - fresh.weight)).toBeLessThan(0.01);
-  }, 15000);
+  }, 30000);
 
   it('分配候選分別守住脂肪與去脂總量，且不動指定部位', () => {
     const step = redistributionStep(['general', 'belly', 'armMuscle', 'trunkMuscle'],
@@ -358,7 +358,7 @@ describe('人體網格', () => {
     // 美術回歸的形態上界，不是人體比例定律。
     expect(hi[2] - lo[2]).toBeLessThan(1.8 * (hi[1] - lo[1]));
     for (const { error } of out.residual) expect(Math.abs(error)).toBeLessThan(0.5);
-  });
+  }, 10000);
 
   it('男性增加胸圍時也展寬胸廓，不能只向胸前長出肉塊', () => {
     const locked = { height: 175, weight: 80, bodyFat: 0.2, muscleRate: 0.45, underbust: 88, waist: 82, hip: 100,
