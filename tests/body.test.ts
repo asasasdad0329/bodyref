@@ -312,4 +312,22 @@ describe('人體網格', () => {
     for (const { error } of out.residual) expect(Math.abs(error)).toBeLessThan(0.5);
   });
 
+  it('男性增加胸圍時也展寬胸廓，不能只向胸前長出肉塊', () => {
+    const locked = { height: 175, weight: 80, bodyFat: 0.2, muscleRate: 0.45, underbust: 88, waist: 82, hip: 100,
+      shoulder: 45, upperArmLen: 33, forearmLen: 26, thighLen: 31, calfLen: 43 };
+    const a = run('male', { ...locked, bust: 100 }), b = run('male', { ...locked, bust: 108 });
+    const chestExtent = (out: EngineOutput) => {
+      const y = out.tapes.bust!.anchor[1]; let width = 0, front = -Infinity;
+      const regions = new Set(['torso', 'breastL', 'breastR'].map((name) => engine.asset.regions.indexOf(name)));
+      for (let i = 0; i < engine.asset.nBody; i++) if (regions.has(engine.asset.region[i]) && Math.abs(out.positions[i * 3 + 1] - y) < 1.3) {
+        width = Math.max(width, 2 * Math.abs(out.positions[i * 3])); front = Math.max(front, out.positions[i * 3 + 2]);
+      }
+      return { width, front };
+    };
+    for (const out of [a, b]) for (const r of out.residual) expect(Math.abs(r.error), r.goal.kind).toBeLessThan(r.goal.kind === 'bodyFat' || r.goal.kind === 'muscleRate' ? 0.01 : 0.5);
+    const from = chestExtent(a), to = chestExtent(b);
+    expect(to.width - from.width).toBeGreaterThan(0.5);
+    expect(to.width - from.width).toBeGreaterThan(0.35 * Math.max(0.1, to.front - from.front));
+  }, 15000);
+
 });

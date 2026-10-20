@@ -487,15 +487,15 @@ export class RingBody {
     const hipFrame = male ? { side: 1 + 0.8 * dH, back: 1 + 0.45 * dH } : { side: 1 + 0.55 * dH, back: 1 + 0.2 * dH };
     const tSide = pchip(
       [mk.crotchY - 0.12 * L, mk.hipY, mk.waistY, mk.underbustY, chestY, yA, p.acromionY],
-      [1 + (male ? 0.7 : 0.45) * dH, hipFrame.side, W.side, U.side, chestSide, (armK + q.shoulder) / 2, q.shoulder],
+      [1 + (male ? 0.7 : 0.45) * dH, hipFrame.side, W.side, U.side, chestSide, male ? Math.max(chestSide, (armK + q.shoulder) / 2) : (armK + q.shoulder) / 2, q.shoulder],
     );
     const tFront = pchip(
       [mk.crotchY, mk.waistY, mk.underbustY, chestY, yA, p.acromionY],
-      [1 + 0.2 * dH, W.front, U.front, male ? chest.front : (U.front + armK) / 2, armK, 1],
+      [1 + 0.2 * dH, W.front, U.front, male ? chest.front : (U.front + armK) / 2, male ? Math.max(chest.front, armK) : armK, 1],
     );
     const tBack = pchip(
       [mk.crotchY - 0.12 * L, mk.hipY, mk.waistY, mk.underbustY, chestY, yA, p.acromionY],
-      [1 + 0.1 * dH, hipFrame.back, W.back, U.back, male ? chest.back : (U.back + armK) / 2, armK, 1],
+      [1 + 0.1 * dH, hipFrame.back, W.back, U.back, male ? chest.back : (U.back + armK) / 2, male ? Math.max(chest.back, armK) : armK, 1],
     );
     const torsoDisp = (x: number, y: number, z: number): V3 => {
       const dz = z - p.torsoZ(y);
@@ -675,7 +675,8 @@ export class RingBody {
       const protect = (center: number, radius: number, strength = 0.8) => 1 - strength * Math.max(0, 1 - ((y - center) / radius) ** 2) ** 2;
       const freeLoad = (p.restrained.waist ? protect(mk.waistY, 0.55 * L) : 1)
         * (p.restrained.hip ? protect(mk.hipY, L) : 1)
-        * (p.restrained.chest ? protect(mk.bustY, 0.9 * H, 0.95) : 1);
+        * (p.restrained.chest ? protect(mk.bustY, 0.9 * H, 0.95) : 1)
+        * (male && p.restrained.chest ? protect(mk.underbustY, 0.7 * H, 0.95) : 1);
       let push = freeLoad * (sf.general * p.wGen[i] / Math.max(w, 1e-3) + sf.structureLean * p.wGen[i] / Math.max(w, 1e-3)), drop = 0;
       for (const m of masses) {
         if (!m.amp) continue;
@@ -751,15 +752,25 @@ export class RingBody {
         const uy = (y - centerY) / (H * (y > centerY ? 0.65 : 0.42));
         const pec = sx < 1 && Math.abs(uy) < 1
           ? smoothstep(0, 0.15, sx) * Math.pow(1 - sx * sx, 0.8) * (1 - uy * uy) ** 2 : 0;
-        const muscle = sf.pectoralMuscle * pec * (male ? 1 : 0.75);
+        let muscle = sf.pectoralMuscle * pec * 0.75;
         if (male) {
-          // 脂肪是胸廓上的連續覆蓋層，飽滿位置較低，並向腋下／上腹淡出。
-          const fy = (y - (mk.bustY - 0.08 * H)) / (0.85 * H);
-          const fat = sx < 1.12 && Math.abs(fy) < 1
-            ? sf.chest * Math.pow(Math.max(0, 1 - (sx / 1.12) ** 2), 1.2) * (1 - fy * fy) ** 2 : 0;
-          const w = front * body * smoothstep(mk.underbustY, mk.underbustY + 0.22 * H, y);
-          delta[i * 3] += sign * 0.12 * (muscle + fat) * w * sx;
-          delta[i * 3 + 1] -= Math.max(0, fat) * 0.1 * w;
+          // 肌腹在胸骨與肩側之間形成寬面；量測高度落在飽滿區，不做乳頭圓頂。
+          const lower = mk.underbustY + H * (0.02 + 0.08 * sx);
+          const lowerEnd = Math.max(lower + 0.04 * H, mk.bustY - 0.04 * H);
+          const upperStart = mk.bustY + H * (0.45 + 0.12 * sx);
+          const upperEnd = Math.max(upperStart + 0.1 * H, p.acromionY - 0.03 * H);
+          const fan = smoothstep(0.02, 0.14, sx) * (1 - smoothstep(0.65, 1, sx))
+            * smoothstep(lower, lowerEnd, y) * (1 - smoothstep(upperStart, upperEnd, y));
+          muscle = sf.pectoralMuscle * fan;
+          // 胸脂覆蓋下極與腋側，下方少量延伸接上腹，不能在皮尺平面截成平台。
+          const coverage = (1 - smoothstep(0.72, 1.12, sx))
+            * smoothstep(mk.underbustY - 0.35 * H, mk.underbustY, y)
+            * (0.15 + 0.85 * smoothstep(mk.underbustY, mk.bustY - 0.06 * H, y))
+            * (1 - smoothstep(mk.bustY + 0.2 * H, p.acromionY - 0.05 * H, y));
+          const fat = sf.chest * coverage;
+          const w = front * body * p.w.torso[i];
+          delta[i * 3] += sign * 0.32 * (muscle + fat) * w * smoothstep(0.3, 1, sx);
+          delta[i * 3 + 1] -= Math.max(0, fat) * 0.06 * w;
           delta[i * 3 + 2] += (muscle + fat) * w;
           continue;
         }
@@ -977,7 +988,8 @@ export class RingBody {
     const extra = Object.fromEntries(goals.map((g) => [g, 0])) as Record<SoftGoal, number>;
     let bias = zeroSoft();
     // 骨架類：照連動建議（或手動值）對準
-    const FRAME: ParamKey[] = ['underbust', 'shoulder', 'neck', 'wrist', 'ankle', ...(male ? [] : (['breast'] as ParamKey[]))];
+    // 男性胸圍由胸廓圈校正，肌脂公斤數只決定形態，避免把圍度差全塞成胸前肉塊。
+    const FRAME: ParamKey[] = ['underbust', 'shoulder', 'neck', 'wrist', 'ankle', 'breast'];
     // 分配從同一個起點求解，避免接受步數受上一個體型影響；骨架與公斤校準仍使用快取。
     const shrinkKey: Record<SoftGoal, ParamKey> = { bust: 'breast', waist: 'waist', hip: 'hip', thigh: 'thigh', calf: 'calf', upperArm: 'upperArm' };
 
@@ -991,7 +1003,7 @@ export class RingBody {
         const fatTotal = fatBase + extra[g] * (mk ? localFat : 1);
         if (mk) kg[mk] = kgDefault[mk] + extra[g] * (1 - localFat);
         // 要比素體還小：脂肪歸零，改收那一圈
-        q[shrinkKey[g]] = fatTotal < 0 ? Math.max(0.4, 1 + fatTotal * 0.02) : 1;
+        if (!(male && g === 'bust')) q[shrinkKey[g]] = fatTotal < 0 ? Math.max(0.4, 1 + fatTotal * 0.02) : 1;
         for (const [k, r] of Object.entries(grp) as [SoftKey, number][]) kg[k] = Math.max(0, fatTotal) * r;
       }
       if (inp.weightLocked) {
@@ -1041,8 +1053,8 @@ export class RingBody {
     };
 
     const t = inp.frame;
-    const want = (k: ParamKey) => (k === 'breast' ? (t.bust !== undefined && t.underbust !== undefined ? t.bust - t.underbust : undefined) : t[k]);
-    const read = (v: Measured['values'], k: ParamKey) => (k === 'breast' ? v.bust - v.underbust : v[k]);
+    const want = (k: ParamKey) => (k === 'breast' ? (male ? inp.locked.bust ?? inp.preferred?.bust?.target : t.bust !== undefined && t.underbust !== undefined ? t.bust - t.underbust : undefined) : t[k]);
+    const read = (v: Measured['values'], k: ParamKey) => (k === 'breast' ? (male ? v.bust : v.bust - v.underbust) : v[k]);
     // 每公斤大約讓那一圈變粗幾公分（第一步用，之後用割線法）
     const GUESS: Record<SoftGoal, number> = { bust: 3, waist: 2.5, hip: 2, thigh: 4, calf: 6, upperArm: 8 };
 
@@ -1060,7 +1072,7 @@ export class RingBody {
     for (let pass = 0; pass < 2; pass++) {
       const preferred = inp.preferred ?? {};
       // 男性胸圍是軟偏好，不能讓未量測的上背代替胸前吸收補償；上背保留預設分配。
-      const free = SOFT_KEYS.filter((k) => !owned.has(k) && k !== 'upperBack' && kgPer[k] && k !== 'structureLean' && k !== 'pectoralMuscle' && !(k === 'chest' && !male));
+      const free = SOFT_KEYS.filter((k) => !owned.has(k) && k !== 'upperBack' && kgPer[k] && k !== 'structureLean' && k !== 'pectoralMuscle' && k !== 'chest');
       type State = { q: Params; extra: Record<SoftGoal, number>; restAdj: number; leanAdj: number; muscleAdj: number; bias: Soft };
       const save = (): State => ({ q: { ...q }, extra: { ...extra }, restAdj, leanAdj, muscleAdj, bias: { ...bias } });
       const restore = (s: State) => { Object.assign(q, s.q); Object.assign(extra, s.extra); restAdj = s.restAdj; leanAdj = s.leanAdj; muscleAdj = s.muscleAdj; bias = { ...s.bias }; };
@@ -1078,8 +1090,9 @@ export class RingBody {
           if (target === undefined) continue;
           const cur = read(m.values, k);
           const err = target - cur;
-          worst = Math.max(worst, Math.abs(err));
-          const guess = k === 'breast' ? 20 : cur / q[k];
+          // 男性未填胸圍僅作形態偏好；不能阻擋其他硬條件的有效解。
+          if (!(male && k === 'breast' && inp.locked.bust === undefined)) worst = Math.max(worst, Math.abs(err));
+          const guess = k === 'breast' && !male ? 20 : cur / q[k];
           let slope = guess;
           const pr = prevQ.get(k);
           if (pr && Math.abs(q[k] - pr[0]) > 1e-6) {
@@ -1087,9 +1100,10 @@ export class RingBody {
             if (Number.isFinite(sl) && sl > 0.2 * guess) slope = sl;
           }
           prevQ.set(k, [q[k], cur]);
-          q[k] = Math.max(k === 'breast' ? -25 : 0.4, Math.min(k === 'breast' ? 5 : 3, q[k] + (0.9 * err) / slope));
+          q[k] = Math.max(k === 'breast' && !male ? -25 : 0.4, Math.min(k === 'breast' && !male ? 5 : 3, q[k] + (0.9 * err) / slope));
         }
         for (const g of goals) {
+          if (male && g === 'bust') continue;
           const cur = m.values[g];
           const err = inp.locked[g]! - cur;
           worst = Math.max(worst, Math.abs(err));
