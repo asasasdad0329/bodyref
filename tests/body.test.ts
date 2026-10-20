@@ -196,4 +196,10 @@ describe('人體網格', () => {
     expect(Math.max(...first.positions.map((v, i) => Math.abs(v - again.positions[i])))).toBeLessThan(0.01);
   }, 15000);
 
+  it('偏胖男性不能把自由重量藏成上背的局部凸塊', () => {
+    const out = regression('T6');
+    expect(out.composition.upperBack).toBeLessThan(2);
+    expect(Math.abs(out.weight - 97)).toBeLessThan(0.5);
+  });
+
 });

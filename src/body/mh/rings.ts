@@ -965,7 +965,8 @@ export class RingBody {
     let prevW: [number, number] | null = null;
     for (let pass = 0; pass < 2; pass++) {
       const preferred = inp.preferred ?? {};
-      const free = SOFT_KEYS.filter((k) => !owned.has(k) && kgPer[k]);
+      // 男性胸圍是軟偏好，不能讓未量測的上背代替胸前吸收補償；上背保留預設分配。
+      const free = SOFT_KEYS.filter((k) => !owned.has(k) && !(male && k === 'upperBack') && kgPer[k]);
       type State = { q: Params; extra: Record<SoftGoal, number>; restAdj: number; leanAdj: number; bias: Soft };
       const save = (): State => ({ q: { ...q }, extra: { ...extra }, restAdj, leanAdj, bias: { ...bias } });
       const restore = (s: State) => { Object.assign(q, s.q); Object.assign(extra, s.extra); restAdj = s.restAdj; leanAdj = s.leanAdj; bias = { ...s.bias }; };
