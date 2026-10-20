@@ -27,7 +27,7 @@ try {
   await server.listen();
   const port = server.httpServer.address().port;
   const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
-  const representative = ['CUP-E-90', 'CUP-E-95', 'CUP-E-100', 'CUP-E-W50', 'PRESET-f-avg', 'PRESET-m-avg', 'PRESET-f-long', 'T2', 'T4', 'H114', 'H130', 'T5-125', 'CUP-S', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
+  const representative = ['CUP-E-90', 'CUP-E-95', 'CUP-E-100', 'CUP-E-W50', 'PRESET-f-avg', 'PRESET-m-avg', 'PRESET-f-long', 'T2', 'T4', 'T7-weight120', 'H114', 'H130', 'T5-125', 'CUP-S', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
   const ids = selected[0] === 'all' ? [...new Set([...representative, ...BODY_CASES.map((c) => c.id)])]
     : selected.length ? selected : representative;
   const cases = ids.map((id) => {
