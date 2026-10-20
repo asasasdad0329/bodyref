@@ -31,8 +31,9 @@ export interface RatioDef {
   id: RatioId;
   label: string;
   hint: string;
-  /** 顯示倍數：百分比為 100 */
+  /** 保留儲存值的單位；介面以左側為 1 顯示。 */
   scale: number;
+  reciprocal?: boolean;
   unit: string;
   min: number;
   max: number;
@@ -41,11 +42,15 @@ export interface RatioDef {
 }
 
 export const RATIOS: readonly RatioDef[] = [
-  { id: 'legRatio', label: '腿長比', hint: '股下（胯下到地面）÷ 身高', scale: 100, unit: '%', min: 40, max: 52, step: 0.1, digits: 1 },
-  { id: 'thighCalf', label: '大腿：小腿', hint: '大腿長 ÷ 小腿長', scale: 1, unit: '', min: 0.5, max: 1, step: 0.01, digits: 2 },
-  { id: 'armRatio', label: '手臂長比', hint: '上臂長 + 前臂長（肩點到手腕）÷ 身高', scale: 100, unit: '%', min: 28, max: 38, step: 0.1, digits: 1 },
-  { id: 'upperFore', label: '上臂：前臂', hint: '上臂長 ÷ 前臂長', scale: 1, unit: '', min: 1, max: 1.6, step: 0.01, digits: 2 },
+  { id: 'legRatio', label: '身高：股下', hint: '身高為 1；右側越大，腿越長。股下從胯下量到地面。', scale: 1, unit: '', min: 0.4, max: 0.52, step: 0.001, digits: 3 },
+  { id: 'thighCalf', label: '大腿：小腿', hint: '大腿為 1；右側越大，小腿相對越長。', scale: 1, reciprocal: true, unit: '', min: 0.5, max: 1, step: 0.01, digits: 2 },
+  { id: 'armRatio', label: '身高：手臂', hint: '身高為 1；右側越大，手臂越長。量肩點到手腕，不含手掌。', scale: 1, unit: '', min: 0.28, max: 0.38, step: 0.001, digits: 3 },
+  { id: 'upperFore', label: '上臂：前臂', hint: '上臂為 1；右側越大，前臂相對越長。', scale: 1, reciprocal: true, unit: '', min: 1, max: 1.6, step: 0.01, digits: 2 },
 ];
+
+/** 只改顯示方向，不改既有分享代碼的比例定義。 */
+export const displayRatio = (d: RatioDef, value: number): number => d.reciprocal ? 1 / value : value * d.scale;
+export const storedRatio = (d: RatioDef, value: number): number => d.reciprocal ? 1 / value : value / d.scale;
 
 /** 由長度算出比例 */
 export function ratiosOf(v: Record<VarId, number>): Record<RatioId, number> {

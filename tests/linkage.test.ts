@@ -1,4 +1,4 @@
-import { ANKLE_HEIGHT, applyRatios, ratiosOf } from '../src/core/proportions';
+import { ANKLE_HEIGHT, RATIOS, applyRatios, ratiosOf, displayRatio, storedRatio } from '../src/core/proportions';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_STATE, decodeShare, encodeShare } from '../src/core/state';
 import { rarity, suggest } from '../src/core/linkage';
@@ -58,6 +58,27 @@ describe('數值連動', () => {
 });
 
 describe('身體比例', () => {
+  it('以 1：比值顯示，右側增加時對應部位確實變長，舊分享值保持同一長度', () => {
+    const input = { sex: 'female' as const, locked: { height: 160 } };
+    for (const d of RATIOS) {
+      const value = (d.min + d.max) / 2;
+      expect(storedRatio(d, displayRatio(d, value))).toBeCloseTo(value, 10);
+    }
+    for (const id of ['legRatio', 'armRatio'] as const) {
+      const d = RATIOS.find((d) => d.id === id)!;
+      const a = applyRatios(input, { [id]: storedRatio(d, d.min) }).locked;
+      const b = applyRatios(input, { [id]: storedRatio(d, d.max) }).locked;
+      const keys = id === 'legRatio' ? ['thighLen', 'calfLen'] as const : ['upperArmLen', 'forearmLen'] as const;
+      expect(b[keys[0]]! + b[keys[1]]!).toBeGreaterThan(a[keys[0]]! + a[keys[1]]!);
+    }
+    const split = RATIOS.find((d) => d.id === 'thighCalf')!;
+    const a = applyRatios(input, { thighCalf: storedRatio(split, 1.2) }).locked;
+    const b = applyRatios(input, { thighCalf: storedRatio(split, 1.4) }).locked;
+    expect(b.calfLen!).toBeGreaterThan(a.calfLen!);
+    const state = { ...DEFAULT_STATE, ratios: { legRatio: 0.49, thighCalf: 0.8, armRatio: 0.34, upperFore: 1.4 } };
+    expect(decodeShare(encodeShare(state))?.ratios).toEqual(state.ratios);
+  });
+
   it('腿長比換算成大腿長與小腿長，股下符合指定比例', () => {
     const { locked, derived } = applyRatios({ sex: 'female', locked: { height: 168 } }, { legRatio: 0.49 });
     expect(derived).toEqual(['thighLen', 'calfLen']);

@@ -716,6 +716,12 @@ textarea {
   color: var(--muted);
 }
 
+.ratio-prefix {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .is-manual .num {
   border-color: var(--tape);
 }

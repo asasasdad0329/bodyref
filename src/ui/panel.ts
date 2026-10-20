@@ -8,7 +8,7 @@ import {
   type Sex,
   WEIGHT_RANGE,
 } from '../core/measurements';
-import { RATIOS, type RatioId, ratiosOf } from '../core/proportions';
+import { RATIOS, type RatioId, ratiosOf, displayRatio, storedRatio } from '../core/proportions';
 import { CUP_TABLE } from '../core/reference';
 import type { AppState } from '../core/state';
 
@@ -260,12 +260,14 @@ export class Panel {
     const { node, count } = this.collapsible(
       '比例',
       'PROPORTION',
-      '腿長比、大腿：小腿、手臂長比、上臂：前臂。比例和「細部調整」裡的四肢長度是同一件事：改比例時長度跟著算，改長度時比例跟著變。',
+      '以 1 : 比值調整長度。右側越大，對應的腿、手臂或下段越長。改比例時長度跟著算，改長度時比例跟著變。',
     );
     this.ratioCount = count;
     for (const d of RATIOS) {
-      const range = { min: d.min, max: d.max, step: d.step };
-      node.append(this.lockRow(d.id, d.label, range, d.unit, d.hint, (v) => this.cb.onRatio(d.id, v / d.scale), () => this.cb.onRatio(d.id, null)));
+      const range = { min: d.reciprocal ? 1 / d.max : d.min, max: d.reciprocal ? 1 / d.min : d.max, step: d.step };
+      const row = this.lockRow(d.id, d.label, range, d.unit, d.hint, (v) => this.cb.onRatio(d.id, storedRatio(d, v)), () => this.cb.onRatio(d.id, null));
+      row.querySelector('.num')!.prepend(el('span', 'ratio-prefix', '1 :'));
+      node.append(row);
     }
     this.proportionNote = el('p', 'hint proportion-note');
     node.append(this.proportionNote);
@@ -337,7 +339,7 @@ export class Panel {
     for (const d of RATIOS) {
       const r = this.rows.get(d.id)!;
       const locked = state.ratios[d.id] !== undefined;
-      setValue(r.field, (state.ratios[d.id] ?? ratios[d.id]) * d.scale, d.digits);
+      setValue(r.field, displayRatio(d, state.ratios[d.id] ?? ratios[d.id]), d.digits);
       mark(r, locked ? 'manual' : 'auto');
       r.note.textContent = locked ? d.hint : `目前由長度算出・${d.hint}`;
     }
