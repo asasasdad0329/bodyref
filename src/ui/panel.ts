@@ -327,7 +327,7 @@ export class Panel {
         r.note.textContent = '骨骼肌重 ÷ 體重，可獨立指定；未指定時以去脂體重的 55% 作分配起點。';
         return;
       }
-      const hint = MEASURES.find((m) => m.id === id)?.hint ?? '';
+      const hint = id === 'underbust' && state.sex === 'male' ? '胸肌下方的肋骨水平一圈' : MEASURES.find((m) => m.id === id)?.hint ?? '';
       r.note.textContent = locked || isDerived ? hint : `常見 ${fmt(lo * scale)}–${fmt(hi * scale)}${hint ? `・${hint}` : ''}`;
     };
     show('weight');

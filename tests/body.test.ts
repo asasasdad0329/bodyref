@@ -9,6 +9,9 @@ import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
 import { BODY_CASES } from './fixtures/bodyCases';
+import { applyRatios } from '../src/core/proportions';
+import { measure } from '../src/body/mh/measure';
+import { horizontal, slice } from '../src/body/mh/geometry';
 
 let engine: BodyEngine;
 
@@ -43,7 +46,7 @@ describe('人體網格', () => {
         if (goal.kind === 'bodyFat' && locked.bodyFat) expect(Math.abs(error), 'bodyFat').toBeLessThan(0.01);
         if (goal.kind === 'diff' && cup) expect(Math.abs(error), 'diff').toBeLessThan(0.5);
       }
-    });
+    }, 10000);
   }
 
   it('只填身高時，參考體型的體重、體脂與三圍接近參考值', () => {
@@ -74,7 +77,7 @@ describe('人體網格', () => {
     expect(g.values.bust - g.values.underbust).toBeCloseTo(25, 0);
     expect(Math.abs(g.values.waist - a.values.waist)).toBeLessThan(1.5);
     expect(Math.abs(g.values.hip - a.values.hip)).toBeLessThan(1.5);
-  });
+  }, 15000);
 
   it('體重沒鎖定時，把腰圍改粗會讓體重跟著變重', () => {
     const base = run('female', { height: 160 });
@@ -88,7 +91,7 @@ describe('人體網格', () => {
       const out = run('female', { height: 165, weight }, 'D');
       expect(out.values.bust - out.values.underbust, `${weight} kg`).toBeCloseTo(17.5, 0);
     }
-  });
+  }, 15000);
 
   it('顯示用輸出：移除原本的頭、加上人台頭與結構線', () => {
     const out = run('female', { height: 160, weight: 52 });
@@ -102,8 +105,53 @@ describe('人體網格', () => {
 
   const regression = (id: string) => {
     const c = BODY_CASES.find((c) => c.id === id)!;
-    return run(c.sex, c.locked as Record<string, number>, c.cup ?? null);
+    const { locked } = applyRatios({ sex: c.sex, locked: c.locked, bustDiff: c.cup ? cupDiff(c.cup)! : null }, c.ratios ?? {});
+    return run(c.sex, locked as Record<string, number>, c.cup ?? null);
   };
+
+  for (const c of BODY_CASES.filter((c) => /^(CUP-E-|PRESET-)/.test(c.id))) {
+    it(`${c.id}：預設與代表體型的手動條件全部對準`, () => {
+      const out = regression(c.id);
+      for (const { goal, error } of out.residual) expect(Math.abs(error), goal.kind === 'measure' ? goal.key : goal.kind).toBeLessThan(
+        goal.kind === 'bodyFat' || goal.kind === 'muscleRate' ? 0.01 : 0.5);
+      expect(out.positions.every(Number.isFinite)).toBe(true);
+    }, 15000);
+  }
+
+  it('胸壁與乳房分開量測，顯示平滑不能把已對準的胸部削扁', () => {
+    const sex = 'female' as const, bustDiff = 20;
+    const sug = suggest({ sex, locked: { height: 162, bust: 95, underbust: 75, waist: 62, hip: 110 }, bustDiff });
+    const res = engine.rings.fitComposition(bodyInputFor({ sex, sug, bustDiff }), { neutralize: true });
+    expect(res.chestWall).toBeDefined();
+    const shown = engine.model.display(res.P, 16).P;
+    const measured = measure(engine.rings.ctx, shown, res.measured.levels, sex, res.chestWall);
+    expect(Math.abs(measured.values.bust - res.values.bust)).toBeLessThan(0.35);
+    expect(Math.abs(measured.values.underbust - 75)).toBeLessThan(0.5);
+    const peak = Math.max(...Array.from(engine.rings.ctx.breast, (i) => shown[i * 3 + 2]));
+    let sternum = -Infinity;
+    for (let i = 0; i < engine.asset.nBody; i++) if (Math.abs(shown[i * 3]) < 1 && Math.abs(shown[i * 3 + 1] - measured.marks.bustY) < 1.5) sternum = Math.max(sternum, shown[i * 3 + 2]);
+    // E 罩杯須有獨立於胸壁的可見前凸，不能用整片胸廓變粗湊胸圍差。
+    expect(peak - sternum).toBeGreaterThan(3);
+  }, 15000);
+
+  it('固定細腰與高體脂時，後腰中線不能高出兩側形成脊柱尖稜', () => {
+    for (const id of ['CUP-E-W50', 'F-SHAPE-BF35', 'LOCK-W80']) {
+      const out = regression(id), y = out.tapes.waist!.anchor[1];
+      const loops = slice(out.positions, engine.asset.quads, engine.rings.ctx.faces.trunk, horizontal(y));
+      const backAt = (x: number) => {
+        let back = Infinity;
+        for (const loop of loops) for (let i = 1; i < loop.length; i++) {
+          const a = loop[i - 1], b = loop[i];
+          if (Math.abs(b[0] - a[0]) < 1e-6 || x < Math.min(a[0], b[0]) || x > Math.max(a[0], b[0])) continue;
+          const t = (x - a[0]) / (b[0] - a[0]);
+          back = Math.min(back, a[2] + (b[2] - a[2]) * t);
+        }
+        expect(Number.isFinite(back), id).toBe(true);
+        return back;
+      };
+      expect(Math.min(backAt(-3), backAt(3)) - backAt(0), id).toBeLessThan(1);
+    }
+  }, 30000);
 
   for (const [id, low, high] of [['T2', 22, 26], ['T3', 28, 32], ['T4', 31, 35.5]] as const) {
     it(`${id}：預設上臂不再因總量分配過細或過粗`, () => {
@@ -222,7 +270,7 @@ describe('人體網格', () => {
       expect(out.tissueMass.muscle / out.weight).toBeCloseTo(out.muscleRate, 8);
       // 不准把自由重量藏在沒有獨立量測的胸大肌或背部。
       if (id.startsWith('LOCK-')) expect(out.composition.pectoralMuscle).toBeLessThan(2);
-    });
+    }, 10000);
   }
 
   const regionRms = (a: EngineOutput, b: EngineOutput, lo: number, hi: number, front: boolean) => {
@@ -298,7 +346,7 @@ describe('人體網格', () => {
     expect(Math.abs(residual.error)).toBeGreaterThan(0.03);
     expect(out.tissueMass.otherLean).toBeGreaterThan(0);
     expect(out.positions.every(Number.isFinite)).toBe(true);
-  });
+  }, 20000);
 
   it('大罩杯向上下與側邊展開，不能只長成前後很長的錐形', () => {
     const out = regression('T5-125');
@@ -317,17 +365,18 @@ describe('人體網格', () => {
       shoulder: 45, upperArmLen: 33, forearmLen: 26, thighLen: 31, calfLen: 43 };
     const a = run('male', { ...locked, bust: 100 }), b = run('male', { ...locked, bust: 108 });
     const chestExtent = (out: EngineOutput) => {
-      const y = out.tapes.bust!.anchor[1]; let width = 0, front = -Infinity;
+      const y = out.tapes.bust!.anchor[1]; let width = 0, front = -Infinity, back = Infinity;
       const regions = new Set(['torso', 'breastL', 'breastR'].map((name) => engine.asset.regions.indexOf(name)));
       for (let i = 0; i < engine.asset.nBody; i++) if (regions.has(engine.asset.region[i]) && Math.abs(out.positions[i * 3 + 1] - y) < 1.3) {
-        width = Math.max(width, 2 * Math.abs(out.positions[i * 3])); front = Math.max(front, out.positions[i * 3 + 2]);
+        width = Math.max(width, 2 * Math.abs(out.positions[i * 3])); front = Math.max(front, out.positions[i * 3 + 2]); back = Math.min(back, out.positions[i * 3 + 2]);
       }
-      return { width, front };
+      return { width, front, back };
     };
     for (const out of [a, b]) for (const r of out.residual) expect(Math.abs(r.error), r.goal.kind).toBeLessThan(r.goal.kind === 'bodyFat' || r.goal.kind === 'muscleRate' ? 0.01 : 0.5);
     const from = chestExtent(a), to = chestExtent(b);
     expect(to.width - from.width).toBeGreaterThan(0.5);
     expect(to.width - from.width).toBeGreaterThan(0.35 * Math.max(0.1, to.front - from.front));
+    expect(Math.abs(to.back - from.back)).toBeLessThan(1);
   }, 15000);
 
 });

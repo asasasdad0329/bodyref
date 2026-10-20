@@ -1,5 +1,7 @@
 import type { Sex } from '../../src/core/measurements';
 import type { VarId } from '../../src/core/linkage';
+import { PRESETS } from '../../src/core/state';
+import type { Ratios } from '../../src/core/proportions';
 
 /** 網格回歸與瀏覽器驗收共用的代表體型；不是任何真人的資料。 */
 export interface BodyCase {
@@ -7,6 +9,7 @@ export interface BodyCase {
   sex: Sex;
   locked: Partial<Record<VarId, number>>;
   cup?: string;
+  ratios?: Ratios;
 }
 
 const female = (id: string, locked: BodyCase['locked']): BodyCase => ({ id, sex: 'female', locked });
@@ -32,6 +35,9 @@ export const BODY_CASES: BodyCase[] = [
   ...[45, 60, 75, 90].map((weight) => female(`W${weight}`, { height: 160, weight })),
   { ...female('CUP-A', { height: 160, bodyFat: 0.27 }), cup: 'A' },
   { ...female('CUP-G', { height: 160, bodyFat: 0.27 }), cup: 'G' },
+  ...[90, 95, 100].map((bust) => ({ ...female(`CUP-E-${bust}`, { height: 162, bust, underbust: bust - 20, waist: 62, hip: 110 }), cup: 'E' })),
+  { ...female('CUP-E-PRESET', { height: 162, bodyFat: 0.3 }), cup: 'E' },
+  ...[55, 50].map((waist) => ({ ...female(`CUP-E-W${waist}`, { height: 162, bust: 100, underbust: 80, waist, hip: 130 }), cup: 'E' })),
   { ...female('CUP-S', { height: 160, underbust: 70 }), cup: 'S' },
   ...[60, 70, 80].map((weight) => female(`LOCK-W${weight}`, { height: 165, weight, bust: 92, underbust: 74, waist: 68, hip: 98 })),
   female('F-M43-AUTO-W', { height: 165, bodyFat: 0.25, muscleRate: 0.43, waist: 68, hip: 98 }),
@@ -40,4 +46,5 @@ export const BODY_CASES: BodyCase[] = [
   ...[0.3, 0.45].map((muscleRate) => ({ id: `M-CHEST-M${muscleRate * 100}`, sex: 'male' as const, locked: { height: 175, weight: 80, bodyFat: 0.2, muscleRate, bust: 108, underbust: 88, waist: 82, hip: 100 } })),
   ...[0.15, 0.32].map((bodyFat) => ({ id: `M-CHEST-BF${bodyFat * 100}`, sex: 'male' as const, locked: { height: 175, weight: 80, bodyFat, muscleRate: 0.37, bust: 108, underbust: 88, waist: 82, hip: 100 } })),
   ...[100, 115].map((hip) => ({ id: `M-H${hip}`, sex: 'male' as const, locked: { height: 175, waist: 82, hip } })),
+  ...PRESETS.map((p) => ({ id: `PRESET-${p.id}`, sex: p.state.sex, locked: p.state.locked, cup: p.state.cup ?? undefined, ratios: p.state.ratios })),
 ];

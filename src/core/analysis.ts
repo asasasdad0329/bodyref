@@ -115,16 +115,16 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
   // 模型做不到的數值（只檢查手動填的）
   for (const { goal, error } of out.residual) {
     if (goal.kind === 'measure' && sug.locked[goal.key] && Math.abs(error) > 0.5) {
-      add('conflict', `${VAR_LABEL[goal.key]}：模型最接近只能做到 ${f1(goal.value + error)} cm（目標 ${f1(goal.value)} cm），這幾個數值彼此不太相容。`);
+      add('conflict', `${VAR_LABEL[goal.key]}尚未對準：模型 ${f1(goal.value + error)} cm，目標 ${f1(goal.value)} cm。`);
     }
     if (goal.kind === 'weight' && sug.locked.weight && Math.abs(error) > 0.5) {
       add(
         'conflict',
-        `要符合手動填的圍度，體重至少要${error > 0 ? '約' : '只有約'} ${f1(goal.value + error)} kg，比輸入的體重${error > 0 ? '重' : '輕'} ${f1(Math.abs(error))} kg。`,
+        `體重尚未對準：模型 ${f1(goal.value + error)} kg，目標 ${f1(goal.value)} kg，相差 ${f1(Math.abs(error))} kg。`,
       );
     }
     if (goal.kind === 'diff' && bustDiff !== null && Math.abs(error) > 0.5) {
-      add('conflict', `罩杯：目前的人體模型最大約做到 ${cupFromDiff(goal.value + error)} 罩杯（上下胸圍差 ${f1(goal.value + error)} cm）。`);
+      add('conflict', `罩杯尚未對準：上下胸圍差為 ${f1(goal.value + error)} cm，目標 ${f1(goal.value)} cm。`);
     }
     if (goal.kind === 'bodyFat' && sug.locked.bodyFat && Math.abs(error) > 0.01) {
       add('conflict', `體脂率：模型最接近只能做到 ${f1((goal.value + error) * 100)}%（目標 ${f1(goal.value * 100)}%）。`);

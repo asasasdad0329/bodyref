@@ -1,4 +1,5 @@
 import type { BodyAsset } from './asset';
+import type { Sex } from '../../core/measurements';
 import {
   type Plane,
   type Tape,
@@ -45,7 +46,7 @@ const SEARCH: Record<SearchKey, { from: number; to: number; steps: number; mode:
 };
 
 /** 搜尋到的相對位置；固定下來後可以快速重量（求解時用） */
-export type Levels = Record<SearchKey, number>;
+export type Levels = Record<SearchKey, number> & { underbustY?: number; bustY?: number };
 
 export interface Measured {
   values: Record<MeasureKey, number>;
@@ -120,13 +121,42 @@ export interface MeasureContext {
   faces: FaceSets;
   crotch: Uint32Array;
   buttock: Uint32Array;
+  breast: Uint16Array | Uint32Array;
 }
 
 export function measureContext(a: BodyAsset): MeasureContext {
-  return { asset: a, faces: buildFaceSets(a), crotch: crotchCandidates(a), buttock: buttockCandidates(a) };
+  const target = a.targets.get('female-young-averagemuscle-averageweight-maxcup-averagefirmness');
+  const breast = target ? target.indices.filter((_, k) => target.deltas[k * 3 + 2] * a.deltaStep > 0.15) : new Uint32Array();
+  return { asset: a, faces: buildFaceSets(a), crotch: crotchCandidates(a), buttock: buttockCandidates(a),
+    breast };
 }
 
-export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): Measured {
+/** 胸峰附近的連續高度，避免最高頂點換到相鄰一排時，皮尺突然上下跳動。 */
+function breastHeight(ctx: MeasureContext, P: Float32Array, wall?: Float32Array): number {
+  let peak = -Infinity;
+  for (const i of ctx.breast) peak = Math.max(peak, P[i * 3 + 2] - (wall?.[i * 3 + 2] ?? 0));
+  let sum = 0, height = 0;
+  for (const i of ctx.breast) {
+    const projection = P[i * 3 + 2] - (wall?.[i * 3 + 2] ?? 0);
+    const w = Math.exp((projection - peak) / 0.3);
+    height += P[i * 3 + 1] * w; sum += w;
+  }
+  return height / sum;
+}
+
+/** 局部胸廓校正只切兩圈，不必重算四肢、肩線與搜尋型量測。 */
+export function measureChest(ctx: MeasureContext, P: Float32Array, underbustY: number, bustY?: number, wall?: Float32Array): { bust: number; underbust: number } {
+  if (bustY === undefined) {
+    bustY = breastHeight(ctx, P, wall);
+  }
+  const circle = (faces: Uint32Array, y: number, mesh = P) => {
+    const plane = horizontal(y), points = slice(mesh, ctx.asset.quads, faces, plane).flat();
+    return points.length > 2 ? tape(points, plane).length : NaN;
+  };
+  return { bust: circle(ctx.faces.trunk, bustY), underbust: circle(wall ? ctx.faces.trunk : ctx.faces.trunkNoBreast, underbustY, wall ?? P) };
+}
+
+export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, sex: Sex = 'female', wall?: Float32Array): Measured {
   const a = ctx.asset;
   const J = (name: string): V3 => centroid(P, a.joints[name][0], a.joints[name][1]);
   const L = (name: string): V3 => vert(P, a.landmarks[name]);
@@ -143,21 +173,29 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): M
   const knee = J('l-knee'), ankle = J('l-ankle'), hipJ = J('l-upper-leg');
   const shoulderJ = J('l-shoulder'), elbow = J('l-elbow'), wristJ = J('l-hand');
   const neckJ = J('neck'), headJ = J('head');
-  const bustY = (L('bustApexL')[1] + L('bustApexR')[1]) / 2;
-  const underbustY = (L('underbustL')[1] + L('underbustR')[1]) / 2;
+  let bustY = (L('bustApexL')[1] + L('bustApexR')[1]) / 2;
+  if (fixed?.bustY !== undefined) bustY = fixed.bustY;
+  else if (sex === 'female') {
+    bustY = breastHeight(ctx, P, wall);
+  }
+  // 原有標記取自女性乳房蒙皮的下界，男性套用後會只距胸點約 2–3 cm。
+  // 男性胸下改用胸點到下胸椎錨點之間的肋骨段，保留完整胸肌的上下支撐。
+  const underbustY = fixed?.underbustY ?? (sex === 'male'
+    ? (bustY + J('spine-2')[1]) / 2
+    : ((wall ?? P)[a.landmarks.underbustL * 3 + 1] + (wall ?? P)[a.landmarks.underbustR * 3 + 1]) / 2);
 
   const values = {} as Record<MeasureKey, number>;
   const tapes: Measured['tapes'] = {};
-  const levels = {} as Levels;
+  const levels = { underbustY } as Levels;
 
   const girth = (faces: Uint32Array, plane: Plane, ref: V3): Tape | null => {
     const loop = pickLoop(slice(P, a.quads, faces, plane), plane, ref);
     return loop && loop.length > 2 ? tape(loop, plane) : null;
   };
   // 軀幹：面集合已排除手臂，把所有截面段合在一起取凸包（排除胸部時，布尺會從胸下直接跨過）
-  const trunkGirth = (faces: Uint32Array, y: number): Tape | null => {
+  const trunkGirth = (faces: Uint32Array, y: number, mesh = P): Tape | null => {
     const plane = horizontal(y);
-    const pts = slice(P, a.quads, faces, plane).flat();
+    const pts = slice(mesh, a.quads, faces, plane).flat();
     return pts.length > 2 ? tape(pts, plane) : null;
   };
 
@@ -201,7 +239,7 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): M
     let bestT = ts[0];
     for (const t of ts) {
       const { faces, plane, ref, union } = planes[key](t);
-      const g = union ? trunkGirth(faces, plane.p[1]) : girth(faces, plane, ref);
+      const g = union ? trunkGirth(wall && key === 'waist' ? ctx.faces.trunk : faces, plane.p[1], wall && key === 'waist' ? wall : P) : girth(faces, plane, ref);
       if (!g) continue;
       if (!best || (s.mode === 'min' ? g.length < best.length : g.length > best.length)) {
         best = g;
@@ -214,7 +252,7 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): M
       for (const t of [bestT - step / 2, bestT + step / 2]) {
         if (t < s.from - step / 2 || t > s.to + step / 2) continue;
         const { faces, plane, ref, union } = planes[key](t);
-        const g = union ? trunkGirth(faces, plane.p[1]) : girth(faces, plane, ref);
+        const g = union ? trunkGirth(wall && key === 'waist' ? ctx.faces.trunk : faces, plane.p[1], wall && key === 'waist' ? wall : P) : girth(faces, plane, ref);
         if (g && (s.mode === 'min' ? g.length < best.length : g.length > best.length)) {
           best = g;
           bestT = t;
@@ -241,7 +279,7 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): M
   const bust = trunkGirth(ctx.faces.trunk, bustY);
   values.bust = bust?.length ?? NaN;
   if (bust) tapes.bust = bust.path;
-  const ub = trunkGirth(ctx.faces.trunkNoBreast, underbustY);
+  const ub = trunkGirth(wall ? ctx.faces.trunk : ctx.faces.trunkNoBreast, underbustY, wall ?? P);
   values.underbust = ub?.length ?? NaN;
   if (ub) tapes.underbust = ub.path;
 

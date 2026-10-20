@@ -1,36 +1,26 @@
 import type { BodyAsset } from './asset';
-import { type V3, adjacency, centroid, smooth, taubin } from './geometry';
+import { type V3, adjacency, centroid, taubin } from './geometry';
 
-// 把求解好的網格整理成畫面上的樣子：乳頭附近抹平、表面去掉細小凹凸、手臂轉到指定角度。
+// 把求解好的網格整理成畫面上的樣子：表面去掉細小凹凸、手臂轉到指定角度。
 // 形狀本身由 rings.ts 決定，這裡不改任何量測。
 
 export class BodyModel {
   readonly adj: number[][];
-  readonly nippleVerts: Uint32Array;
   /** 顯示前要抹平的頂點（手、腳的細節保留） */
   private readonly surfaceVerts: Uint32Array;
 
   constructor(readonly asset: BodyAsset) {
     this.adj = adjacency(asset.quads, asset.nBody);
-    const B = asset.base;
-    const near: number[] = [];
-    for (const name of ['bustApexL', 'bustApexR']) {
-      const c = [B[asset.landmarks[name] * 3], B[asset.landmarks[name] * 3 + 1], B[asset.landmarks[name] * 3 + 2]];
-      for (let i = 0; i < asset.nBody; i++) {
-        if (Math.hypot(B[i * 3] - c[0], B[i * 3 + 1] - c[1], B[i * 3 + 2] - c[2]) < 2.2) near.push(i);
-      }
-    }
-    this.nippleVerts = Uint32Array.from(near);
+    const breast = new Set(asset.targets.get('female-young-averagemuscle-averageweight-maxcup-averagefirmness')?.indices);
     const tips = new Set(['handL', 'handR', 'footL', 'footR'].map((r) => asset.regions.indexOf(r)));
     const surface: number[] = [];
-    for (let i = 0; i < asset.nBody; i++) if (!tips.has(asset.region[i])) surface.push(i);
+    for (let i = 0; i < asset.nBody; i++) if (!tips.has(asset.region[i]) && !breast.has(i)) surface.push(i);
     this.surfaceVerts = Uint32Array.from(surface);
   }
 
-  /** 顯示用網格：乳頭附近抹平、整體表面去掉細小凹凸，手臂轉到指定的外展角度 */
+  /** 胸部已在求解內平滑；其他表面去掉細小凹凸，手臂轉到指定的外展角度。 */
   display(rest: Float32Array, armAngle: number): { P: Float32Array; armRotation: { L: ArmPose; R: ArmPose } } {
     const P = new Float32Array(rest);
-    smooth(P, this.adj, this.nippleVerts, 15, 0.6);
     taubin(P, this.adj, this.surfaceVerts, 4);
     const rot = { L: this.poseArm(P, 'L', armAngle), R: this.poseArm(P, 'R', armAngle) };
     return { P, armRotation: rot };

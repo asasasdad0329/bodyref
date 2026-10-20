@@ -17,6 +17,7 @@ try {
   const { bodyInputFor } = await server.ssrLoadModule('/src/body/goals.ts');
   const { suggest } = await server.ssrLoadModule('/src/core/linkage.ts');
   const { cupDiff } = await server.ssrLoadModule('/src/core/reference.ts');
+  const { applyRatios } = await server.ssrLoadModule('/src/core/proportions.ts');
   const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
   const buf = fs.readFileSync('public/body.bin');
   const asset = parseBodyAsset(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
@@ -25,7 +26,8 @@ try {
   const results = [], failures = [];
   for (const c of BODY_CASES.filter((c) => !selected.length || selected.includes(c.id))) {
     const bustDiff = c.cup ? cupDiff(c.cup) : null;
-    const sug = suggest({ sex: c.sex, locked: c.locked, bustDiff });
+    const { locked } = applyRatios({ sex: c.sex, locked: c.locked, bustDiff }, c.ratios ?? {});
+    const sug = suggest({ sex: c.sex, locked, bustDiff });
     const input = { ...bodyInputFor({ sex: c.sex, sug, bustDiff }), armAngle: 16 };
     const engine = new BodyEngine(asset);
     const started = performance.now();
