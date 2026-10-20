@@ -1275,8 +1275,12 @@ export class RingBody {
           const candidatePreferred = { ...preferred };
           for (const g of blockedGoals) candidatePreferred[g] = { target: inp.locked[g]!, scale: 0.008, confidence: 8 };
           const penalty = distributionPenalty(m.values, preferred) + 0.01 * SOFT_KEYS.reduce((s, k) => s + bias[k] ** 2, 0);
-          if (worst < 0.15 && penalty < bestPenalty - 1e-4) { best = save(); bestPenalty = penalty; }
-          else if (best && !seekFeasible) { restore(best); stepScale *= 0.4; }
+          if (worst < 0.15 && penalty < bestPenalty - 1e-4) {
+            best = save(); bestPenalty = penalty;
+            if (attempts > 0 && attempts % 3 === 0) response = null;
+          } else if (best && !seekFeasible) {
+            restore(best); stepScale *= 0.4; response = null;
+          }
           if (!Object.keys(candidatePreferred).length || attempts++ >= (seekFeasible && !best ? 24 : 10) || it >= (seekFeasible && !best ? 76 : 56) || stepScale < 0.08 || bestPenalty < 0.03) break;
           if (best) {
             // 使用與保存狀態一致的量測提出候選，不能沿用剛被退回的身體。
@@ -1286,8 +1290,8 @@ export class RingBody {
             // 在目前體型量小步響應；瘦素體上的斜率無法代表大腹部與大臀的交互影響。
             response = { ...calibratedResponse };
             const probeP = new Float32Array(P.length);
-            // 軀幹圓頂會跨到臀圍切面，需在當前體型重新量測；肢體響應沿用骨架校準。
-            const coupled: SoftKey[] = ['general', 'trunkMuscle', 'belly', 'flank', 'lowerBack'];
+            // 腰臀場會跨切面，臀峰也會移位；以當前體型的響應分配補償，不能沿用瘦素體的斜率。
+            const coupled: SoftKey[] = ['general', 'trunkMuscle', 'belly', 'flank', 'lowerBack', 'buttock', 'hipSide', 'gluteMuscle'];
             for (const k of free.filter((k) => coupled.includes(k))) {
               const probe = { ...soft, [k]: soft[k] + 0.15 / kgPer[k] };
               this.build(p, q, probeP, probe);

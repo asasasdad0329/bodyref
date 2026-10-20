@@ -170,7 +170,7 @@ describe('人體網格', () => {
     expect(out.values.hip).toBeLessThan(118);
     expect(out.values.thigh).toBeLessThan(71);
     expect(Math.abs(out.weight - 80)).toBeLessThan(0.5);
-  });
+  }, 10000);
 
   it('鎖體重縮手臂時，臀圍的額外補償受到限制', () => {
     const before = regression('T4');
@@ -179,7 +179,7 @@ describe('人體網格', () => {
     expect(Math.abs(after.weight - 80)).toBeLessThan(0.5);
     expect(after.values.hip - before.values.hip).toBeLessThan(4);
     expect(after.values.thigh - before.values.thigh).toBeLessThan(2);
-  }, 10000);
+  }, 20000);
 
   it('分配與解除鎖定不依賴快取路徑', () => {
     const before = regression('T3');

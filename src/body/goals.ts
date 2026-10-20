@@ -39,6 +39,11 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
   const preferenceSuggestion = bustDiff === null ? sug : suggest({ sex,
     locked: Object.fromEntries(Object.entries(v).filter(([k]) => L[k as keyof typeof L])),
   });
+  // 上臂來源是屈臂量法，網格是放鬆中段；不能把縮手臂轉成合成體脂估計的跳升，
+  // 再把多出的全身脂肪補回臀腿。手動上臂仍是硬條件，其他圍度偏好仍保留條件連動。
+  const compositionSuggestion = !L.bodyFat && L.upperArm ? suggest({ sex,
+    locked: Object.fromEntries(Object.entries(v).filter(([k]) => k !== 'upperArm' && L[k as keyof typeof L])),
+  }) : preferenceSuggestion;
   const preferred: CompositionInput['preferred'] = {};
   for (const k of SOFT) {
     if (L[k] || (k === 'bust' && sex === 'female')) continue;
@@ -54,7 +59,7 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
     sex,
     frame,
     weight: L.weight ? v.weight : preferenceSuggestion.values.weight,
-    bodyFat: L.bodyFat ? v.bodyFat : preferenceSuggestion.values.bodyFat,
+    bodyFat: L.bodyFat ? v.bodyFat : compositionSuggestion.values.bodyFat,
     muscleRate: L.muscleRate ? v.muscleRate : undefined,
     weightLocked: L.weight,
     locked,

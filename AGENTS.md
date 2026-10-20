@@ -38,7 +38,7 @@
 ```bash
 npm ci
 npm run typecheck
-npm test            # 約 1–2 分鐘（依環境）；檢查手動數值、分配、連續性與操作順序
+npm test            # 約 2–4 分鐘（依環境）；檢查手動數值、分配、連續性與操作順序
 npm run build
 npm run build:single   # 選用：打包成單一 HTML（人體網格內嵌），方便離線分享
 ```

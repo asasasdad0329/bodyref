@@ -2,8 +2,18 @@ import { ANKLE_HEIGHT, RATIOS, applyRatios, ratiosOf, displayRatio, storedRatio 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_STATE, decodeShare, encodeShare } from '../src/core/state';
 import { rarity, suggest } from '../src/core/linkage';
+import { bodyInputFor } from '../src/body/goals';
 
 describe('數值連動', () => {
+  it('手動縮上臂不藉未校準的屈臂量法提高全身體脂起點，手動上臂與體脂仍保留', () => {
+    const input = (locked: Record<string, number>) => bodyInputFor({ sex: 'female', sug: suggest({ sex: 'female', locked }), bustDiff: null });
+    const base = input({ height: 158, weight: 80 });
+    const arm = input({ height: 158, weight: 80, upperArm: 30 });
+    expect(arm.bodyFat).toBe(base.bodyFat);
+    expect(arm.locked.upperArm).toBe(30);
+    expect(input({ height: 158, weight: 80, upperArm: 30, bodyFat: 0.35 }).bodyFat).toBe(0.35);
+  });
+
   it('肌肉率獨立保存，不改體脂或虛構統計連動', () => {
     const base = suggest({ sex: 'female', locked: { height: 165, weight: 62, bodyFat: 0.25 } });
     const muscle = suggest({ sex: 'female', locked: { height: 165, weight: 62, bodyFat: 0.25, muscleRate: 0.43 } });
