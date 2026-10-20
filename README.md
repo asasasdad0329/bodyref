@@ -1,5 +1,7 @@
 # BodyRef 實尺人台
 
+**[直接開啟 BodyRef（GitHub Pages）](https://asasasdad0329.github.io/bodyref/)**
+
 輸入身高、體重、三圍和各部位量測，即時生成依真實尺寸換算的 3D 人台。以 AI 生圖與角色設計的體型參照為主，允許美型、誇張比例與後續修型；尺寸精確和曲線、部位連接的品質都要顧到。
 
 這個專案有兩個目的：
@@ -58,7 +60,7 @@
 
 ## 準確度與限制
 
-- 手動填的圍度與長度精確：測試會檢查八種體型（含誇張沙漏、偏胖、高壯男性、G 與 S 罩杯、細腰但體重重），網格上量到的數值和目標相差在 0.5 cm 內，鎖定的體重在 0.5 kg 內、體脂率在 1 個百分點內。
+- 手動填的圍度與長度精確：測試涵蓋誇張沙漏、偏胖、高壯男性、G 與 S 罩杯、細腰但體重重、臀圍序列與手動上臂，網格上量到的數值和目標相差在 0.5 cm 內，鎖定的體重在 0.5 kg 內、體脂率在 1 個百分點內；另檢查相鄰輸入的連續性及操作順序的一致性。
 - 只填身高時，參考體型的體重與體脂接近參考值（測試檢查 4% 與 3 個百分點內）。
 - 罩杯做到約 S（上下胸圍差 55 cm）；再大兩邊會黏成一塊，要等之後的胸型部件。做不到的組合會在現實檢核列出。
 - 初始脂肪分佈仍是造型預設，之後由未填圍度的統計偏好校準；不是醫學上的分段體組成估計，也不保證所有未填圍度落在建議值 ±2～3 cm。手動的極端比例仍可保留。
@@ -69,7 +71,7 @@
 ## 開發
 
 ```bash
-npm install
+npm ci
 npm run dev      # 開發伺服器
 npm test         # 連動模型與網格的測試
 npm run test:body-report -- /absolute/output/body-report.json  # 產物必須在倉庫外
@@ -79,7 +81,7 @@ npm run build:single   # 另外打包成單一 HTML（dist/bodyref-single.html�
 
 協作規則（含 AI 編碼代理）寫在 `AGENTS.md`；目前狀態、已知問題與還沒做的規劃在 `docs/HANDOFF.md`，開發過程與每次轉向的理由在 `docs/HISTORY.md`。
 
-需要 Node.js 20 以上。
+開發與 CI 使用 Node.js 22（22.12 以上）。
 
 ### 重新產生資料檔
 
@@ -95,9 +97,11 @@ python3 tools/prepare_stats.py "ANSUR II FEMALE Public.csv" "ANSUR II MALE Publi
 
 ## 部署
 
-- `.github/workflows/ci.yml`：每次推送和 PR 都會跑測試與建置。
-- `.github/workflows/deploy.yml`：發佈到 GitHub Pages。GitHub 免費方案只有**公開**儲存庫能用 Pages，所以目前設為只能手動執行。儲存庫改成公開（或升級方案）並在 **Settings → Pages** 把 **Source** 設為 **GitHub Actions** 後，把檔案裡的 `push` 觸發條件取消註解，推送到 `main` 時就會自動發佈。
-- 想保持私人儲存庫又免費上線，可以改用 Cloudflare Pages、Netlify 或 Vercel 連結這個儲存庫：建置指令 `npm run build`，輸出資料夾 `dist`。
+- 倉庫與 [GitHub Pages 網站](https://asasasdad0329.github.io/bodyref/)已公開，Pages 的來源為 **GitHub Actions**。
+- [CI](.github/workflows/ci.yml)：推送到 `main` 或建立、更新 PR 時，執行測試與建置。合併 `main` 後仍需部署，網站才會更新。
+- [部署流程](.github/workflows/deploy.yml)：推送 `stable-*` 標籤、發布對應 Release，或手動執行時，重新測試、建置並發佈到 Pages。
+- **線上驗收最新版**：到 [Actions → Deploy to GitHub Pages](https://github.com/asasasdad0329/bodyref/actions/workflows/deploy.yml)，按 **Run workflow**、選 `main`；等部署成功後開啟網站。
+- **穩定版發佈**：由作者在 [Releases](https://github.com/asasasdad0329/bodyref/releases) 建立以 `main` 為目標的 `stable-YYYY-MM-DD` 標籤並發布 Release；細節見 `AGENTS.md`。
 
 ## 架構
 
@@ -113,27 +117,28 @@ src/
     state.ts            狀態、範例體型、瀏覽器儲存、分享代碼
   body/
     client.ts           主畫面與背景執行緒之間的橋梁
-    goals.ts            把面板狀態換成網格求解的目標（哪些要精確、哪些只是起點）
+    goals.ts            把面板狀態換成網格求解的硬條件與未填圍度的軟偏好
     worker.ts           背景執行緒
     mh/                 MakeHuman 網格的處理
       asset.ts          讀取資料檔、套用形變目標
       geometry.ts       切截面、凸包、體積、平滑
       measure.ts        在網格上量尺寸
       rings.ts          骨架與截面圈、脂肪與肌肉的部位、總量分配與求解
+      distribution.ts   自由組織的受限公斤轉移與軟偏好評分
       model.ts          顯示前的平滑與擺手臂
       egghead.ts        人台頭與脖子
       guides.ts         結構線
       engine.ts         把以上組成畫面需要的輸出
   view/                 Three.js 顯示層
   ui/                   面板、摘要、匯出與分享
-tools/                  產生資料檔的腳本
+tools/                  資料準備、數值回歸與單檔打包腳本
 ```
 
 ### 常見的擴充方式
 
 - **新增量測項目**：在 `core/measurements.ts` 加一筆定義、在 `tools/prepare_stats.py` 對應到 ANSUR II 的欄位、在 `body/mh/measure.ts` 定義怎麼在網格上量、在 `body/mh/rings.ts` 決定由哪一圈或哪一區負責，並在 `body/goals.ts` 決定它是骨架（照建議值）還是軟組織（只有手動填才固定）。
-- **脂肪分佈**：`rings.ts` 的 `FAT_SHARE`（變胖）、`LOSS_SHARE`（變瘦）、`LEAN_SHARE`（肌肉）是分到各區的比例；InBody 分段數據可以直接換成這組比例。
-- **型態指定（胸型、臀型）**：每一塊肉的位置、範圍、下垂與變薄方式都寫在 `rings.ts` 的 `build`；胸型、臀型可以做成這些數值的預設組合（例如水滴、圓盤、碗公），不影響總量分配。
+- **脂肪分佈**：`rings.ts` 的 `FAT_SHARE`（變胖）、`LOSS_SHARE`（變瘦）、`LEAN_SHARE`（去脂組織）決定初始分配，再依未填圍度的軟偏好校準。新增 InBody 分段輸入時，需一起處理初始分配與總量條件。
+- **型態指定（胸型、臀型）**：每一塊肉的位置、範圍、下垂與變薄方式都寫在 `rings.ts` 的 `build`；胸型、臀型可以做成這些數值的預設組合（例如水滴、圓盤、碗公）。修改形狀後須同步校準體積與尺寸響應，維持手動尺寸與總量條件。
 - **姿勢**：MakeHuman 的骨架與蒙皮權重（CC0）可以直接用；目前只用來轉手臂角度。
 
 ## 這個專案怎麼做出來的
