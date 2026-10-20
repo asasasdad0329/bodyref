@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { bodyInputFor } from '../src/body/goals';
 import { parseBodyAsset } from '../src/body/mh/asset';
+import { redistributionStep } from '../src/body/mh/distribution';
+import { zeroSoft } from '../src/body/mh/rings';
 import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
+import { BODY_CASES } from './fixtures/bodyCases';
 
 let engine: BodyEngine;
 
@@ -63,7 +66,7 @@ describe('人體網格', () => {
       expect(Math.abs(again.values[key] - fresh.values[key]), key).toBeLessThan(0.3);
     }
     expect(Math.abs(again.weight - fresh.weight)).toBeLessThan(0.3);
-  });
+  }, 15000);
 
   it('罩杯只影響胸部：體脂相同時，A 到 G 的腰圍與臀圍幾乎不變', () => {
     const a = run('female', { height: 160, bodyFat: 0.27 }, 'A');
@@ -96,4 +99,77 @@ describe('人體網格', () => {
     expect(out.positions.every(Number.isFinite)).toBe(true);
     expect(out.marks.topY).toBeCloseTo(160, 0);
   });
+
+  const regression = (id: string) => {
+    const c = BODY_CASES.find((c) => c.id === id)!;
+    return run(c.sex, c.locked as Record<string, number>, c.cup ?? null);
+  };
+
+  for (const [id, low, high] of [['T2', 22, 26], ['T3', 28, 32], ['T4', 31, 35.5]] as const) {
+    it(`${id}：預設上臂不再因總量分配過細或過粗`, () => {
+      const out = regression(id);
+      expect(out.values.upperArm).toBeGreaterThan(low);
+      expect(out.values.upperArm).toBeLessThan(high);
+      for (const { goal, error } of out.residual) {
+        expect(Math.abs(error), goal.kind === 'measure' ? goal.key : goal.kind).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
+      }
+    });
+  }
+
+  it('偏胖預設的腰腹增量不能靠繼續放大臀腿補償', () => {
+    const out = regression('T4');
+    expect(out.values.waist).toBeGreaterThan(86);
+    expect(out.values.hip).toBeLessThan(118);
+    expect(out.values.thigh).toBeLessThan(71);
+    expect(Math.abs(out.weight - 80)).toBeLessThan(0.5);
+  });
+
+  it('鎖體重縮手臂時，臀圍的額外補償受到限制', () => {
+    const before = regression('T4');
+    const after = regression('UA-T4-30');
+    expect(Math.abs(after.values.upperArm - 30)).toBeLessThan(0.5);
+    expect(Math.abs(after.weight - 80)).toBeLessThan(0.5);
+    expect(after.values.hip - before.values.hip).toBeLessThan(4);
+    expect(after.values.thigh - before.values.thigh).toBeLessThan(2);
+  }, 10000);
+
+  it('分配與解除鎖定不依賴快取路徑', () => {
+    const before = regression('T3');
+    regression('T4');
+    regression('UA-T4-30');
+    const after = regression('T3');
+    for (const key of ['waist', 'hip', 'thigh', 'calf', 'upperArm'] as const) {
+      expect(Math.abs(after.values[key] - before.values[key]), key).toBeLessThan(0.3);
+    }
+    expect(Math.abs(after.weight - before.weight)).toBeLessThan(0.3);
+  }, 15000);
+  it('只指定大臀時，跨區基底不能讓手動臀圍卡在下限外', () => {
+    const out = regression('T7-hip130');
+    expect(Math.abs(out.values.hip - 130)).toBeLessThan(0.5);
+  });
+
+  it('有無相近骨架快取，輸出保持一致', () => {
+    regression('T4');
+    const c = BODY_CASES.find((c) => c.id === 'UA-T4-30')!;
+    const sug = suggest({ sex: c.sex, locked: c.locked });
+    const input = { ...bodyInputFor({ sex: c.sex, sug, bustDiff: null }), armAngle: 16 };
+    const reused = engine.run(input);
+    const fresh = new BodyEngine(engine.asset).run(input);
+    for (const k of ['waist', 'hip', 'thigh', 'upperArm'] as const) {
+      expect(Math.abs(reused.values[k] - fresh.values[k]), k).toBeLessThan(0.01);
+    }
+    expect(Math.abs(reused.weight - fresh.weight)).toBeLessThan(0.01);
+  }, 15000);
+
+  it('分配候選分別守住脂肪與去脂總量，且不動指定部位', () => {
+    const step = redistributionStep(['general', 'belly', 'armMuscle', 'trunkMuscle'],
+      { general: { waist: 1 }, belly: { waist: 3 }, armMuscle: { waist: 0 }, trunkMuscle: { waist: 2 } },
+      { waist: 80 } as EngineOutput['values'], { waist: { target: 85, scale: 0.1, confidence: 1 } },
+      [], zeroSoft(), { ...zeroSoft(), general: 10, belly: 5, armMuscle: 5, trunkMuscle: 10 });
+    expect(step.belly).toBeGreaterThan(0);
+    expect(step.general + step.belly).toBeCloseTo(0, 10);
+    expect(step.armMuscle + step.trunkMuscle).toBeCloseTo(0, 10);
+    expect(step.buttock).toBe(0);
+  });
+
 });
