@@ -322,7 +322,7 @@ export class Panel {
       mark(r, isDerived ? 'derived' : locked ? (p !== undefined && (p < 0.05 || p > 0.95) ? 'rare' : 'manual') : 'auto');
       const [lo, hi] = sug.range[id];
       if (id === 'muscleRate') {
-        r.note.textContent = '骨骼肌重 ÷ 體重，可獨立指定；推算值採去脂體重的 55%。';
+        r.note.textContent = '骨骼肌重 ÷ 體重，可獨立指定；未指定時以去脂體重的 55% 作分配起點。';
         return;
       }
       const hint = MEASURES.find((m) => m.id === id)?.hint ?? '';
