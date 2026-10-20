@@ -356,7 +356,10 @@ describe('人體網格', () => {
       for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], out.positions[i * 3 + k]); hi[k] = Math.max(hi[k], out.positions[i * 3 + k]); }
     }
     // 美術回歸的形態上界，不是人體比例定律。
-    expect(hi[2] - lo[2]).toBeLessThan(1.8 * (hi[1] - lo[1]));
+    expect(hi[2] - lo[2]).toBeLessThan(1.1 * (hi[1] - lo[1]));
+    expect(hi[2] - lo[2]).toBeLessThan(1.8 * (hi[0] - lo[0]));
+    // 向內展開也不能讓左乳房越過正中線。
+    expect(lo[0]).toBeGreaterThan(0);
     for (const { error } of out.residual) expect(Math.abs(error)).toBeLessThan(0.5);
   }, 10000);
 

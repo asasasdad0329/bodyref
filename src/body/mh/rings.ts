@@ -830,7 +830,8 @@ export class RingBody {
     for (let i = 0; i < n; i++) baseDepth = Math.max(baseDepth, p.B[i * 3 + 2] - p.chestWall[i * 3 + 2]);
     const size = Math.exp(q.breast) * Math.max(0.05, 1 + sf.chest / baseDepth);
     const depth = baseDepth * size;
-    const spread = 1 + 0.3 * Math.max(0, Math.log(Math.max(1e-6, size)));
+    // 體積增加時三個方向一起展開；只以對數放大底座會讓大罩杯再度變成長錐。
+    const spread = Math.max(1, size);
     const footprint = Math.max(0.7, Math.min(1.2, Math.sqrt(Math.max(7.5, p.cupDiff) / 20)));
     for (const sign of [-1, 1]) {
       let apex = -1, front = -Infinity;
@@ -854,6 +855,9 @@ export class RingBody {
           before[i * 3 + 1] + wy - p.B[i * 3 + 1] + (wy - cy) * (spread - 1) * profile - depth * (0.12 + foundation.drop) * profile,
           before[i * 3 + 2] + p.chestWall[i * 3 + 2] - p.B[i * 3 + 2] + depth * profile,
         ];
+        // 大體積的內側在胸骨前平順靠攏，不讓左右乳房穿過正中線。
+        const medial = sign * target[0] - 0.3;
+        target[0] = sign * (0.3 + 0.5 * (medial + Math.sqrt(medial * medial + 0.16)));
         for (let k = 0; k < 3; k++) delta[i * 3 + k] = (target[k] - before[i * 3 + k]) * w;
       }
     }
