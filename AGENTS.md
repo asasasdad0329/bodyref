@@ -38,13 +38,13 @@
 ```bash
 npm ci
 npm run typecheck
-npm test            # 約 15 秒；網格測試會檢查手動填的數值是否精確達成
+npm test            # 約 1 分鐘（依環境）；檢查手動數值、分配、連續性與操作順序
 npm run build
 npm run build:single   # 選用：打包成單一 HTML（人體網格內嵌），方便離線分享
 ```
 
 - 改了形狀或分配，要在 `tests/body.test.ts` 補對應的案例。
-- 求解結果不能依賴上一次的輸入（拖動滑桿時會沿用上一次的解當起點）；`tests/body.test.ts` 有一個測試專門檢查這件事。
+- 求解結果不能依賴上一次的輸入；骨架與校準可快取，但分配從確定的起點求解。`tests/body.test.ts` 有操作順序及新舊引擎結果一致性的測試。
 
 ## 絕對不要放進倉庫
 
