@@ -1,4 +1,5 @@
 import type { Sex } from '../../core/measurements';
+import { REFERENCE } from '../../core/reference';
 import { type BodyAsset, addTarget } from './asset';
 import { type V3, adjacency, centroid, meshVolume, smoothField, vertexNormals } from './geometry';
 import { type MeasureContext, type MeasureKey, type Measured, measure, measureContext } from './measure';
@@ -17,6 +18,8 @@ export type RingTargets = { height: number } & Partial<Record<Exclude<MeasureKey
 export interface RingOptions {
   /** 先把素體骨盆一帶雕得很明顯的細節（胯骨、鼠蹊折線、大腿外側鼓起）抹順 */
   neutralize: boolean;
+  /** 臀部支撐範圍（由目標臀圍／身高決定），校準與求解必須使用同一份。 */
+  hipExpansion?: number;
 }
 
 /** 四個方向的縮放：往外、往內（只用在四肢）、往前、往後 */
@@ -199,6 +202,7 @@ interface ArmAxis {
 
 interface Prepared {
   sex: Sex;
+  hipExpansion: number;
   B: Float32Array;
   marks: Measured['marks'];
   levels: Measured['levels'];
@@ -224,6 +228,7 @@ interface Prepared {
 export class RingBody {
   readonly ctx: MeasureContext;
   readonly adj: number[][];
+  private readonly hipCalibrations = new Map<string, { kgPer: Soft; response: GirthResponse }>();
   private readonly setups = new Map<string, {
     sex: Sex;
     neutralize: boolean;
@@ -383,6 +388,7 @@ export class RingBody {
     smoothVectors(normals, this.adj, 10);
     return {
       sex,
+      hipExpansion: opts.hipExpansion ?? 0,
       B,
       marks: m.marks,
       levels: m.levels,
@@ -607,6 +613,11 @@ export class RingBody {
     const g = Math.max(-0.25, dH);
     const legacy = !soft;
     const butt = male ? 14 : 26, side = male ? 4 : 9;
+    // 臀圍增加時擴展承托區，讓臀上、臀側與臀下共同承擔體積，避免只抬高固定的小圓頂。
+    const spread = legacy ? 0 : p.hipExpansion;
+    const rearUp = (0.55 + 0.25 * spread) * L;
+    const rearDown = (0.38 + 0.32 * spread) * L;
+    const rearWidth = 0.72 + 0.48 * spread;
     const H = p.acromionY - mk.underbustY;
     const belly: Mass = male
       ? // 男性的肚子：從胸下一路到恥骨是一整個圓頂，最突出在肚臍上方
@@ -620,11 +631,11 @@ export class RingBody {
     });
     const masses: Mass[] = [
       // 臀部（左右各一團）：上緣沿後腰緩緩接上來，最飽滿處偏下，下緣圓圓地收進臀下折線
-      { key: 'buttock', y: mk.hipY - 0.04 * L, up: 0.55 * L, down: 0.38 * L, angle: Math.PI - 0.6, width: 0.72, amp: legacy ? butt * g : sf.buttock, sag: 0.12, taper: 0 },
-      { key: 'buttock', y: mk.hipY - 0.04 * L, up: 0.55 * L, down: 0.38 * L, angle: -(Math.PI - 0.6), width: 0.72, amp: legacy ? butt * g : sf.buttock, sag: 0.12, taper: 0 },
+      { key: 'buttock', y: mk.hipY - 0.04 * L, up: rearUp, down: rearDown, angle: Math.PI - 0.6, width: rearWidth, amp: legacy ? butt * g : sf.buttock, sag: 0.12, taper: 0 },
+      { key: 'buttock', y: mk.hipY - 0.04 * L, up: rearUp, down: rearDown, angle: -(Math.PI - 0.6), width: rearWidth, amp: legacy ? butt * g : sf.buttock, sag: 0.12, taper: 0 },
       // 臀側到大腿外側：讓骨盆到大腿是一條連續往外的弧線
-      { key: 'hipSide', y: legacy ? mk.crotchY - 0.03 * L : mk.crotchY + 0.05 * L, up: legacy ? 0.45 * L : 0.6 * L, down: legacy ? 0.5 * L : 0.48 * L, angle: Math.PI / 2 + 0.2, width: legacy ? 0.85 : 0.95, amp: legacy ? side * g : sf.hipSide, sag: 0.05, taper: 0 },
-      { key: 'hipSide', y: legacy ? mk.crotchY - 0.03 * L : mk.crotchY + 0.05 * L, up: legacy ? 0.45 * L : 0.6 * L, down: legacy ? 0.5 * L : 0.48 * L, angle: -(Math.PI / 2 + 0.2), width: legacy ? 0.85 : 0.95, amp: legacy ? side * g : sf.hipSide, sag: 0.05, taper: 0 },
+      { key: 'hipSide', y: legacy ? mk.crotchY - 0.03 * L : mk.crotchY + 0.05 * L, up: (legacy ? 0.45 : 0.6 + 0.13 * spread) * L, down: (legacy ? 0.5 : 0.48 + 0.18 * spread) * L, angle: Math.PI / 2 + 0.2, width: legacy ? 0.85 : 0.95 + 0.12 * spread, amp: legacy ? side * g : sf.hipSide, sag: 0.05, taper: 0 },
+      { key: 'hipSide', y: legacy ? mk.crotchY - 0.03 * L : mk.crotchY + 0.05 * L, up: (legacy ? 0.45 : 0.6 + 0.13 * spread) * L, down: (legacy ? 0.5 : 0.48 + 0.18 * spread) * L, angle: -(Math.PI / 2 + 0.2), width: legacy ? 0.85 : 0.95 + 0.12 * spread, amp: legacy ? side * g : sf.hipSide, sag: 0.05, taper: 0 },
       belly,
       flank(1),
       flank(-1),
@@ -649,9 +660,14 @@ export class RingBody {
         if (dt > Math.PI) dt = 2 * Math.PI - dt;
         const width = m.width * (1 - m.taper * smoothstep(0, 1, -uy));
         const u2 = uy * uy + (dt / width) ** 2;
-        if (u2 >= 1) continue;
+        const ut = dt / width;
+        if (Math.abs(uy) >= 1 || ut >= 1) continue;
         // 邊緣衰減：大的量體用更緩的邊，不會在交界處出現台階
-        const dome = Math.pow(1 - u2, legacy ? 1.5 : 2) * (wBody / w);
+        const radial = Math.pow(Math.max(0, 1 - u2), legacy ? 1.5 : 2);
+        // 臀部把上下與環向的衰減逐漸分開，交接處也有支撐；其餘部位保持原形狀。
+        const blend = m.key === 'buttock' || m.key === 'hipSide' ? spread : 0;
+        const envelope = (1 - uy * uy) ** 2 * (1 - ut * ut) ** 2;
+        const dome = (radial * (1 - blend) + envelope * blend) * (wBody / w);
         push += m.amp * dome;
         drop += m.amp * m.sag * dome * dome;
       }
@@ -781,6 +797,9 @@ export class RingBody {
   fitComposition(inp: CompositionInput, opts: RingOptions): CompositionResult {
     const { sex } = inp;
     const male = sex === 'male';
+    const ref = REFERENCE[sex];
+    const hip = inp.locked.hip ?? inp.preferred?.hip?.target ?? ref.girths.hip * inp.frame.height / ref.height;
+    opts = { ...opts, hipExpansion: smoothstep(1.02, 1.43, (hip / inp.frame.height) / (ref.girths.hip / ref.height)) };
     const a = this.asset;
     const n = a.nBody;
     const P = new Float32Array(a.base.length);
@@ -804,7 +823,7 @@ export class RingBody {
     if (setup) {
       this.setups.delete(key); this.setups.set(key, setup);
     } else {
-      const pp = this.prepare(sex, setupFrame, opts);
+      const pp = this.prepare(sex, setupFrame, { ...opts, hipExpansion: 0 });
       // 素體的體重與每一區「一單位」有多重（體積 × 密度）
       this.build(pp, q, P, zeroSoft());
       const V0 = vol(P);
@@ -828,8 +847,30 @@ export class RingBody {
       if (this.setups.size > 6) this.setups.delete(this.setups.keys().next().value!);
       this.setups.set(key, setup);
     }
-    let p = setup.p;
-    const { V0, M0, kgPer } = setup;
+    let p = { ...setup.p, hipExpansion: opts.hipExpansion! };
+    const { V0, M0 } = setup;
+    let { kgPer, response: calibratedResponse } = setup;
+    if (p.hipExpansion) {
+      const shapeKey = JSON.stringify([key, p.hipExpansion]);
+      let calibration = this.hipCalibrations.get(shapeKey);
+      if (!calibration) {
+        // 零量體的骨架不受承托範圍影響；只重新校準真的改形狀的臀後、臀側兩區。
+        const kg = { ...kgPer }, response = { ...calibratedResponse };
+        this.build(p, q, P, zeroSoft());
+        const baseline = measure(this.ctx, P, p.levels).values;
+        for (const k of ['buttock', 'hipSide'] as const) {
+          this.build(p, q, P, { ...zeroSoft(), [k]: 1 });
+          kg[k] = (vol(P) - V0) * FAT_DENSITY / 1000;
+          const values = measure(this.ctx, P, p.levels).values;
+          response[k] = Object.fromEntries((Object.keys(values) as MeasureKey[]).map((g) => [g, (values[g] - baseline[g]) / kg[k]]));
+        }
+        calibration = { kgPer: kg, response };
+        if (this.hipCalibrations.size >= 14) this.hipCalibrations.delete(this.hipCalibrations.keys().next().value!);
+        this.hipCalibrations.set(shapeKey, calibration);
+      }
+      kgPer = calibration.kgPer;
+      calibratedResponse = calibration.response;
+    }
     const baseFat = M0 * BASE_FAT[sex];
 
     // 預設分配：體重與體脂率換算出的脂肪、去脂體重，扣掉素體已有的，照比例分到各區
@@ -995,7 +1036,7 @@ export class RingBody {
           restAdj += (0.9 * err) / slope;
         }
         // 若局部圈已收到下限，先釋放跨區基底的壓力；不能靠繼續累加無效的局部修正。
-        const blockedGoals = goals.filter((g) => q[shrinkKey[g]] <= 0.5001 && m.values[g] > inp.locked[g]! + 0.5);
+        const blockedGoals = goals.filter((g) => q[shrinkKey[g]] <= 0.5001 && m.values[g] > inp.locked[g]! + 0.15);
         const seekFeasible = blockedGoals.length > 0 && it >= 12 && it % 8 === 4;
         if (worst < 0.15 || seekFeasible) {
           const candidatePreferred = { ...preferred };
@@ -1010,7 +1051,7 @@ export class RingBody {
           }
           if (!response) {
             // 在目前體型量小步響應；瘦素體上的斜率無法代表大腹部與大臀的交互影響。
-            response = { ...setup.response };
+            response = { ...calibratedResponse };
             const probeP = new Float32Array(P.length);
             // 軀幹圓頂會跨到臀圍切面，需在當前體型重新量測；肢體響應沿用骨架校準。
             const coupled: SoftKey[] = ['general', 'trunkMuscle', 'belly', 'flank', 'lowerBack'];

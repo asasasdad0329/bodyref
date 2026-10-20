@@ -172,4 +172,28 @@ describe('人體網格', () => {
     expect(step.buttock).toBe(0);
   });
 
+  for (const id of ['H94', 'H104', 'H114', 'H124', 'H130']) {
+    it(`${id}：擴展臀部承托範圍後仍對準指定腰臀`, () => {
+      const out = regression(id);
+      for (const { goal, error } of out.residual) expect(Math.abs(error), goal.kind).toBeLessThan(0.5);
+      expect(out.positions.every(Number.isFinite)).toBe(true);
+      // 擴展支撐不能靠把大腿加得比分配階段更粗來假裝接順。
+      if (id === 'H130') expect(out.values.thigh).toBeLessThan(80.5);
+    });
+  }
+
+  it('相鄰臀圍連續變化，回到同一臀圍時不沿用別的承托範圍', () => {
+    const first = regression('H104');
+    const next = run('female', { height: 165, bust: 97, underbust: 76, waist: 68, hip: 105 });
+    let maxDisplacement = 0;
+    for (let i = 0; i < first.positions.length; i += 3) {
+      maxDisplacement = Math.max(maxDisplacement, Math.hypot(...[0, 1, 2].map((k) => next.positions[i + k] - first.positions[i + k])));
+    }
+    expect(maxDisplacement).toBeLessThan(1.5);
+    regression('H130');
+    const again = regression('H104');
+    expect(Math.abs(first.weight - again.weight)).toBeLessThan(0.01);
+    expect(Math.max(...first.positions.map((v, i) => Math.abs(v - again.positions[i])))).toBeLessThan(0.01);
+  }, 15000);
+
 });

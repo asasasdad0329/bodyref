@@ -8,8 +8,9 @@ const [output, ...selected] = process.argv.slice(2);
 if (!output) throw new Error('用法：node tools/body-regression.mjs <倉庫外輸出.json> [案例 ID ...]');
 const root = process.cwd();
 const dest = path.resolve(output);
-if (!path.relative(root, dest).startsWith('..')) throw new Error('回歸產物必須放在倉庫外');
-const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+const relative = path.relative(root, dest);
+if (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) throw new Error('回歸產物必須放在倉庫外');
+const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
 try {
   const { BodyEngine } = await server.ssrLoadModule('/src/body/mh/engine.ts');
   const { parseBodyAsset } = await server.ssrLoadModule('/src/body/mh/asset.ts');
@@ -19,7 +20,9 @@ try {
   const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
   const buf = fs.readFileSync('public/body.bin');
   const asset = parseBodyAsset(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-  const results = [];
+  const unknown = selected.filter((id) => !BODY_CASES.some((c) => c.id === id));
+  if (unknown.length) throw new Error(`未知案例：${unknown.join(", ")}`);
+  const results = [], failures = [];
   for (const c of BODY_CASES.filter((c) => !selected.length || selected.includes(c.id))) {
     const bustDiff = c.cup ? cupDiff(c.cup) : null;
     const sug = suggest({ sex: c.sex, locked: c.locked, bustDiff });
@@ -39,11 +42,18 @@ try {
     const row = { ...c, suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
       bodyFat: out.bodyFat, composition: out.composition, residual: out.residual, volume: out.volume,
       timing: { coldMs, warmMs, cachedMs }, repeat: { values: again.values, weight: again.weight, bodyFat: again.bodyFat } };
+    const hardPass = out.residual.every(({ goal, error }) => Number.isFinite(error) && Math.abs(error) < (goal.kind === 'bodyFat' ? 0.01 : 0.5));
+    const repeatPass = Object.keys(out.values).every((k) => Math.abs(out.values[k] - again.values[k]) < 0.01)
+      && Math.abs(out.weight - again.weight) < 0.01 && Math.abs(out.bodyFat - again.bodyFat) < 0.0001;
+    const geometryPass = out.positions.every(Number.isFinite) && out.head.positions.every(Number.isFinite);
+    row.checks = { hardPass, repeatPass, geometryPass };
+    if (!hardPass || !repeatPass || !geometryPass) failures.push(c.id);
     results.push(row);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.writeFileSync(dest, JSON.stringify(results, null, 2));
     console.log(`${c.id}: ${coldMs.toFixed(0)} / ${warmMs.toFixed(0)} ms; arm ${out.values.upperArm.toFixed(2)}, waist ${out.values.waist.toFixed(2)}, hip ${out.values.hip.toFixed(2)}`);
   }
+  if (failures.length) throw new Error(`回歸未通過：${failures.join(", ")}`);
 } finally {
   await server.close();
 }
