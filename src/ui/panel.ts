@@ -9,7 +9,7 @@ import {
   WEIGHT_RANGE,
 } from '../core/measurements';
 import { RATIOS, type RatioId, ratiosOf } from '../core/proportions';
-import { CUP_TABLE, MUSCLE_OF_LEAN } from '../core/reference';
+import { CUP_TABLE } from '../core/reference';
 import type { AppState } from '../core/state';
 
 // 右側輸入面板。每個數值不是「手動」（你填的）就是「推算」（依你填的數值與體型算出）。
@@ -100,7 +100,6 @@ const fmt = (v: number) => v.toFixed(1);
 export class Panel {
   private rows = new Map<string, Row>();
   private height!: NumberField;
-  private muscle!: NumberField;
   private sexInputs: HTMLInputElement[] = [];
   private cupSelect!: HTMLSelectElement;
   private cupRow!: HTMLElement;
@@ -211,16 +210,9 @@ export class Panel {
       () => this.cb.onLock('bodyFat', null),
     );
 
-    const muscleRow = el('div', 'field');
-    const muscleTop = el('div', 'field-top');
-    const muscleLab = el('label', 'field-label', '骨骼肌率');
-    muscleLab.htmlFor = 'n-muscle';
-    muscleTop.append(muscleLab);
-    const muscle = numberControl('muscle', '骨骼肌率', MUSCLE_RANGE, '%', (v) =>
-      this.cb.onLock('bodyFat', Math.min(0.55, Math.max(0.05, 1 - v / 100 / MUSCLE_OF_LEAN))),
-    );
-    muscleRow.append(muscleTop, muscle.node, el('p', 'hint', '骨骼肌重 ÷ 體重，和體脂率連動（以骨骼肌約占去脂體重 55% 換算）。'));
-    this.muscle = muscle.field;
+    const muscleRow = this.lockRow('muscleRate', '骨骼肌率', MUSCLE_RANGE, '%',
+      '骨骼肌重 ÷ 體重，可獨立指定；其餘去脂組織保留在總重量內。',
+      (v) => this.cb.onLock('muscleRate', v / 100), () => this.cb.onLock('muscleRate', null));
 
     this.cupRow = el('div', 'field');
     const cupTop = el('div', 'field-top');
@@ -304,7 +296,6 @@ export class Panel {
   render(state: AppState, sug: Suggestion, rarity: Partial<Record<VarId, number>>, braSize: string | null, derived: MeasureId[]): void {
     for (const input of this.sexInputs) input.checked = input.value === state.sex;
     setValue(this.height, state.locked.height);
-    setValue(this.muscle, MUSCLE_OF_LEAN * (1 - sug.values.bodyFat) * 100);
 
     const female = state.sex === 'female';
     this.cupRow.hidden = !female;
@@ -330,11 +321,16 @@ export class Panel {
       const p = rarity[id];
       mark(r, isDerived ? 'derived' : locked ? (p !== undefined && (p < 0.05 || p > 0.95) ? 'rare' : 'manual') : 'auto');
       const [lo, hi] = sug.range[id];
+      if (id === 'muscleRate') {
+        r.note.textContent = '骨骼肌重 ÷ 體重，可獨立指定；未指定時以去脂體重的 55% 作分配起點。';
+        return;
+      }
       const hint = MEASURES.find((m) => m.id === id)?.hint ?? '';
       r.note.textContent = locked || isDerived ? hint : `常見 ${fmt(lo * scale)}–${fmt(hi * scale)}${hint ? `・${hint}` : ''}`;
     };
     show('weight');
     show('bodyFat', 100);
+    show('muscleRate', 100);
     for (const d of MEASURES) show(d.id);
 
     const ratios = ratiosOf(sug.values);

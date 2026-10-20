@@ -15,6 +15,7 @@ export type Goal =
   | { kind: 'measure'; key: MeasureKey; value: number }
   | { kind: 'weight'; value: number }
   | { kind: 'bodyFat'; value: number }
+  | { kind: 'muscleRate'; value: number }
   | { kind: 'diff'; value: number };
 
 export interface EngineInput extends BodyInput {
@@ -43,6 +44,8 @@ export interface EngineOutput {
   /** 模型的體重（瘦體重 + 脂肪）與體脂率 */
   weight: number;
   bodyFat: number;
+  muscleRate: number;
+  tissueMass: { fat: number; muscle: number; otherLean: number };
   /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
   residual: { goal: Goal; error: number }[];
   /** 各區脂肪與肌肉比素體多出的公斤數 */
@@ -136,7 +139,9 @@ export class BodyEngine {
       values: res.values,
       weight: res.weight,
       bodyFat: res.bodyFat,
-      residual: residualOf(input, res.values, res.weight, res.bodyFat),
+      muscleRate: res.muscleRate,
+      tissueMass: res.tissueMass,
+      residual: residualOf(input, res.values, res.weight, res.bodyFat, res.muscleRate),
       composition: res.kg,
       volume: meshVolume(res.P.subarray(0, a.nBody * 3), a.quads),
       marks: { topY, crotchY, kneeY: knee[1], ankleY: ankle[1] },
@@ -163,7 +168,7 @@ function closedTape(pts: V3[], closed: boolean, lateral: boolean): TapePath {
 }
 
 /** 手動填的數值和模型做到的差距 */
-function residualOf(input: EngineInput, values: Record<MeasureKey, number>, weight: number, bodyFat: number): EngineOutput['residual'] {
+function residualOf(input: EngineInput, values: Record<MeasureKey, number>, weight: number, bodyFat: number, muscleRate: number): EngineOutput['residual'] {
   const out: EngineOutput['residual'] = [];
   for (const key of input.userLocked) {
     if (!(key in values)) continue;
@@ -173,6 +178,7 @@ function residualOf(input: EngineInput, values: Record<MeasureKey, number>, weig
   }
   if (input.weightLocked) out.push({ goal: { kind: 'weight', value: input.weight }, error: weight - input.weight });
   if (input.bodyFatLocked) out.push({ goal: { kind: 'bodyFat', value: input.bodyFat }, error: bodyFat - input.bodyFat });
+  if (input.muscleRate !== undefined) out.push({ goal: { kind: 'muscleRate', value: input.muscleRate }, error: muscleRate - input.muscleRate });
   if (input.sex === 'female' && input.bustDiff !== null) {
     out.push({ goal: { kind: 'diff', value: input.bustDiff }, error: values.bust - values.underbust - input.bustDiff });
   }
