@@ -11,6 +11,7 @@
     "build:single": "npm run build && node tools/single-file.mjs",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:body-report": "node tools/body-regression.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

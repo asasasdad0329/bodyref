@@ -57,6 +57,7 @@ export class BodyEngine {
   readonly rings: RingBody;
   private readonly guides: GuideBuilder;
   readonly head: HeadParts;
+  private fitted: { key: string; result: ReturnType<RingBody['fitComposition']> } | null = null;
 
   constructor(readonly asset: BodyAsset) {
     this.model = new BodyModel(asset);
@@ -66,7 +67,10 @@ export class BodyEngine {
   }
 
   run(input: EngineInput): EngineOutput {
-    const res = this.rings.fitComposition(input, { neutralize: true });
+    const { armAngle: _angle, ...shapeInput } = input;
+    const key = JSON.stringify(shapeInput);
+    if (this.fitted?.key !== key) this.fitted = { key, result: this.rings.fitComposition(input, { neutralize: true }) };
+    const res = this.fitted.result;
     const { P, armRotation } = this.model.display(res.P, input.armAngle);
     const a = this.asset;
     const m = res.measured;

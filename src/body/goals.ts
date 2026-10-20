@@ -1,4 +1,4 @@
-import type { Suggestion } from '../core/linkage';
+import { suggest, type Suggestion } from '../core/linkage';
 import type { Sex } from '../core/measurements';
 import type { MeasureKey } from './mh/measure';
 import type { CompositionInput, RingTargets, SoftGoal } from './mh/rings';
@@ -8,7 +8,7 @@ import type { CompositionInput, RingTargets, SoftGoal } from './mh/rings';
 // - 骨架類（身高、四肢長度、肩寬、頸、手腕、腳踝、下胸圍）：手動的照填，沒填的用連動建議。
 //   女性的上胸圍也在這裡（決定胸部大小），沒指定罩杯時用建議值。
 // - 軟組織類（腰、臀、大腿、小腿、上臂；男性的上胸圍）：只有手動填的才固定，
-//   沒填的由體重、體脂率與脂肪、肌肉的分配自然長出來。
+//   沒填的用連動建議作軟偏好，在體重、體脂與手動條件允許下調整脂肪、肌肉分配。
 // - 體重沒鎖定時只當作起點：手動把腰圍改粗，體重會跟著變重。
 
 const FRAME: MeasureKey[] = ['height', 'shoulder', 'neck', 'wrist', 'ankle', 'underbust', 'upperArmLen', 'forearmLen', 'thighLen', 'calfLen'];
@@ -35,6 +35,21 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
   if (sex === 'female') Object.assign(frame, { bust: v.bust, underbust: v.underbust });
   const locked: CompositionInput['locked'] = {};
   for (const k of SOFT) if (L[k] && !(k === 'bust' && sex === 'female')) locked[k] = v[k];
+  // 罩杯是胸部形狀控制，不拿它重新推動全身軟組織偏好。
+  const preferenceSuggestion = bustDiff === null ? sug : suggest({ sex,
+    locked: Object.fromEntries(Object.entries(v).filter(([k]) => L[k as keyof typeof L])),
+  });
+  const preferred: CompositionInput['preferred'] = {};
+  for (const k of SOFT) {
+    if (L[k] || (k === 'bust' && sex === 'female')) continue;
+    const [lo, hi] = preferenceSuggestion.range[k];
+    preferred[k] = {
+      target: preferenceSuggestion.values[k],
+      scale: Math.max(0.045, Math.log(hi / lo) / (2 * 1.2816)),
+      // 來源的上臂與腰量法不同，先降低偏好強度，不捏造公分換算。
+      confidence: k === 'upperArm' ? 0.55 : k === 'waist' ? 0.65 : 1,
+    };
+  }
   return {
     sex,
     frame,
@@ -42,6 +57,7 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
     bodyFat: v.bodyFat,
     weightLocked: L.weight,
     locked,
+    preferred,
     userLocked: (Object.keys(L) as MeasureKey[]).filter((k) => L[k as keyof typeof L] && k in v && k !== ('weight' as MeasureKey) && k !== ('bodyFat' as MeasureKey)),
     bodyFatLocked: L.bodyFat,
     bustDiff,
