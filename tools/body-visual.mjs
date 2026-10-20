@@ -10,10 +10,10 @@ const [output, ...selected] = process.argv.slice(2);
 if (!output) throw new Error('用法：node tools/body-visual.mjs <倉庫外目錄> [案例 ID ... 或 all]');
 const root = process.cwd(), dest = path.resolve(output), relative = path.relative(root, dest);
 if (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) throw new Error('驗收產物必須放在倉庫外');
-const chrome = ['chromium', 'google-chrome', 'chromium-browser'].find((name) => {
+const chromes = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'].filter((name) => {
   try { execFileSync('which', [name], { stdio: 'ignore' }); return true; } catch { return false; }
 });
-if (!chrome) throw new Error('需要系統 Chromium 或 Google Chrome');
+if (!chromes.length) throw new Error('需要系統 Chromium 或 Google Chrome');
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const until = async (fn, message, timeout = 90000) => {
   const deadline = Date.now() + timeout;
@@ -27,18 +27,33 @@ try {
   await server.listen();
   const port = server.httpServer.address().port;
   const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
-  const representative = ['CUP-E-90', 'CUP-E-100', 'CUP-E-W50', 'PRESET-f-avg', 'PRESET-m-avg', 'PRESET-f-long', 'T2', 'T4', 'H130', 'T5-125', 'CUP-S', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
+  const representative = ['CUP-E-90', 'CUP-E-95', 'CUP-E-100', 'CUP-E-W50', 'PRESET-f-avg', 'PRESET-m-avg', 'PRESET-f-long', 'T2', 'T4', 'H114', 'H130', 'T5-125', 'CUP-S', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
   const ids = selected[0] === 'all' ? [...new Set([...representative, ...BODY_CASES.map((c) => c.id)])]
     : selected.length ? selected : representative;
   const cases = ids.map((id) => {
     const c = BODY_CASES.find((c) => c.id === id); if (!c) throw new Error(`未知案例：${id}`); return c;
   });
-  browser = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--no-first-run',
-    '--remote-debugging-port=0', `--user-data-dir=${temp}/profile`, '--use-angle=swiftshader', '--enable-unsafe-swiftshader', 'about:blank'], { stdio: 'ignore' });
-  browser.on('error', (error) => { process.exitCode = 1; console.error(error.message); });
-  const debugPort = await until(async () => {
-    try { return (await fs.readFile(path.join(temp, 'profile/DevToolsActivePort'), 'utf8')).split('\n')[0]; } catch { return null; }
-  }, 'Chrome 啟動逾時', 30000);
+  let debugPort; const startupErrors = [];
+  // Ubuntu 的 chromium 可能只是無法在 runner 執行的 snap 啟動器；優先完整 Chrome，失敗再試其他候選。
+  for (const [index, chrome] of chromes.entries()) {
+    const profile = path.join(temp, `profile-${index}`);
+    let stderr = '', launchError;
+    browser = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--no-first-run',
+      '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--use-angle=swiftshader', '--enable-unsafe-swiftshader', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    browser.stderr.on('data', (chunk) => { stderr = (stderr + chunk.toString()).slice(-3000); });
+    browser.on('error', (error) => { launchError = error.message; });
+    try {
+      debugPort = await until(async () => {
+        if (launchError || browser.exitCode !== null) throw new Error(launchError ?? `程序結束 ${browser.exitCode}`);
+        try { return (await fs.readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; } catch { return null; }
+      }, `${chrome} 啟動逾時`, 30000);
+      break;
+    } catch (error) {
+      startupErrors.push(`${chrome}: ${error.message}\n${stderr}`);
+      if (browser.exitCode === null) browser.kill();
+    }
+  }
+  if (!debugPort) throw new Error(`Chrome 無法啟動：${startupErrors.join('\n')}`);
   const target = await (await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`, { method: 'PUT' })).json();
   socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve, { once: true }); socket.addEventListener('error', reject, { once: true }); });
@@ -123,9 +138,10 @@ try {
       if (Math.abs(manual.values.forearmLen - 27) > 0.5 || await evaluate(`['armRatio','upperFore'].some(id=>document.querySelector('[data-var="'+id+'"] .tag').textContent!=='推算')`)) throw new Error('手動長度未解除比例');
       await fs.writeFile(path.join(dest, 'ratio-interaction.json'), JSON.stringify({ status: 'PASS', legs: legs.values, arms: arms.values, split: split.values, manual: manual.values }, null, 2));
     }
+    if (errors.length) throw new Error(`${c.id} 瀏覽器錯誤：${errors.join(', ')}`);
     report.push({ id: c.id, ...out });
     await fs.writeFile(path.join(dest, 'checks.json'), JSON.stringify(report, null, 2));
-    console.log(`${c.id}: 已保存四視圖，手動條件符合；外型需另行檢視`);
+    console.log(`${c.id}: 已保存四視圖與無疊線前後斜視，手動條件符合；外型需另行檢視`);
   }
 } finally {
   socket?.close();
