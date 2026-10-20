@@ -1,14 +1,15 @@
 import type { MeasureId, Sex } from './measurements';
-import { REFERENCE } from './reference';
+import { MUSCLE_OF_LEAN, REFERENCE } from './reference';
 import stats from './statsModel.json';
 
 // 數值連動：把全身數據視為一個多變量常態分佈（長度與重量取對數），
 // 使用者鎖定的數值當作已知條件，其餘項目取條件期望值作為「建議值」，並附上常見範圍。
 // 連動關係（共變異數）來自 ANSUR II；平均值來自 reference.ts 的台灣／東亞參考體型。
 
-export type VarId = 'height' | 'weight' | 'bodyFat' | MeasureId;
-export const VARS = stats.variables as VarId[];
-const IDX = Object.fromEntries(VARS.map((v, i) => [v, i])) as Record<VarId, number>;
+export type VarId = 'height' | 'weight' | 'bodyFat' | 'muscleRate' | MeasureId;
+const STAT_VARS = stats.variables as Exclude<VarId, 'muscleRate'>[];
+export const VARS: VarId[] = [...STAT_VARS, 'muscleRate'];
+const IDX = Object.fromEntries(STAT_VARS.map((v, i) => [v, i])) as Record<VarId, number>;
 const IS_LOG = stats.transform.map((t) => t === 'log');
 
 export interface LinkageInput {
@@ -44,7 +45,7 @@ function referenceMean(sex: Sex): Float64Array {
     thighLen: ref.lengthRatio.thighLen * ref.height,
     calfLen: ref.lengthRatio.calfLen * ref.height,
   } as Record<VarId, number>;
-  return Float64Array.from(VARS, (id, i) => toZ(i, v[id]));
+  return Float64Array.from(STAT_VARS, (id, i) => toZ(i, v[id]));
 }
 
 function covariance(sex: Sex): number[][] {
@@ -102,7 +103,7 @@ function condition(mu: Float64Array, S: number[][], obs: Observation[]): { mean:
 }
 
 function unit(i: number): number[] {
-  const h = new Array(VARS.length).fill(0);
+  const h = new Array(STAT_VARS.length).fill(0);
   h[i] = 1;
   return h;
 }
@@ -113,7 +114,7 @@ export function suggest(inp: LinkageInput): Suggestion {
   const mu = referenceMean(inp.sex);
   const S = covariance(inp.sex);
   const base: Observation[] = [];
-  for (const id of VARS) {
+  for (const id of STAT_VARS) {
     const v = inp.locked[id];
     if (v !== undefined) base.push({ h: unit(IDX[id]), y: toZ(IDX[id], v) });
   }
@@ -125,7 +126,7 @@ export function suggest(inp: LinkageInput): Suggestion {
     // 但罩杯應該主要是胸部本身的事。最後再把上胸圍對齊到下胸圍 + d。
     const ib = IDX.bust, iu = IDX.underbust;
     const eb = Math.exp(post.mean[ib]), eu = Math.exp(post.mean[iu]);
-    const h = new Array(VARS.length).fill(0);
+    const h = new Array(STAT_VARS.length).fill(0);
     h[ib] = eb;
     h[iu] = -eu;
     const y = inp.bustDiff! - (eb - eu) + eb * post.mean[ib] - eu * post.mean[iu];
@@ -134,7 +135,7 @@ export function suggest(inp: LinkageInput): Suggestion {
   const values = {} as Record<VarId, number>;
   const range = {} as Record<VarId, [number, number]>;
   const locked = {} as Record<VarId, boolean>;
-  VARS.forEach((id, i) => {
+  STAT_VARS.forEach((id, i) => {
     const isLocked = inp.locked[id] !== undefined;
     locked[id] = isLocked;
     values[id] = isLocked ? inp.locked[id]! : fromZ(i, post.mean[i]);
@@ -145,6 +146,10 @@ export function suggest(inp: LinkageInput): Suggestion {
     if (locked.bust) values.underbust = values.bust - inp.bustDiff!;
     else values.bust = values.underbust + inp.bustDiff!;
   }
+  // 肌肉沒有 ANSUR 共變異數；單獨保留手動值，不虛構與圍度的統計關係。
+  values.muscleRate = inp.locked.muscleRate ?? MUSCLE_OF_LEAN * (1 - values.bodyFat);
+  locked.muscleRate = inp.locked.muscleRate !== undefined;
+  range.muscleRate = [0.24, Math.min(0.55, 1 - values.bodyFat - 0.12)];
   return { values, range, locked };
 }
 
@@ -169,7 +174,7 @@ function phi(z: number): number {
 export function rarity(inp: LinkageInput): Rarity[] {
   const mu = referenceMean(inp.sex);
   const S = covariance(inp.sex);
-  const ids = VARS.filter((id) => inp.locked[id] !== undefined);
+  const ids = STAT_VARS.filter((id) => inp.locked[id] !== undefined);
   return ids
     .filter((id) => id !== 'height')
     .map((id) => {

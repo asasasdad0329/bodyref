@@ -69,5 +69,6 @@ export const VAR_LABEL: Record<string, string> = {
   height: '身高',
   weight: '體重',
   bodyFat: '體脂率',
+  muscleRate: '骨骼肌率',
   ...Object.fromEntries(MEASURES.map((m) => [m.id, m.label])),
 };

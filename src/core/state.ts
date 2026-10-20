@@ -79,7 +79,7 @@ function sanitize(raw: unknown): AppState | null {
   const src = (r.locked ?? {}) as Record<string, unknown>;
   const locked: Locked = {};
   for (const id of VARS) {
-    const v = id === 'bodyFat' ? num(src[id], 0.03, 0.7) : num(src[id], 5, 260);
+    const v = id === 'bodyFat' || id === 'muscleRate' ? num(src[id], 0.03, 0.7) : num(src[id], 5, 260);
     if (v !== null) locked[id] = v;
   }
   if (locked.height === undefined) return null;

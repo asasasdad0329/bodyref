@@ -32,4 +32,10 @@ export const BODY_CASES: BodyCase[] = [
   ...[45, 60, 75, 90].map((weight) => female(`W${weight}`, { height: 160, weight })),
   { ...female('CUP-A', { height: 160, bodyFat: 0.27 }), cup: 'A' },
   { ...female('CUP-G', { height: 160, bodyFat: 0.27 }), cup: 'G' },
+  ...[60, 70, 80].map((weight) => female(`LOCK-W${weight}`, { height: 165, weight, bust: 92, underbust: 74, waist: 68, hip: 98 })),
+  ...[0.3, 0.43].map((muscleRate) => female(`F-M${muscleRate * 100}`, { height: 165, weight: 62, bodyFat: 0.25, muscleRate, waist: 68, hip: 98 })),
+  ...[0.18, 0.35].map((bodyFat) => female(`F-SHAPE-BF${bodyFat * 100}`, { height: 165, weight: 62, bodyFat, muscleRate: 0.36, bust: 100, underbust: 72, waist: 68, hip: 98 })),
+  ...[0.3, 0.45].map((muscleRate) => ({ id: `M-CHEST-M${muscleRate * 100}`, sex: 'male' as const, locked: { height: 175, weight: 80, bodyFat: 0.2, muscleRate, bust: 108, underbust: 88, waist: 82, hip: 100 } })),
+  ...[0.15, 0.32].map((bodyFat) => ({ id: `M-CHEST-BF${bodyFat * 100}`, sex: 'male' as const, locked: { height: 175, weight: 80, bodyFat, muscleRate: 0.37, bust: 108, underbust: 88, waist: 82, hip: 100 } })),
+  ...[100, 115].map((hip) => ({ id: `M-H${hip}`, sex: 'male' as const, locked: { height: 175, waist: 82, hip } })),
 ];

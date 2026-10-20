@@ -55,10 +55,11 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
     frame,
     weight: v.weight,
     bodyFat: v.bodyFat,
+    muscleRate: L.muscleRate ? v.muscleRate : undefined,
     weightLocked: L.weight,
     locked,
     preferred,
-    userLocked: (Object.keys(L) as MeasureKey[]).filter((k) => L[k as keyof typeof L] && k in v && k !== ('weight' as MeasureKey) && k !== ('bodyFat' as MeasureKey)),
+    userLocked: (Object.keys(L) as MeasureKey[]).filter((k) => L[k as keyof typeof L] && k in v && k !== ('weight' as MeasureKey) && k !== ('bodyFat' as MeasureKey) && k !== ('muscleRate' as MeasureKey)),
     bodyFatLocked: L.bodyFat,
     bustDiff,
   };
