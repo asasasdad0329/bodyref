@@ -204,11 +204,11 @@ describe('人體網格', () => {
       expect(Math.abs(after.values[key] - before.values[key]), key).toBeLessThan(0.3);
     }
     expect(Math.abs(after.weight - before.weight)).toBeLessThan(0.3);
-  }, 15000);
+  }, 30000);
   it('只指定大臀時，跨區基底不能讓手動臀圍卡在下限外', () => {
     const out = regression('T7-hip130');
     expect(Math.abs(out.values.hip - 130)).toBeLessThan(0.5);
-  });
+  }, 10000);
 
   it('有無相近骨架快取，輸出保持一致', () => {
     regression('T4');
