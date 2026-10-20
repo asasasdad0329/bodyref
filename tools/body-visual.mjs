@@ -7,7 +7,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'vite';
 
 const [output, ...selected] = process.argv.slice(2);
-if (!output) throw new Error('用法：node tools/body-visual.mjs <倉庫外目錄> [案例 ID ...]');
+if (!output) throw new Error('用法：node tools/body-visual.mjs <倉庫外目錄> [案例 ID ... 或 all]');
 const root = process.cwd(), dest = path.resolve(output), relative = path.relative(root, dest);
 if (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) throw new Error('驗收產物必須放在倉庫外');
 const chrome = ['chromium', 'google-chrome', 'chromium-browser'].find((name) => {
@@ -27,7 +27,7 @@ try {
   await server.listen();
   const port = server.httpServer.address().port;
   const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
-  const ids = selected.length ? selected : ['T2', 'T4', 'H130', 'T5-125', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
+  const ids = selected[0] === 'all' ? BODY_CASES.map((c) => c.id) : selected.length ? selected : ['T2', 'T4', 'H130', 'T5-125', 'CUP-S', 'F-SHAPE-BF18', 'F-SHAPE-BF35', 'M-CHEST-M30', 'M-CHEST-M45', 'M-H115', 'LOCK-W80', 'F-M43-AUTO-W'];
   const cases = ids.map((id) => {
     const c = BODY_CASES.find((c) => c.id === id); if (!c) throw new Error(`未知案例：${id}`); return c;
   });
@@ -69,10 +69,19 @@ try {
     }, `${c.id} 求解逾時`);
     const out = await evaluate('window.__bodyResults.at(-1)');
     if (errors.length || !out.finite || out.residual.some(({ goal, error }) => Math.abs(error) >= (['bodyFat', 'muscleRate'].includes(goal.kind) ? 0.01 : 0.5))) throw new Error(`${c.id} UI 驗收失敗：${JSON.stringify({ errors, out })}`);
-    for (const view of ['front', 'side', 'back', 'quarter']) {
-      await evaluate(`document.querySelector('[data-view="${view}"]').click()`);
-      await pause(200);
-      const shot = await send('Page.captureScreenshot', { format: 'png' });
+    for (const view of ['front', 'side', 'back', 'rear-quarter']) {
+      await evaluate(`document.querySelector('[data-view="${view === 'rear-quarter' ? 'back' : view}"]').click()`);
+      if (view === 'rear-quarter') {
+        const box = await evaluate('(()=>{const r=document.querySelector("canvas").getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()');
+        const x = box.x + box.width * 0.6, y = box.y + box.height * 0.42;
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x - box.height / 8, y, buttons: 1 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x - box.height / 8, y, button: 'left', buttons: 0, clickCount: 1 });
+      }
+      await pause(view === 'rear-quarter' ? 600 : 200);
+      const clip = await evaluate('(()=>{const r=document.querySelector("canvas").getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1}})()');
+      const shot = await send('Page.captureScreenshot', { format: 'png', clip });
       await fs.writeFile(path.join(dest, `${c.id}_${view}.png`), Buffer.from(shot.data, 'base64'));
     }
     report.push({ id: c.id, ...out });

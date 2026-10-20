@@ -32,6 +32,7 @@ export const BODY_CASES: BodyCase[] = [
   ...[45, 60, 75, 90].map((weight) => female(`W${weight}`, { height: 160, weight })),
   { ...female('CUP-A', { height: 160, bodyFat: 0.27 }), cup: 'A' },
   { ...female('CUP-G', { height: 160, bodyFat: 0.27 }), cup: 'G' },
+  { ...female('CUP-S', { height: 160, underbust: 70 }), cup: 'S' },
   ...[60, 70, 80].map((weight) => female(`LOCK-W${weight}`, { height: 165, weight, bust: 92, underbust: 74, waist: 68, hip: 98 })),
   female('F-M43-AUTO-W', { height: 165, bodyFat: 0.25, muscleRate: 0.43, waist: 68, hip: 98 }),
   ...[0.3, 0.43].map((muscleRate) => female(`F-M${muscleRate * 100}`, { height: 165, weight: 62, bodyFat: 0.25, muscleRate, waist: 68, hip: 98 })),

@@ -300,4 +300,16 @@ describe('人體網格', () => {
     expect(out.positions.every(Number.isFinite)).toBe(true);
   });
 
+  it('大罩杯向上下與側邊展開，不能只長成前後很長的錐形', () => {
+    const out = regression('T5-125');
+    const region = engine.asset.regions.indexOf('breastL');
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < engine.asset.nBody; i++) if (engine.asset.region[i] === region) {
+      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], out.positions[i * 3 + k]); hi[k] = Math.max(hi[k], out.positions[i * 3 + k]); }
+    }
+    // 美術回歸的形態上界，不是人體比例定律。
+    expect(hi[2] - lo[2]).toBeLessThan(1.8 * (hi[1] - lo[1]));
+    for (const { error } of out.residual) expect(Math.abs(error)).toBeLessThan(0.5);
+  });
+
 });

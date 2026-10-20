@@ -672,10 +672,10 @@ export class RingBody {
       const theta = Math.atan2(x, z - p.torsoZ(y));
       // 已固定圍度的區域不承擔大部分自由重量；廣域場平順轉向未填區，
       // 局部脂肪／肌肉仍可交換形態並重新校正圍度。
-      const protect = (center: number, radius: number) => 1 - 0.8 * Math.max(0, 1 - ((y - center) / radius) ** 2) ** 2;
+      const protect = (center: number, radius: number, strength = 0.8) => 1 - strength * Math.max(0, 1 - ((y - center) / radius) ** 2) ** 2;
       const freeLoad = (p.restrained.waist ? protect(mk.waistY, 0.55 * L) : 1)
         * (p.restrained.hip ? protect(mk.hipY, L) : 1)
-        * (p.restrained.chest ? protect(mk.bustY, 0.9 * H) : 1);
+        * (p.restrained.chest ? protect(mk.bustY, 0.9 * H, 0.95) : 1);
       let push = freeLoad * (sf.general * p.wGen[i] / Math.max(w, 1e-3) + sf.structureLean * p.wGen[i] / Math.max(w, 1e-3)), drop = 0;
       for (const m of masses) {
         if (!m.amp) continue;
@@ -775,7 +775,8 @@ export class RingBody {
         if (r2 >= 1) continue;
         // 正中線有連續淡出；體積再大也不讓左右兩個場在胸骨疊加。
         const medial = smoothstep(0, Math.max(1, ax * foundation.separation), x);
-        const root = smoothstep(mk.underbustY, mk.underbustY + 0.22 * H, y);
+        const collar = smoothstep(mk.underbustY, mk.underbustY + 0.22 * H, y);
+        const root = collar + p.w.breast[i] * (1 - collar);
         const envelope = (1 - r2) ** 2 * medial * front * body * root;
         const projection = Math.max(0, z - rimZ + Math.max(0, out[i * 3 + 2] - z));
         const amp = rawAmp < 0 ? Math.max(-0.98 * projection, rawAmp) : rawAmp;
@@ -783,7 +784,14 @@ export class RingBody {
         const softness = (p.tissueShape.coverage - 0.43) * 0.15;
         delta[i * 3] += sign * (x - ax) * softness * envelope;
         delta[i * 3 + 1] -= (Math.max(0, amp) * foundation.drop + projection * softness) * envelope;
-        delta[i * 3 + 2] += amp * (amp < 0 ? Math.pow(envelope, 0.55) : envelope) + projection * softness * envelope;
+        if (amp > 0) {
+          // 沿既有乳房曲面的方向展開，不能只把 z 拉長成尖錐。
+          const length = Math.hypot(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]) || 1;
+          delta[i * 3] += amp * envelope * N[i * 3] / length * 0.85;
+          delta[i * 3 + 1] += amp * envelope * N[i * 3 + 1] / length * 0.65;
+          delta[i * 3 + 2] += amp * envelope * N[i * 3 + 2] / length;
+        } else delta[i * 3 + 2] += amp * Math.pow(envelope, 0.55);
+        delta[i * 3 + 2] += projection * softness * envelope;
       }
     }
     smoothVectors(delta, this.adj, 4);
