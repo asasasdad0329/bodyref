@@ -134,6 +134,20 @@ describe('人體網格', () => {
     expect(peak - sternum).toBeGreaterThan(3);
   }, 15000);
 
+  it('大胸廓的罩杯差不能被胸壁吃掉，只留下貼在尖峰上的薄層', () => {
+    const sex = 'female' as const;
+    const sug = suggest({ sex, locked: { height: 160, weight: 120 } });
+    const input = bodyInputFor({ sex, sug, bustDiff: null });
+    const out = engine.rings.fitComposition(input, { neutralize: true });
+    const wall = out.chestWall!;
+    const projection = Math.max(...Array.from(engine.rings.ctx.breast, (i) => out.P[i * 3 + 2] - wall[i * 3 + 2]));
+    // 這是此偏胖 C 罩杯個案的美術防退步界線，不是一般人的罩杯換算公式。
+    expect(projection).toBeGreaterThan(2.5);
+    expect(Math.abs(out.values.bust - input.frame.bust!)).toBeLessThan(0.5);
+    expect(Math.abs(out.values.underbust - input.frame.underbust!)).toBeLessThan(0.5);
+    expect(Math.abs(out.weight - 120)).toBeLessThan(0.5);
+  }, 15000);
+
   it('固定細腰與高體脂時，後腰中線不能高出兩側形成脊柱尖稜', () => {
     for (const id of ['CUP-E-W50', 'F-SHAPE-BF35', 'LOCK-W80']) {
       const out = regression(id), y = out.tapes.waist!.anchor[1];

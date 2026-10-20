@@ -1117,7 +1117,11 @@ export class RingBody {
     const read = (v: Measured['values'], k: ParamKey) => (k === 'breast' ? (male ? v.bust : v.bust - v.underbust) : k === 'chestFrame' ? v.bust : v[k]);
     const chestProbe = new Float32Array(P.length);
     const wallBase = male ? null : measureChest(this.ctx, p.chestWall, p.marks.underbustY, p.marks.bustY);
-    const wallTarget = t.underbust === undefined || !wallBase ? 0 : t.underbust * Math.max(1, Math.min(1.12, wallBase.bust / wallBase.underbust));
+    // 胸壁上下圈的差屬於胸廓形態，不能隨皮下覆蓋把下胸乘上固定百分比；
+    // 大胸廓時那會吃掉幾乎整個罩杯差，只剩很薄的乳房表面貼在尖峰上。
+    // 以自身底稿為起點，胸廓差的美術上界隨身高縮放，與罩杯、體重無關。
+    const wallTarget = t.underbust === undefined || !wallBase ? 0 : t.underbust
+      + Math.max(0, Math.min(0.02 * t.height, wallBase.bust - wallBase.underbust));
     let wallError = 0;
     const correctChest = (values: Measured['values']) => {
       if (male || t.bust === undefined || t.underbust === undefined) return;
