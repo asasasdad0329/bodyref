@@ -149,8 +149,10 @@ describe('人體網格', () => {
     return run(c.sex, c.locked as Record<string, number>, c.cup ?? null);
   };
 
-  for (const [id, low, high] of [['T2', 22, 26], ['T3', 28, 32], ['T4', 31, 35.5]] as const) {
-    it(`${id}：預設上臂不再因總量分配過細或過粗`, () => {
+  // 舊值量在肩肘 55%；現改採 NHANES 放鬆中點 50%，不能沿用舊截面界限。
+  // 固定由已留出的 log RMSE × 1.645 得到的 90% 預測區間，不從候選網格反算。
+  for (const [id, low, high] of [['T2', 23.2596, 27.2785], ['T3', 29.9856, 35.1666], ['T4', 31.5853, 37.0427]] as const) {
+    it(`${id}：預設放鬆上臂符合獨立 NHANES 預測範圍`, () => {
       const out = regression(id);
       expect(out.values.upperArm).toBeGreaterThan(low);
       expect(out.values.upperArm).toBeLessThan(high);

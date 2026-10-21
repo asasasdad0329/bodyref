@@ -603,22 +603,36 @@ export class RingBody {
 
     for (let i = 0; i < n; i++) {
       const w = p.w;
-      const parts: [number, () => V3][] = [
-        [w.torso[i], () => torsoDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2])],
-        [w.legL[i], () => legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], 1)],
-        [w.legR[i], () => legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], -1)],
-        [w.armL[i], () => armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[0])],
-        [w.armR[i], () => armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[1])],
-        [w.neck[i], () => neckDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2])],
-      ];
       let sum = 0;
       const dsum: V3 = [0, 0, 0];
-      for (const [wk, f] of parts) {
-        if (wk < 1e-4) continue;
-        const dv = f();
-        dsum[0] += dv[0] * wk;
-        dsum[1] += dv[1] * wk;
-        dsum[2] += dv[2] * wk;
+      if (w.torso[i] >= 1e-4) {
+        const wk = w.torso[i], dv = torsoDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2]);
+        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
+        sum += wk;
+      }
+      if (w.legL[i] >= 1e-4) {
+        const wk = w.legL[i], dv = legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], 1);
+        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
+        sum += wk;
+      }
+      if (w.legR[i] >= 1e-4) {
+        const wk = w.legR[i], dv = legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], -1);
+        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
+        sum += wk;
+      }
+      if (w.armL[i] >= 1e-4) {
+        const wk = w.armL[i], dv = armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[0]);
+        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
+        sum += wk;
+      }
+      if (w.armR[i] >= 1e-4) {
+        const wk = w.armR[i], dv = armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[1]);
+        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
+        sum += wk;
+      }
+      if (w.neck[i] >= 1e-4) {
+        const wk = w.neck[i], dv = neckDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2]);
+        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
         sum += wk;
       }
       if (!sum) continue;
