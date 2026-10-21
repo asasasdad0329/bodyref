@@ -47,6 +47,8 @@ export interface EngineOutput {
   residual: { goal: Goal; error: number }[];
   /** 各區脂肪與肌肉比素體多出的公斤數 */
   composition: Soft;
+  /** 相同曲面上重算的脂肪與去脂總量；去脂包含骨骼、內臟等。 */
+  tissueMass: { fat: number; lean: number };
   /** 體積（cm³） */
   volume: number;
   marks: { topY: number; crotchY: number; kneeY: number; ankleY: number };
@@ -138,6 +140,7 @@ export class BodyEngine {
       bodyFat: res.bodyFat,
       residual: residualOf(input, res.values, res.weight, res.bodyFat),
       composition: res.kg,
+      tissueMass: res.tissueMass,
       volume: meshVolume(res.P.subarray(0, a.nBody * 3), a.quads),
       marks: { topY, crotchY, kneeY: knee[1], ankleY: ankle[1] },
     };

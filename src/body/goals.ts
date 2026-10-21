@@ -39,6 +39,16 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
   const preferenceSuggestion = bustDiff === null ? sug : suggest({ sex,
     locked: Object.fromEntries(Object.entries(v).filter(([k]) => L[k as keyof typeof L])),
   });
+  if (sex === 'female' && bustDiff !== null) {
+    // 單改罩杯不重新推測胸廓與四肢；已指定的上／下胸仍決定另一圈。
+    for (const k of FRAME) {
+      if (!L[k] && k !== 'underbust') frame[k as keyof RingTargets] = preferenceSuggestion.values[k];
+    }
+    if (!L.bust && !L.underbust) {
+      frame.underbust = preferenceSuggestion.values.underbust;
+      frame.bust = frame.underbust + bustDiff;
+    }
+  }
   const preferred: CompositionInput['preferred'] = {};
   for (const k of SOFT) {
     if (L[k] || (k === 'bust' && sex === 'female')) continue;
@@ -53,11 +63,13 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
   return {
     sex,
     frame,
-    weight: v.weight,
-    bodyFat: v.bodyFat,
+    weight: preferenceSuggestion.values.weight,
+    bodyFat: preferenceSuggestion.values.bodyFat,
     weightLocked: L.weight,
     locked,
     preferred,
+    shapeWeight: preferenceSuggestion.values.weight,
+    shapeBodyFat: preferenceSuggestion.values.bodyFat,
     userLocked: (Object.keys(L) as MeasureKey[]).filter((k) => L[k as keyof typeof L] && k in v && k !== ('weight' as MeasureKey) && k !== ('bodyFat' as MeasureKey)),
     bodyFatLocked: L.bodyFat,
     bustDiff,

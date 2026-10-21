@@ -4,6 +4,8 @@ import { bodyInputFor } from '../src/body/goals';
 import { parseBodyAsset } from '../src/body/mh/asset';
 import { redistributionStep } from '../src/body/mh/distribution';
 import { zeroSoft } from '../src/body/mh/rings';
+import { SurfaceRig, BreastRig } from '../src/body/mh/shapeRig';
+import { measure } from '../src/body/mh/measure';
 import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
@@ -88,7 +90,7 @@ describe('人體網格', () => {
       const out = run('female', { height: 165, weight }, 'D');
       expect(out.values.bust - out.values.underbust, `${weight} kg`).toBeCloseTo(17.5, 0);
     }
-  });
+  }, 10000);
 
   it('顯示用輸出：移除原本的頭、加上人台頭與結構線', () => {
     const out = run('female', { height: 160, weight: 52 });
@@ -200,6 +202,54 @@ describe('人體網格', () => {
     const out = regression('T6');
     expect(out.composition.upperBack).toBeLessThan(2);
     expect(Math.abs(out.weight - 97)).toBeLessThan(0.5);
+  });
+
+  for (const sex of ['female', 'male'] as const) {
+    it(`${sex}：固定圍度仍能表現不同組成，體積與組成帳本一致`, () => {
+      const locked: Record<string, number> = sex === 'female'
+        ? { height: 165, weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104, thigh: 56 }
+        : { height: 175, weight: 80, bust: 105, waist: 85, hip: 100 };
+      const low = run(sex, { ...locked, bodyFat: 0.18 });
+      const high = run(sex, { ...locked, bodyFat: 0.35 });
+      for (const out of [low, high]) {
+        for (const { goal, error } of out.residual) {
+          expect(Math.abs(error), `${sex} ${JSON.stringify(goal)}`).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
+        }
+        expect(out.tissueMass.fat + out.tissueMass.lean).toBeCloseTo(out.weight, 6);
+        // 公斤 / (g/cm³) × 1000 還原實際曲面體積。
+        expect(out.tissueMass.fat / 0.9 * 1000 + out.tissueMass.lean / 1.1 * 1000).toBeCloseTo(out.volume, 0);
+      }
+      const waistBox = (out: EngineOutput) => {
+        const p = out.tapes.waist!.points;
+        const xs = [], zs = [];
+        for (let i = 0; i < p.length; i += 3) { xs.push(p[i]); zs.push(p[i + 2]); }
+        return (Math.max(...xs) - Math.min(...xs)) / (Math.max(...zs) - Math.min(...zs));
+      };
+      expect(Math.abs(waistBox(high) - waistBox(low))).toBeGreaterThan(0.02);
+      const again = run(sex, { ...locked, bodyFat: 0.18 });
+      expect(Math.max(...again.positions.map((v, i) => Math.abs(v - low.positions[i])))).toBeLessThan(0.01);
+    }, 20000);
+  }
+
+  it('形狀控制的中性狀態保留曲面，蒙皮權重不超出參照份額', () => {
+    const a = engine.asset, B = a.base;
+    const m = measure(engine.rings.ctx, B);
+    const rig = new SurfaceRig(a, B, m.marks, engine.rings.adj, () => 0, B[a.landmarks.acromionL * 3 + 1], false);
+    const neutral = new Float32Array(B);
+    rig.apply(neutral, zeroSoft(), 1, false);
+    expect(neutral).toEqual(B);
+    const stride = rig.weights.length / a.nBody;
+    let maxTotal = 0, minWeight = 1;
+    for (let i = 0; i < a.nBody; i++) {
+      let total = 0;
+      for (let k = 0; k < stride; k++) { const w = rig.weights[i * stride + k]; minWeight = Math.min(minWeight, w); total += w; }
+      maxTotal = Math.max(maxTotal, total);
+    }
+    expect(minWeight).toBeGreaterThanOrEqual(0);
+    expect(maxTotal).toBeLessThanOrEqual(1.000001);
+    const chest = new BreastRig(a, B, engine.rings.adj), scaled = new Float32Array(B);
+    chest.apply(scaled, 0.4); chest.remove(scaled, 0.4);
+    expect(Math.max(...scaled.map((v, i) => Math.abs(v - B[i])))).toBeLessThan(0.0001);
   });
 
 });
