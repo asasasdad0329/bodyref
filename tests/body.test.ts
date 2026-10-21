@@ -9,8 +9,129 @@ import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
 import { BODY_CASES } from './fixtures/bodyCases';
+import { makeShapeBaseline, SHAPE_BASELINES } from '../src/lab/shapeBaseline';
+import { cross, dot, sub, vert, adjacency } from '../src/body/mh/geometry';
+import type { PelvicShapeControls } from '../src/body/mh/shapeControls';
+import shapeBaseline from './fixtures/shapeBaseline.json';
 
 let engine: BodyEngine;
+
+describe('腰腹臀腿控制原型', () => {
+  let rig: PelvicShapeControls;
+  beforeAll(() => { rig = makeShapeBaseline(engine.asset, SHAPE_BASELINES[0]); });
+
+  it('中性控制逐頂點重現固定基準，試探控制不污染下次求解', () => {
+    const original = rig.baseline.slice();
+    const neutral = rig.apply();
+    expect(neutral.positions).toEqual(original);
+    rig.apply(rig.hipPose('fat', 4));
+    rig.fitHip('muscle', neutral.measured.values.hip + 2);
+    expect(rig.apply().positions).toEqual(original);
+    expect(rig.baseline).toEqual(original);
+  });
+
+  it('參考、細腰大臀及偏胖基準的量測、截面與體積不隨控制開發漂移', () => {
+    for (const c of SHAPE_BASELINES) {
+      const setup = c.id === 'reference' ? rig : makeShapeBaseline(engine.asset, c);
+      const expected = shapeBaseline.cases.find((b) => b.id === c.id)!;
+      for (const key of Object.keys(expected.values) as (keyof typeof expected.values)[]) {
+        expect(setup.baselineResult.measured.values[key], `${c.id} ${key}`).toBeCloseTo(expected.values[key], 2);
+      }
+      expect(setup.baselineResult.volume).toBeCloseTo(expected.volume, 1);
+      for (const key of ['waist', 'hip', 'thigh'] as const) {
+        const actual = setup.baselineResult.measured.tapes[key]!;
+        const section = expected.sections[key];
+        expect(actual.length).toBe(section.length);
+        actual.forEach((p, i) => p.forEach((v, axis) => expect(v).toBeCloseTo(section[i][axis], 3)));
+      }
+    }
+  }, 15000);
+
+  it('共享權重保持非負且總和不超過 1，支撐外與關節完全不動', () => {
+    const moved = rig.apply(rig.hipPose('fat', 8));
+    for (let i = 0; i < engine.asset.nBody; i++) {
+      const weights = rig.controls.map((c) => c.weights[i]);
+      expect(weights.every((v) => v >= 0 && Number.isFinite(v))).toBe(true);
+      expect(weights.reduce((sum, v) => sum + v, 0)).toBeLessThanOrEqual(1.000001);
+      if (!rig.support[i]) for (let k = 0; k < 3; k++) expect(moved.positions[i * 3 + k]).toBe(rig.baseline[i * 3 + k]);
+    }
+    expect(moved.positions.subarray(engine.asset.nBody * 3)).toEqual(rig.baseline.subarray(engine.asset.nBody * 3));
+  });
+
+  it('單一左臀側控制沿外側展寬，不穿越左右腿的空間捷徑', () => {
+    const changed = rig.apply({ sideGluteL: 2 }).positions;
+    let lateral = 0, movedRight = 0;
+    for (let i = 0; i < engine.asset.nBody; i++) {
+      const dx = changed[i * 3] - rig.baseline[i * 3];
+      if (rig.baseline[i * 3] > 5) lateral = Math.max(lateral, dx);
+      if (rig.baseline[i * 3] < -5) movedRight = Math.max(movedRight, Math.abs(dx));
+      expect(changed[i * 3 + 1]).toBe(rig.baseline[i * 3 + 1]);
+    }
+    expect(lateral).toBeGreaterThan(0.5);
+    expect(movedRight).toBeLessThan(0.03);
+  });
+
+  it('同臀圍的肌脂模式分布不同，固定大腿時仍有正面側寬連動', () => {
+    const target = rig.baselineResult.measured.values.hip + 2;
+    const muscle = rig.fitHip('muscle', target, true), fat = rig.fitHip('fat', target, true);
+    for (const fit of [muscle, fat]) {
+      expect(fit.reached).toBe(true);
+      expect(Math.abs(fit.error)).toBeLessThan(0.5);
+      expect(Math.abs(fit.result.measured.values.thigh - rig.baselineResult.measured.values.thigh)).toBeLessThan(0.5);
+      expect(Math.abs(fit.result.measured.values.waist - rig.baselineResult.measured.values.waist)).toBeLessThan(0.5);
+      // 固定大腿是量測限制，不會封死整個大腿根；臀側仍可增加正面寬度。
+      let lateral = 0;
+      for (let i = 0; i < engine.asset.nBody; i++) if (rig.baseline[i * 3] > 10)
+        lateral = Math.max(lateral, fit.result.positions[i * 3] - rig.baseline[i * 3]);
+      expect(lateral).toBeGreaterThan(0.15);
+    }
+    let difference = 0;
+    for (let i = 0; i < muscle.result.positions.length; i++) difference = Math.max(difference, Math.abs(muscle.result.positions[i] - fat.result.positions[i]));
+    expect(difference).toBeGreaterThan(0.1);
+    expect(muscle.result.volume).toBeGreaterThan(rig.baselineResult.volume);
+    expect(fat.result.volume).toBeGreaterThan(rig.baselineResult.volume);
+  });
+
+  it('超出模式範圍時保留殘差，不能以負向局部削洞達標', () => {
+    const out = rig.fitHip('fat', 150, true);
+    expect(out.reached).toBe(false);
+    expect(out.error).toBeLessThan(-20);
+    expect(Object.values(out.pose).every((v) => v >= 0)).toBe(true);
+    expect(() => rig.apply({ sideGluteL: -10 })).toThrow();
+    expect(() => rig.apply({ missing: 1 })).toThrow();
+    expect(() => rig.fitHip('fat', NaN)).toThrow();
+  });
+
+  it('臀圍序列連續增長，局部控制與聯動不引入面翻轉或權重跳躍', () => {
+    const adj = adjacency(engine.asset.quads, engine.asset.nBody);
+    for (const c of rig.controls) {
+      let maxSlope = 0;
+      for (let i = 0; i < adj.length; i++) for (const j of adj[i]) {
+        const edge = Math.hypot(...sub(vert(rig.baseline, i), vert(rig.baseline, j)));
+        if (edge > 0.01) maxSlope = Math.max(maxSlope, Math.abs(c.weights[i] - c.weights[j]) / edge);
+      }
+      expect(maxSlope, c.id).toBeLessThan(0.4 / rig.scale);
+    }
+    const normal = (P: Float32Array, a: number, b: number, c: number) => cross(sub(vert(P, b), vert(P, a)), sub(vert(P, c), vert(P, a)));
+    for (const mode of ['muscle', 'fat'] as const) {
+      let previous = rig.baselineResult.measured.values.hip;
+      for (const amount of [0.5, 1, 2, 4, 8]) {
+        const result = rig.apply(rig.hipPose(mode, amount));
+        expect(result.measured.values.hip).toBeGreaterThan(previous);
+        previous = result.measured.values.hip;
+        for (let f = 0; f < engine.asset.quads.length; f += 4) {
+          const [a, b, c, d] = engine.asset.quads.subarray(f, f + 4);
+          for (const tri of [[a, b, c], [a, c, d]]) {
+            const [u, v, w] = tri;
+            const before = normal(rig.baseline, u, v, w);
+            if (dot(before, before) < 1e-10) continue;
+            expect(dot(before, normal(result.positions, u, v, w)), `${mode} ${amount} face ${f / 4}`).toBeGreaterThan(0);
+          }
+        }
+      }
+    }
+  }, 15000);
+});
 
 beforeAll(() => {
   const buf = readFileSync('public/body.bin');

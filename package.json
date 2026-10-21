@@ -9,6 +9,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:single": "npm run build && node tools/single-file.mjs",
+    "build:shape-lab": "tsc --noEmit && vite build --config vite.shape-lab.config.ts",
+    "test:shape-report": "node tools/shape-control-report.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:body-report": "node tools/body-regression.mjs",

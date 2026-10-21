@@ -21,3 +21,36 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm run build:shape-lab
+      - name: Capture shape prototype comparisons
+        shell: bash
+        run: |
+          python3 -m http.server 4174 --directory dist-shape-lab > "$RUNNER_TEMP/shape-server.log" 2>&1 &
+          SHAPE_SERVER_PID=$!
+          trap 'kill "$SHAPE_SERVER_PID"' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:4174/shape-lab.html > /dev/null; then break; fi
+            sleep 1
+          done
+          mkdir -p "$RUNNER_TEMP/shape-preview"
+          capture() {
+            google-chrome --headless --no-sandbox --use-angle=swiftshader --enable-unsafe-swiftshader \
+              --user-data-dir="$RUNNER_TEMP/shape-chrome-$1" \
+              --window-size=1600,1300 --virtual-time-budget=20000 --dump-dom \
+              --screenshot="$RUNNER_TEMP/shape-preview/$1.png" \
+              "http://localhost:4174/shape-lab.html?$2" > "$RUNNER_TEMP/shape-$1.html"
+            rg -q 'data-ready="true"' "$RUNNER_TEMP/shape-$1.html"
+          }
+          capture neutral ''
+          capture muscle 'mode=muscle&target=92&fixed=1'
+          capture fat 'mode=fat&target=92&fixed=1'
+          capture weights 'mode=single&control=sideGluteL&amount=2&heat=1&markers=1'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shape-control-previews
+          path: ${{ runner.temp }}/shape-preview/*.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shape-control-lab
+          path: dist-shape-lab/

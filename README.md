@@ -77,9 +77,13 @@ npm test         # 連動模型與網格的測試
 npm run test:body-report -- /absolute/output/body-report.json  # 產物必須在倉庫外
 npm run build    # 輸出到 dist/
 npm run build:single   # 另外打包成單一 HTML（dist/bodyref-single.html），不需要伺服器就能打開
+npm run build:shape-lab   # 獨立的腰腹臀腿控制驗收頁，輸出 dist-shape-lab/
+npm run test:shape-report -- /tmp/bodyref-shape-report.json  # 控制、權重、截面及尺寸響應；產物放倉庫外
 ```
 
 協作規則（含 AI 編碼代理）寫在 `AGENTS.md`；目前狀態、已知問題與還沒做的規劃在 `docs/HANDOFF.md`，開發過程與每次轉向的理由在 `docs/HISTORY.md`。
+
+形狀控制原型：開發伺服器的 `/shape-lab.html` 提供女性腰腹—臀腿的固定基準、權重熱圖及五視角比較。尚未接入正式人台；範圍及限制見 [實作紀錄](docs/SHAPE_CONTROL_IMPLEMENTATION.md)。
 
 開發與 CI 使用 Node.js 22（22.12 以上）。
 
