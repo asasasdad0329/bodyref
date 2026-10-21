@@ -13,7 +13,8 @@ export function renderSummary(root: HTMLElement, state: AppState, s: Summary): v
     ['體重', `${f1(s.weight)} kg`, s.weightLocked ? undefined : '由體型推算'],
     ['BMI', f1(s.bmi), s.bmiLabel],
     ['體脂率', `${f1(s.bodyFat * 100)}%`, s.bodyFatLocked ? undefined : '由體型推算'],
-    ['骨骼肌率', `${f1(s.muscleRate * 100)}%`, `去脂體重 ${f1(s.leanMass)} kg`],
+    ['骨骼肌量', `${f1(s.muscleMass)} kg`, `${f1(s.muscleRate * 100)}%・${state.muscleMass === null ? '模型估計' : '手動'}`],
+    ['其餘去脂', `${f1(s.otherLean)} kg`, `脂肪 ${f1(s.weight * s.bodyFat)} kg`],
   ];
   if (female && s.braSize) rows.push(['罩杯', s.braSize, '台灣／日本尺寸']);
   rows.push(['腰臀比', s.whr.toFixed(2)], ['股下', `${f1(s.inseam)} cm`, `腿長比 ${f1((s.inseam / s.modelHeight) * 100)}%`], ['體型', s.shape, '依三圍分類']);

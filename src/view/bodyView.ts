@@ -12,8 +12,8 @@ import type { SceneColors } from './theme';
 
 export class BodyView {
   readonly group = new THREE.Group();
-  private lineStyle: LineStyle = 'guide';
-  private outlineVisible = true;
+  private lineStyle: LineStyle = 'none';
+  private outlineVisible = false;
   private gridIndex: Uint32Array | null = null;
   private objects: THREE.Object3D[] = [];
   private grid: THREE.LineSegments | null = null;
@@ -21,7 +21,7 @@ export class BodyView {
   private outlines: THREE.Mesh[] = [];
   private readonly outlineWidth = { value: 0.3 };
   private readonly surfaceMat = new THREE.MeshStandardMaterial({
-    roughness: 0.86,
+    roughness: 1,
     metalness: 0,
     vertexColors: true,
     polygonOffset: true,
@@ -156,7 +156,7 @@ export class BodyView {
 function cavityShade(c: Float32Array): Float32Array {
   const rgb = new Float32Array(c.length * 3);
   for (let i = 0; i < c.length; i++) {
-    const v = 1 - 0.35 * Math.sqrt(c[i]);
+    const v = 1 - 0.12 * Math.sqrt(c[i]);
     rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = v;
   }
   return rgb;

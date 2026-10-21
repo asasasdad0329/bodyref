@@ -28,10 +28,14 @@ export class BodyModel {
   }
 
   /** 顯示用網格：乳頭附近抹平、整體表面去掉細小凹凸，手臂轉到指定的外展角度 */
-  display(rest: Float32Array, armAngle: number): { P: Float32Array; armRotation: { L: ArmPose; R: ArmPose } } {
-    const P = new Float32Array(rest);
+  finish(P: Float32Array): void {
     smooth(P, this.adj, this.nippleVerts, 15, 0.6);
     taubin(P, this.adj, this.surfaceVerts, 4);
+  }
+
+  display(rest: Float32Array, armAngle: number, polish = true): { P: Float32Array; armRotation: { L: ArmPose; R: ArmPose } } {
+    const P = new Float32Array(rest);
+    if (polish) this.finish(P);
     const rot = { L: this.poseArm(P, 'L', armAngle), R: this.poseArm(P, 'R', armAngle) };
     return { P, armRotation: rot };
   }

@@ -15,6 +15,7 @@ export type Goal =
   | { kind: 'measure'; key: MeasureKey; value: number }
   | { kind: 'weight'; value: number }
   | { kind: 'bodyFat'; value: number }
+  | { kind: 'muscleMass'; value: number }
   | { kind: 'diff'; value: number };
 
 export interface EngineInput extends BodyInput {
@@ -43,6 +44,8 @@ export interface EngineOutput {
   /** 模型的體重（瘦體重 + 脂肪）與體脂率 */
   weight: number;
   bodyFat: number;
+  tissues: { fat: number; muscle: number; otherLean: number };
+  diagnostics: { kind: 'input-conflict' | 'unconverged'; message: string }[];
   /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
   residual: { goal: Goal; error: number }[];
   /** 各區脂肪與肌肉比素體多出的公斤數 */
@@ -67,11 +70,24 @@ export class BodyEngine {
   }
 
   run(input: EngineInput): EngineOutput {
+    const diagnostics: EngineOutput['diagnostics'] = [];
+    let solveInput = input;
+    if (input.muscleMass !== undefined && input.weightLocked) {
+      const available = input.weight * (input.bodyFatLocked ? 1 - input.bodyFat : 1);
+      if (input.muscleMass >= available) {
+        diagnostics.push({ kind: 'input-conflict', message: `骨骼肌 ${input.muscleMass.toFixed(1)} kg 已超過鎖定體重與體脂所剩的去脂總量 ${available.toFixed(1)} kg，沒有空間容納其餘去脂組織。請調整其中一項；目前顯示有差距的近似體型。` });
+        solveInput = { ...input, muscleMass: available * 0.7 };
+      }
+    }
     const { armAngle: _angle, ...shapeInput } = input;
     const key = JSON.stringify(shapeInput);
-    if (this.fitted?.key !== key) this.fitted = { key, result: this.rings.fitComposition(input, { neutralize: true }) };
+    if (this.fitted?.key !== key) this.fitted = { key, result: this.rings.fitComposition(solveInput, { neutralize: true }) };
     const res = this.fitted.result;
-    const { P, armRotation } = this.model.display(res.P, input.armAngle);
+    const residual = [...residualOf(input, res.values, res.weight, res.bodyFat), ...(input.muscleMass === undefined ? [] : [{ goal: { kind: 'muscleMass' as const, value: input.muscleMass }, error: res.tissues.muscle - input.muscleMass }])];
+    if (!diagnostics.length && (residual.some(r => Math.abs(r.error) > (r.goal.kind === 'bodyFat' ? 0.01 : 0.5)) || Object.values(res.tissues).some(x => x < 0))) {
+      diagnostics.push({ kind: 'unconverged', message: '目前控制尚未找到同時符合全部尺寸與組成的解；這是模型求解未達標，不能據此判定這個體型不可能。' });
+    }
+    const { P, armRotation } = this.model.display(res.P, input.armAngle, false);
     const a = this.asset;
     const m = res.measured;
 
@@ -136,7 +152,9 @@ export class BodyEngine {
       values: res.values,
       weight: res.weight,
       bodyFat: res.bodyFat,
-      residual: residualOf(input, res.values, res.weight, res.bodyFat),
+      tissues: res.tissues,
+      diagnostics,
+      residual,
       composition: res.kg,
       volume: meshVolume(res.P.subarray(0, a.nBody * 3), a.quads),
       marks: { topY, crotchY, kneeY: knee[1], ankleY: ankle[1] },

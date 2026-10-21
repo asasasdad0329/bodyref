@@ -1,7 +1,7 @@
 import type { EngineOutput } from '../body/mh/engine';
 import { type Rarity, type Suggestion, type VarId, rarity } from './linkage';
 import { MEASURE_BY_ID, type MeasureId, type Sex, VAR_LABEL } from './measurements';
-import { MUSCLE_OF_LEAN, cupFromDiff } from './reference';
+import { cupFromDiff } from './reference';
 import type { AppState } from './state';
 
 // 摘要數據與現實檢核。
@@ -24,6 +24,8 @@ export interface Summary {
   bodyFatLocked: boolean;
   leanMass: number;
   muscleRate: number;
+  muscleMass: number;
+  otherLean: number;
   /** 例如 "B70"；男性為 null */
   braSize: string | null;
   whr: number;
@@ -112,19 +114,19 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
   // 模型做不到的數值（只檢查手動填的）
   for (const { goal, error } of out.residual) {
     if (goal.kind === 'measure' && sug.locked[goal.key] && Math.abs(error) > 0.5) {
-      add('conflict', `${VAR_LABEL[goal.key]}：模型最接近只能做到 ${f1(goal.value + error)} cm（目標 ${f1(goal.value)} cm），這幾個數值彼此不太相容。`);
+      add('info', `${VAR_LABEL[goal.key]}：目前 ${f1(goal.value + error)} cm（目標 ${f1(goal.value)} cm），求解尚未達標。`);
     }
     if (goal.kind === 'weight' && sug.locked.weight && Math.abs(error) > 0.5) {
       add(
-        'conflict',
-        `要符合手動填的圍度，體重至少要${error > 0 ? '約' : '只有約'} ${f1(goal.value + error)} kg，比輸入的體重${error > 0 ? '重' : '輕'} ${f1(Math.abs(error))} kg。`,
+        'info',
+        `體重：目前 ${f1(goal.value + error)} kg（目標 ${f1(goal.value)} kg），求解尚未達標。`,
       );
     }
     if (goal.kind === 'diff' && bustDiff !== null && Math.abs(error) > 0.5) {
-      add('conflict', `罩杯：目前的人體模型最大約做到 ${cupFromDiff(goal.value + error)} 罩杯（上下胸圍差 ${f1(goal.value + error)} cm）。`);
+      add('info', `罩杯：目前上下胸圍差 ${f1(goal.value + error)} cm（目標 ${f1(goal.value)} cm），求解尚未達標。`);
     }
     if (goal.kind === 'bodyFat' && sug.locked.bodyFat && Math.abs(error) > 0.01) {
-      add('conflict', `體脂率：模型最接近只能做到 ${f1((goal.value + error) * 100)}%（目標 ${f1(goal.value * 100)}%）。`);
+      add('info', `體脂率：目前 ${f1((goal.value + error) * 100)}%（目標 ${f1(goal.value * 100)}%），求解尚未達標。`);
     }
   }
   if (v.underbust > v.bust) add('conflict', '下胸圍比上胸圍大，請檢查兩個數值是否填反。');
@@ -152,6 +154,7 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
   if (female && v.bodyFat < 0.13) add('rare', `體脂 ${f1(v.bodyFat * 100)}% 已接近女性的必需脂肪下限（約 10–13%）。`);
   if (!female && v.bodyFat < 0.06) add('rare', `體脂 ${f1(v.bodyFat * 100)}% 已接近男性的必需脂肪下限（約 2–5%）。`);
 
+  for (const d of out.diagnostics) add(d.kind === 'input-conflict' ? 'conflict' : 'info', d.message);
   const leanMass = v.weight * (1 - v.bodyFat);
   return {
     bmi,
@@ -161,7 +164,9 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
     bodyFat: v.bodyFat,
     bodyFatLocked: sug.locked.bodyFat,
     leanMass,
-    muscleRate: MUSCLE_OF_LEAN * (1 - v.bodyFat),
+    muscleRate: out.tissues.muscle / out.weight,
+    muscleMass: out.tissues.muscle,
+    otherLean: out.tissues.otherLean,
     braSize: female ? braSize(v.bust, v.underbust) : null,
     whr: v.waist / v.hip,
     inseam: out.marks.crotchY,

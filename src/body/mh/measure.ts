@@ -37,7 +37,7 @@ type SearchKey = 'neck' | 'waist' | 'upperArm' | 'wrist' | 'thigh' | 'calf' | 'a
 const SEARCH: Record<SearchKey, { from: number; to: number; steps: number; mode: 'min' | 'max' }> = {
   neck: { from: 0.15, to: 0.45, steps: 5, mode: 'min' },
   waist: { from: 0.42, to: 0.85, steps: 10, mode: 'min' },
-  upperArm: { from: 0.55, to: 0.55, steps: 1, mode: 'max' },
+  upperArm: { from: 0.5, to: 0.5, steps: 1, mode: 'max' },
   wrist: { from: 0.93, to: 0.93, steps: 1, mode: 'min' },
   thigh: { from: 0.1, to: 0.1, steps: 1, mode: 'max' },
   calf: { from: 0.12, to: 0.55, steps: 8, mode: 'max' },
@@ -126,7 +126,7 @@ export function measureContext(a: BodyAsset): MeasureContext {
   return { asset: a, faces: buildFaceSets(a), crotch: crotchCandidates(a), buttock: buttockCandidates(a) };
 }
 
-export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): Measured {
+export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, search: readonly SearchKey[] = []): Measured {
   const a = ctx.asset;
   const J = (name: string): V3 => centroid(P, a.joints[name][0], a.joints[name][1]);
   const L = (name: string): V3 => vert(P, a.landmarks[name]);
@@ -196,7 +196,8 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): M
 
   for (const key of Object.keys(SEARCH) as SearchKey[]) {
     const s = SEARCH[key];
-    const ts = fixed ? [fixed[key]] : Array.from({ length: s.steps }, (_, i) => s.from + ((s.to - s.from) * i) / Math.max(1, s.steps - 1));
+    const searchKey = !fixed || search.includes(key);
+    const ts = !searchKey ? [fixed![key]] : Array.from({ length: s.steps }, (_, i) => s.from + ((s.to - s.from) * i) / Math.max(1, s.steps - 1));
     let best: Tape | null = null;
     let bestT = ts[0];
     for (const t of ts) {
@@ -209,7 +210,7 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels): M
       }
     }
     // 搜尋時在最佳位置附近再細找一次
-    if (!fixed && best && s.steps > 1) {
+    if (searchKey && best && s.steps > 1) {
       const step = (s.to - s.from) / (s.steps - 1);
       for (const t of [bestT - step / 2, bestT + step / 2]) {
         if (t < s.from - step / 2 || t > s.to + step / 2) continue;

@@ -1,3 +1,5 @@
+import { nhanesPreference } from '../core/nhanes';
+import { DEFAULT_MORPHOLOGY, type Morphology } from '../core/morphology';
 import { suggest, type Suggestion } from '../core/linkage';
 import type { Sex } from '../core/measurements';
 import type { MeasureKey } from './mh/measure';
@@ -19,6 +21,8 @@ export interface GoalInput {
   sug: Suggestion;
   /** 指定罩杯換算的上下胸圍差；沒指定為 null */
   bustDiff: number | null;
+  muscleMass?: number | null;
+  morphology?: Morphology;
 }
 
 export interface BodyInput extends CompositionInput {
@@ -28,7 +32,7 @@ export interface BodyInput extends CompositionInput {
   bustDiff: number | null;
 }
 
-export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
+export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: GoalInput): BodyInput {
   const v = sug.values;
   const L = sug.locked;
   const frame = Object.fromEntries(FRAME.map((k) => [k, v[k]])) as RingTargets;
@@ -50,7 +54,14 @@ export function bodyInputFor({ sex, sug, bustDiff }: GoalInput): BodyInput {
       confidence: k === 'upperArm' ? 0.55 : k === 'waist' ? 0.65 : 1,
     };
   }
+  if (!L.upperArm) {
+    const obs = nhanesPreference(sex, v.height, v.weight, v.bodyFat);
+    preferred.upperArm = { target: obs.arm, scale: Math.max(0.045, obs.scale), confidence: 0.7 };
+  }
   return {
+    estimateReference: !Object.keys(L).some(k => k !== 'height' && L[k as keyof typeof L]) && bustDiff === null && muscleMass == null,
+    muscleMass: muscleMass ?? undefined,
+    condition: { morphology: morphology ?? { ...DEFAULT_MORPHOLOGY }, bodyFat: v.bodyFat, muscle: 0 },
     sex,
     frame,
     weight: v.weight,

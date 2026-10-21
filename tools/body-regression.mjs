@@ -26,7 +26,7 @@ try {
   for (const c of BODY_CASES.filter((c) => !selected.length || selected.includes(c.id))) {
     const bustDiff = c.cup ? cupDiff(c.cup) : null;
     const sug = suggest({ sex: c.sex, locked: c.locked, bustDiff });
-    const input = { ...bodyInputFor({ sex: c.sex, sug, bustDiff }), armAngle: 16 };
+    const input = { ...bodyInputFor({ sex: c.sex, sug, bustDiff, morphology: c.morphology, muscleMass: c.muscleMass }), armAngle: 16 };
     const engine = new BodyEngine(asset);
     const started = performance.now();
     const out = engine.run(input);
@@ -40,7 +40,7 @@ try {
     const again = engine.run(input);
     const warmMs = performance.now() - warmStarted;
     const row = { ...c, suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
-      bodyFat: out.bodyFat, composition: out.composition, residual: out.residual, volume: out.volume,
+      bodyFat: out.bodyFat, tissues: out.tissues, diagnostics: out.diagnostics, composition: out.composition, residual: out.residual, volume: out.volume,
       timing: { coldMs, warmMs, cachedMs }, repeat: { values: again.values, weight: again.weight, bodyFat: again.bodyFat } };
     const hardPass = out.residual.every(({ goal, error }) => Number.isFinite(error) && Math.abs(error) < (goal.kind === 'bodyFat' ? 0.01 : 0.5));
     const repeatPass = Object.keys(out.values).every((k) => Math.abs(out.values[k] - again.values[k]) < 0.01)
