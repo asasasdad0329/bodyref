@@ -270,6 +270,10 @@ export class RingBody {
 
   /** 維護入口：檢查骨性參照上的權重與單控制；正式尺寸仍走 fitComposition。 */
   inspectControls(inp: CompositionInput) {
+    if (this.inspectionState) {
+      const p = this.inspectionState.p;
+      return { surface: p.surfaceRig.controls, breast: p.breastRig.bindings };
+    }
     const ref = REFERENCE[inp.sex];
     const hip = inp.locked.hip ?? inp.preferred?.hip?.target ?? ref.girths.hip;
     const condition = { ...(inp.condition ?? defaultCondition()), bodyFat: inp.bodyFat, thighConstrained: inp.locked.thigh !== undefined };
@@ -286,6 +290,18 @@ export class RingBody {
     for (const key of disabled) reduced[key] = 0;
     this.build(p, q, out, reduced);
     return out;
+  }
+
+  /** 單控制也走相同的交界約束、胸型與最終平滑，再獨立量測響應。 */
+  inspectControl(id: string, amount: number, disabled: SoftKey[] = []) {
+    if (!this.inspectionState) throw new Error('請先進行實際數值求解');
+    const { p, q, soft } = this.inspectionState, reduced = { ...soft };
+    for (const key of disabled) reduced[key] = 0;
+    const P = new Float32Array(p.B.length);
+    this.build(p, q, P, reduced, { id, amount });
+    const measured = measure(this.ctx, P, undefined, [], p.chestWall);
+    return { P, values: measured.values, sources: measured.sources,
+      volume: meshVolume(P.subarray(0, this.asset.nBody * 3), this.asset.quads) };
   }
 
   /** 素體 + 四肢長度，縮放到指定身高、腳底貼地 */
@@ -479,7 +495,7 @@ export class RingBody {
     }
   }
 
-  private build(p: Prepared, q: Params, out: Float32Array, soft?: Soft): void {
+  private build(p: Prepared, q: Params, out: Float32Array, soft?: Soft, single?: { id: string; amount: number }): void {
     const a = this.asset;
     const n = a.nBody;
     const mk = p.marks;
@@ -655,6 +671,11 @@ export class RingBody {
     // 軟組織由共同控制帶合成；每份場已在骨架準備時完成拓撲綁定與邊界平滑。
     const surfaceSoft = soft ?? { ...zeroSoft(), buttock: (male ? 14 : 26) * Math.max(-0.25, dH), hipSide: (male ? 4 : 9) * Math.max(-0.25, dH) };
     p.surfaceRig.apply(out, surfaceSoft);
+    if (single) {
+      const control = p.surfaceRig.controls.find(c => c.id === single.id);
+      if (!control) throw new Error('未知的單控制');
+      for (let i = 0; i < n * 3; i++) out[i] += control.displacement[i] * single.amount;
+    }
 
     // 內側軟組織可接近正中面，但左右表面不能交換位置。
     // 指數壓縮保留連續斜率；體積與皮尺仍在此約束後重新量測。
@@ -872,6 +893,11 @@ export class RingBody {
       : inp.frameLocked === undefined || inp.frameLocked.includes(k as MeasureKey);
     // 分配從同一個起點求解，避免接受步數受上一個體型影響；骨架與公斤校準仍使用快取。
     const shrinkKey: Record<SoftGoal, ParamKey> = { bust: 'breast', waist: 'waist', hip: 'hip', thigh: 'thigh', calf: 'calf', upperArm: 'upperArm' };
+    const upper: Partial<Record<SoftKey, number>> = { general: 2.2, upperBack: 2.5, lowerBack: 5,
+      chest: 0.8, neckFat: 0.25, trunkMuscle: 1.8, otherLean: 2.5, thighCover: 0.6, lowerAbdomen: 6,
+      armFat: inp.locked.upperArm === undefined ? 0.45 : 1.2,
+      calfFat: inp.locked.calf === undefined ? 0.12 : 1,
+      calfMuscle: inp.locked.calf === undefined ? 0.16 : 0.8 };
 
     const allocate = (): { soft: Soft; kg: Soft } => {
       const kg = { ...kgDefault };
@@ -908,11 +934,6 @@ export class RingBody {
         if (!kgPer[k]) continue;
         const u = kg[k] / kgPer[k];
         // 變薄有下限（量體不會凹進去、圈不會縮太多）
-        const upper: Partial<Record<SoftKey, number>> = { general: 2.2, upperBack: 2.5, lowerBack: 5,
-          chest: 0.8, neckFat: 0.25, trunkMuscle: 1.8, otherLean: 2.5, thighCover: 0.6, lowerAbdomen: 6,
-          armFat: inp.locked.upperArm === undefined ? 0.45 : 1.2,
-          calfFat: inp.locked.calf === undefined ? 0.12 : 1,
-          calfMuscle: inp.locked.calf === undefined ? 0.16 : 0.8 };
         const lower = RING_SOFT.includes(k) ? -0.25 : k === 'general' ? -1.2 : k === 'trunkMuscle' ? -0.6 : isLean(k) ? -2 : 0;
         soft[k] = Math.min(upper[k] ?? Infinity, Math.max(lower, u));
       }
@@ -928,9 +949,10 @@ export class RingBody {
     const weightOf = (sft: Soft) => {
       let fatKg = 0;
       for (const k of SOFT_KEYS) if (!isLean(k)) fatKg += sft[k] * kgPer[k];
-      // 新增乳房體積採固定的脂肪／其餘去脂工程先驗記帳，不算成骨骼肌。
+      // 缺少可辨識個體乳房組成的資料，增量採全身輸入的混合密度先驗；
+      // 非脂肪部分記其餘去脂，不把杯量反推成骨骼肌或全身減脂指令。
       // 量測當前自由表面相對同框架胸壁的實際體積差，扣掉已計入素體的部分。
-      if (p.chestWall) fatKg += (vol(P) - vol(p.chestWall) - setup!.breastV0) * 0.85 * FAT_DENSITY / 1000;
+      if (p.chestWall) fatKg += (vol(P) - vol(p.chestWall) - setup!.breastV0) * bodyDensity(inp.bodyFat) * inp.bodyFat / 1000;
       const dV = vol(P) - V0;
       const leanKg = ((dV - (fatKg * 1000) / FAT_DENSITY) * LEAN_DENSITY) / 1000;
       const muscleKg = baseMuscle + SOFT_KEYS.reduce((s, k) => s + (isMuscle(k) ? sft[k] * kgPer[k] : 0), 0);
@@ -1069,16 +1091,18 @@ export class RingBody {
             }
           }
           const capacity = zeroSoft();
+          const room = zeroSoft();
           for (const k of free) {
             const floor = (RING_SOFT.includes(k) ? -0.25 : k === 'general' ? -1.2 : isLean(k) ? -2 : 0) * kgPer[k];
             capacity[k] = Math.max(0, soft[k] * kgPer[k] - floor);
+            room[k] = Math.max(0, ((upper[k] ?? Infinity) - soft[k]) * kgPer[k]);
           }
           let active = [...free];
           let step = zeroSoft();
           for (let activePass = 0; activePass < free.length; activePass++) {
             step = redistributionStep(active, response, preferenceValues(m), candidatePreferred,
               [...goals, ...FRAME.filter((k) => k !== 'breast' && hardFrame(k)) as MeasureKey[]], bias, capacity);
-            const blocked = active.filter((k) => step[k] < 0 && capacity[k] < 0.01);
+            const blocked = active.filter((k) => (step[k] < 0 && capacity[k] < 0.01) || (step[k] > 0 && room[k] < 0.01));
             if (!blocked.length) break;
             active = active.filter((k) => !blocked.includes(k));
           }
@@ -1086,6 +1110,7 @@ export class RingBody {
           let scale = Math.min(stepScale, Math.max(0.5, inp.weight * 0.02) / largest);
           for (const k of free) {
             if (step[k] < 0) scale = Math.min(scale, capacity[k] / -step[k]);
+            if (step[k] > 0) scale = Math.min(scale, room[k] / step[k]);
           }
           if (largest * scale < 0.015) break;
           for (const k of free) bias[k] += step[k] * scale;

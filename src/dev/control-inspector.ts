@@ -50,10 +50,10 @@ function solve() {
 }
 function draw() {
   const c = bindings.surface.find(c => c.id === control.value)!;
-  const positions = disable.value ? engine.model.display(engine.rings.inspectSolved([disable.value as SoftKey]), 16, false).P.slice(0, asset.nBody * 3) : current.positions.slice();
   const amount = Number(get<HTMLInputElement>('inspect-amount').value);
-  for (let i = 0; i < positions.length; i++) positions[i] += c.displacement[i] * amount;
-  viewer.setShape({ ...current, positions }, current.values);
+  const inspected = engine.rings.inspectControl(c.id, amount, disable.value ? [disable.value as SoftKey] : []);
+  const positions = engine.model.display(inspected.P, 16, false).P.slice(0, asset.nBody * 3);
+  viewer.setShape({ ...current, positions }, inspected.values);
   if (get<HTMLInputElement>('inspect-heat').checked) viewer.body.group.traverse(obj => {
     if (!(obj instanceof THREE.Mesh) || !(obj.material instanceof THREE.MeshStandardMaterial)) return;
     const count = obj.geometry.getAttribute('position').count;
@@ -69,6 +69,8 @@ function draw() {
   get('inspect-data').textContent = JSON.stringify({ id: c.id, parent: c.parent, origin: c.origin,
     axes: c.axes, tissue: c.tissue, range: c.range, boundary: c.boundary,
     affectedVertices: c.weights.filter(w => w > 0).length,
+    response: { volumeCm3: inspected.volume - current.volume,
+      girthCm: Object.fromEntries(Object.entries(inspected.values).map(([k, v]) => [k, v - current.values[k as keyof typeof current.values]])) },
     actualInput: { values: current.values, tissues: current.tissues, residual: current.residual } }, null, 2);
 }
 get('inspect-solve').addEventListener('click', solve);

@@ -47,11 +47,13 @@ try {
     const { bodyInputFor } = await import('/src/body/goals.ts');
     const { suggest } = await import('/src/core/linkage.ts');
     const { cupDiff } = await import('/src/core/reference.ts');
+    const { measureContext } = await import('/src/body/mh/measure.ts');
+    const geometry = await import('/src/body/mh/geometry.ts');
     document.documentElement.dataset.theme = 'light';
     const viewer = new Viewer(document.getElementById('evidence-stage'));
     const asset = await loadBodyAsset('/body.bin');
     viewer.setTopology(asset); viewer.setDisplay({ lineStyle: 'none', outline: false, measures: false });
-    window.__shapeEvidence = { viewer, engine: new BodyEngine(asset), bodyInputFor, suggest, cupDiff };
+    window.__shapeEvidence = { viewer, engine: new BodyEngine(asset), bodyInputFor, suggest, cupDiff, geometry, ctx: measureContext(asset), asset };
   }, { rendererRoot });
   const results = [];
   fs.mkdirSync(dest, { recursive: true });
@@ -63,7 +65,16 @@ try {
       const input = { ...e.bodyInputFor({ sex: c.sex, sug, bustDiff, morphology: c.morphology, muscleMass: c.muscleMass }), armAngle: 16 };
       const start = performance.now(), out = e.engine.run(input), ms = performance.now() - start;
       e.viewer.setShape(out, out.values);
-      return { values: out.values, residual: out.residual, tissues: out.tissues, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics };
+      e.out = out;
+      const neutral = e.engine.rings.inspectSolved ? e.engine.rings.inspectSolved() : null;
+      const sections = [];
+      if (neutral) for (let y = out.marks.crotchY - 4; y <= out.values.height * 0.79; y += 2) {
+        const points = e.geometry.slice(neutral, e.asset.quads, e.ctx.faces.trunk, e.geometry.horizontal(y)).flat();
+        if (points.length > 2) sections.push({ y, perimeter: e.geometry.tape(points, e.geometry.horizontal(y)).length,
+          width: Math.max(...points.map(p => p[0])) - Math.min(...points.map(p => p[0])),
+          depth: Math.max(...points.map(p => p[2])) - Math.min(...points.map(p => p[2])), points });
+      }
+      return { values: out.values, residual: out.residual, tissues: out.tissues, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
     }, c);
     for (const view of ['front', 'quarter', 'side', 'rearQuarter', 'back']) {
       const png = await page.evaluate(view => {
@@ -72,9 +83,30 @@ try {
       }, view);
       fs.writeFileSync(path.join(dest, `${c.id}-${view}.png`), Buffer.from(png.split(',')[1], 'base64'));
     }
+    for (const view of ['quarter', 'rearQuarter']) {
+      const png = await page.evaluate(view => {
+        const v = window.__shapeEvidence.viewer; v.setView(view, false); v.setLightOffset(2.4);
+        const png = v.captureCurrent(1, true); v.setLightOffset(0); return png;
+      }, view);
+      fs.writeFileSync(path.join(dest, `${c.id}-${view}-light.png`), Buffer.from(png.split(',')[1], 'base64'));
+    }
+    for (const region of ['chest', 'hip']) {
+      const png = await page.evaluate(region => {
+        const e = window.__shapeEvidence, v = e.viewer;
+        v.setView(region === 'chest' ? 'quarter' : 'rearQuarter', false);
+        const offset = v.camera.position.clone().sub(v.controls.target).multiplyScalar(0.45);
+        const tape = e.out.tapes[region === 'chest' ? 'bust' : 'hip'];
+        v.controls.target.set(0, tape ? tape.anchor[1] : e.out.values.height * 0.55, 0);
+        v.camera.position.copy(v.controls.target).add(offset); v.controls.update();
+        return v.captureCurrent(1, true);
+      }, region);
+      fs.writeFileSync(path.join(dest, `${c.id}-${region}-detail.png`), Buffer.from(png.split(',')[1], 'base64'));
+    }
     results.push({ ...c, ...result });
     fs.writeFileSync(path.join(dest, 'report.json'), JSON.stringify({ snapshot, results }, null, 2));
     console.log(`${c.id}: ${result.ms.toFixed(0)} ms; ${result.diagnostics?.length ?? 0} 診斷`);
   }
+  const views = ['front', 'quarter', 'side', 'rearQuarter', 'back', 'quarter-light', 'rearQuarter-light', 'chest-detail', 'hip-detail'];
+  fs.writeFileSync(path.join(dest, 'index.html'), `<!doctype html><meta charset="utf-8"><title>BodyRef 形狀證據</title><style>body{font-family:system-ui;margin:24px;background:#eee}img{width:220px;max-width:100%}figure{margin:0}section{margin:30px 0}.views{display:flex;flex-wrap:wrap;gap:8px}pre{white-space:pre-wrap}</style><h1>BodyRef 形狀證據</h1><pre>${JSON.stringify(snapshot, null, 2)}</pre>${results.map(r => `<section><h2>${r.id}</h2><p>${r.weight.toFixed(2)} kg・${(r.bodyFat * 100).toFixed(1)}%・診斷 ${r.diagnostics?.length ?? 0}</p><div class="views">${views.map(v => `<figure><a href="${r.id}-${v}.png"><img loading="lazy" src="${r.id}-${v}.png"></a><figcaption>${v}</figcaption></figure>`).join('')}</div></section>`).join('')}<p>完整殘差、組成與每 2 cm 中性截面見 report.json。</p>`);
   if (snapshot.treeSha256 !== fingerprint()) throw new Error('產出途中來源有變動；這份證據不可作同版本驗收');
 } finally { await browser?.close(); await server.close(); }

@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'vite';
+import { surfaceQuality } from './surface-quality.mjs';
 
 const [output, ...selected] = process.argv.slice(2);
 if (!output) throw new Error('用法：node tools/body-regression.mjs <倉庫外輸出.json> [案例 ID ...]');
@@ -54,6 +55,7 @@ try {
     const row = { ...c, snapshot, suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
       bodyFat: out.bodyFat, tissues: out.tissues, measurement: out.measurement, diagnostics: out.diagnostics, composition: out.composition, residual: out.residual, volume: out.volume,
       timing: { coldMs, warmMs, cachedMs }, repeat: { values: again.values, weight: again.weight, bodyFat: again.bodyFat } };
+    if (process.env.BODYREF_SURFACE_QUALITY === '1') row.surface = surfaceQuality(out.positions, out.bodyIndex, asset);
     const hardPass = out.residual.every(({ goal, error }) => Number.isFinite(error) && Math.abs(error) < (goal.kind === 'bodyFat' ? 0.01 : 0.5));
     const repeatPass = Object.keys(out.values).every((k) => Math.abs(out.values[k] - again.values[k]) < 0.01)
       && Math.abs(out.weight - again.weight) < 0.01 && Math.abs(out.bodyFat - again.bodyFat) < 0.0001;
