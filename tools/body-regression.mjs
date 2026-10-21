@@ -53,7 +53,7 @@ try {
     const again = engine.run(input);
     const warmMs = performance.now() - warmStarted;
     const row = { ...c, snapshot, suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
-      bodyFat: out.bodyFat, tissues: out.tissues, measurement: out.measurement, diagnostics: out.diagnostics, composition: out.composition, residual: out.residual, volume: out.volume,
+      bodyFat: out.bodyFat, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, diagnostics: out.diagnostics, composition: out.composition, residual: out.residual, volume: out.volume,
       timing: { coldMs, warmMs, cachedMs }, repeat: { values: again.values, weight: again.weight, bodyFat: again.bodyFat } };
     if (process.env.BODYREF_SURFACE_QUALITY === '1') row.surface = surfaceQuality(out.positions, out.bodyIndex, asset);
     const hardPass = out.residual.every(({ goal, error }) => Number.isFinite(error) && Math.abs(error) < (goal.kind === 'bodyFat' ? 0.01 : 0.5));

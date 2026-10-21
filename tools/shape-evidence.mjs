@@ -74,7 +74,7 @@ try {
           width: Math.max(...points.map(p => p[0])) - Math.min(...points.map(p => p[0])),
           depth: Math.max(...points.map(p => p[2])) - Math.min(...points.map(p => p[2])), points });
       }
-      return { values: out.values, residual: out.residual, tissues: out.tissues, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
+      return { values: out.values, residual: out.residual, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
     }, c);
     for (const view of ['front', 'quarter', 'side', 'rearQuarter', 'back']) {
       const png = await page.evaluate(view => {

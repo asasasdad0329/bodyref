@@ -29,6 +29,7 @@ function expectHard(out: EngineOutput) {
   for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
   expect(Object.values(out.tissues).every(x => Number.isFinite(x) && x >= 0)).toBe(true);
   expect(out.tissues.fat + out.tissues.muscle + out.tissues.otherLean).toBeCloseTo(out.weight, 8);
+  expect(Object.values(out.accounting).reduce((s, x) => s + x, 0)).toBeCloseTo(out.tissues.otherLean, 8);
   expect((out.tissues.fat / 0.9 + (out.tissues.muscle + out.tissues.otherLean) / 1.06) * 1000).toBeCloseTo(out.volume, 4);
 }
 
@@ -160,6 +161,17 @@ describe('人體網格', () => {
     const thick = run('female', { height: 160, waist: base.values.waist + 12 });
     expect(thick.weight - base.weight).toBeGreaterThan(3);
     expect(thick.bodyFat).toBeGreaterThan(base.bodyFat);
+    expect(thick.tissues.fat - base.tissues.fat).toBeGreaterThan(3);
+  });
+
+  it('局部增脂不拿新增肌肉或其他去脂補差額', () => {
+    // 明確相同杯型，兩者都不走「只填身高」的參考體重校正。
+    const base = run('female', { height: 160 }, 'B');
+    const thick = run('female', { height: 160, waist: base.values.waist + 12 }, 'B');
+    expect(Math.abs(thick.tissues.muscle - base.tissues.muscle)).toBeLessThan(0.05);
+    const bodyOtherLean = (o: EngineOutput) => o.accounting.otherLeanBase + o.accounting.otherLeanControl;
+    expect(Math.abs(bodyOtherLean(thick) - bodyOtherLean(base))).toBeLessThan(0.05);
+    expect(thick.tissues.fat - base.tissues.fat).toBeGreaterThan(3);
   });
 
   it('體重變重時，指定的罩杯維持不變', () => {

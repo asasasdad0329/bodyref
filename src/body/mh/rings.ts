@@ -159,6 +159,7 @@ export interface CompositionResult {
   kg: Record<SoftKey, number>;
   iterations: number;
   tissues: { fat: number; muscle: number; otherLean: number };
+  accounting: { otherLeanBase: number; otherLeanControl: number; breastOtherLean: number };
 }
 
 /** 四肢長度用 MakeHuman 的長度形變（骨架） */
@@ -290,6 +291,12 @@ export class RingBody {
     for (const key of disabled) reduced[key] = 0;
     this.build(p, q, out, reduced);
     return out;
+  }
+
+  /** 多起點候選之間保留被選中的診斷狀態，避免截面讀到被捨棄的候選。 */
+  preserveInspection(): () => void {
+    const state = this.inspectionState;
+    return () => { this.inspectionState = state; };
   }
 
   /** 單控制也走相同的交界約束、胸型與最終平滑，再獨立量測響應。 */
@@ -822,7 +829,7 @@ export class RingBody {
       this.setups.set(key, setup);
     }
     let p = { ...setup.p, hipExpansion: opts.hipExpansion! };
-    const { V0, M0 } = setup;
+    const { M0 } = setup;
     const { kgPer, response: calibratedResponse } = setup;
     const baseFat = M0 * BASE_FAT[sex];
 
@@ -919,7 +926,27 @@ export class RingBody {
         const rest = dFat - used + restAdj;
         const sh = norm(rest >= 0 ? regionalFat : LOSS_SHARE, free.length ? free : ['general']);
         for (const k of SOFT_KEYS) if (!owned.has(k) && !isLean(k)) kg[k] = 0;
-        for (const [k, v] of Object.entries(sh) as [SoftKey, number][]) kg[k] = rest * v;
+        // 局部減量與總重修正優先由相鄰軀幹覆蓋吸收；未指定的臀腿不自動
+        // 成為縮上臂後的補償出口。軀幹同樣受上限約束，不能無限堆入。
+        const adjacent = free.filter(k => ['belly', 'lowerAbdomen', 'flank', 'lowerBack', 'chest'].includes(k));
+        const initialFree = free.reduce((sum, k) => sum + kgDefault[k], 0);
+        const replacement = goals.length && adjacent.length ? Math.max(0, rest - Math.max(0, initialFree)) : 0;
+        for (const [k, v] of Object.entries(sh) as [SoftKey, number][]) kg[k] = (rest - replacement) * v;
+        const addWithinCapacity = (amount: number, keys: SoftKey[]) => {
+          let remaining = amount;
+          const room = (k: SoftKey) => Math.max(0, (upper[k] ?? Infinity) * kgPer[k] - kg[k] - bias[k]);
+          let active = keys.filter(k => room(k) > 0.0001);
+          for (let pass = 0; pass < keys.length && remaining > 0.0001 && active.length; pass++) {
+            let used = 0;
+            for (const [k, v] of Object.entries(norm(regionalFat, active)) as [SoftKey, number][]) {
+              const delta = Math.min(remaining * v, room(k)); kg[k] += delta; used += delta;
+            }
+            if (used < 0.0001) break;
+            remaining -= used; active = active.filter(k => room(k) > 0.0001);
+          }
+          return remaining;
+        };
+        if (replacement) addWithinCapacity(addWithinCapacity(replacement, adjacent), free);
       } else if (restAdj) {
         // 只鎖定體脂率：沒填的部位多退少補，讓脂肪比例對上
         const free = (Object.keys(fatShare) as SoftKey[]).filter((k) => !owned.has(k));
@@ -947,16 +974,18 @@ export class RingBody {
     const GUESS: Record<SoftGoal, number> = { bust: 3, waist: 2.5, hip: 2, thigh: 4, calf: 6, upperArm: 8 };
 
     const weightOf = (sft: Soft) => {
-      let fatKg = 0;
-      for (const k of SOFT_KEYS) if (!isLean(k)) fatKg += sft[k] * kgPer[k];
-      // 缺少可辨識個體乳房組成的資料，增量採全身輸入的混合密度先驗；
-      // 非脂肪部分記其餘去脂，不把杯量反推成骨骼肌或全身減脂指令。
-      // 量測當前自由表面相對同框架胸壁的實際體積差，扣掉已計入素體的部分。
-      if (p.chestWall) fatKg += (vol(P) - vol(p.chestWall) - setup!.breastV0) * bodyDensity(inp.bodyFat) * inp.bodyFat / 1000;
-      const dV = vol(P) - V0;
-      const leanKg = ((dV - (fatKg * 1000) / FAT_DENSITY) * LEAN_DENSITY) / 1000;
-      const muscleKg = baseMuscle + SOFT_KEYS.reduce((s, k) => s + (isMuscle(k) ? sft[k] * kgPer[k] : 0), 0);
-      return { weight: M0 + fatKg + leanKg, fatKg, muscleKg };
+      // 肌肉與其餘去脂各有確定基準及受限增量，不能拿幾何殘差補成器官／水分。
+      const muscleKg = baseMuscle + SOFT_KEYS.reduce((sum, k) => sum + (isMuscle(k) ? sft[k] * kgPer[k] : 0), 0);
+      const otherLeanBase = (M0 - baseFat) * (1 - MUSCLE_OF_LEAN);
+      const otherLeanControl = sft.otherLean * kgPer.otherLean;
+      const breastOtherLean = p.chestWall ? (vol(P) - vol(p.chestWall) - setup!.breastV0)
+        * bodyDensity(inp.bodyFat) * (1 - inp.bodyFat) / 1000 : 0;
+      const otherKg = otherLeanBase + otherLeanControl + breastOtherLean;
+      // 剩餘皮下量體在固定密度下計為脂肪；局部脂肪公斤斜率只用於提出候選，
+      // 不把非線性膨脹差當成額外去脂。負剩餘量會保留並觸發未收斂診斷。
+      const fat = (vol(P) / 1000 - (muscleKg + otherKg) / LEAN_DENSITY) * FAT_DENSITY;
+      return { weight: fat + muscleKg + otherKg, fatKg: fat - baseFat, muscleKg,
+        accounting: { otherLeanBase, otherLeanControl, breastOtherLean } };
     };
     let m = measure(this.ctx, p.B);
     let total = 0;
@@ -1197,12 +1226,12 @@ export class RingBody {
     m = measure(this.ctx, P, undefined, [], p.chestWall);
 
     // 體重：素體 + 各區脂肪（實際用到的量）+ 其餘增加的體積當作去脂組織
-    const { weight, fatKg, muscleKg } = weightOf(soft);
+    const { weight, fatKg, muscleKg, accounting } = weightOf(soft);
     const tissues = { fat: baseFat + fatKg, muscle: muscleKg, otherLean: weight - baseFat - fatKg - muscleKg };
     this.inspectionState = { p, q: { ...q }, soft: { ...soft } };
     const kg = zeroSoft();
     for (const k of SOFT_KEYS) kg[k] = soft[k] * kgPer[k];
-    return { P, measured: m, values: m.values, weight, bodyFat: tissues.fat / weight, kg, iterations: total, tissues };
+    return { P, measured: m, values: m.values, weight, bodyFat: tissues.fat / weight, kg, iterations: total, tissues, accounting };
   }
 }
 
