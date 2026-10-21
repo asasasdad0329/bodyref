@@ -15,20 +15,58 @@ interface BreastBinding {
 /** 在 CC0 原曲面上綁定的根部、上極、下極與展開控制，不另生成半球或乳頭圓頂。 */
 export class BreastRig {
   readonly bindings: BreastBinding[] = [];
+  private readonly average: Float32Array;
+  private readonly maximum: Float32Array;
+  private readonly nativeIndices: Uint32Array;
+  private readonly adjacency: number[][];
 
   constructor(a: BodyAsset, B: Float32Array, adj: number[][]) {
+    this.adjacency = adj;
+    const minimum = new Float32Array(a.nBody * 3);
+    this.average = new Float32Array(a.nBody * 3);
+    this.maximum = new Float32Array(a.nBody * 3);
+    const minTarget = a.targets.get('female-young-averagemuscle-averageweight-mincup-averagefirmness')!;
+    const maxTarget = a.targets.get('female-young-averagemuscle-averageweight-maxcup-averagefirmness')!;
+    for (const [target, out] of [[minTarget, minimum], [maxTarget, this.maximum]] as const) {
+      for (let k = 0; k < target.indices.length; k++) {
+        const i = target.indices[k];
+        if (i >= a.nBody) continue;
+        for (let d = 0; d < 3; d++) out[i * 3 + d] = target.deltas[k * 3 + d] * a.deltaStep;
+      }
+    }
+    for (let i = 0; i < minimum.length; i++) { this.average[i] = -minimum[i]; this.maximum[i] -= minimum[i]; }
+    let rawLo = Infinity, rawHi = -Infinity, lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < a.nBody; i++) {
+      rawLo = Math.min(rawLo, a.base[i * 3 + 1]); rawHi = Math.max(rawHi, a.base[i * 3 + 1]);
+      lo = Math.min(lo, B[i * 3 + 1]); hi = Math.max(hi, B[i * 3 + 1]);
+    }
+    const scale = (hi - lo) / (rawHi - rawLo);
+    for (let i = 0; i < minimum.length; i++) { this.average[i] *= scale; this.maximum[i] *= scale; }
+    this.nativeIndices = Uint32Array.from(new Set([...minTarget.indices, ...maxTarget.indices])).filter(i => i < a.nBody);
     for (const side of ['L', 'R'] as const) {
       const region = a.regions.indexOf(`breast${side}`);
-      const ids = Uint32Array.from({ length: a.nBody }, (_, i) => i).filter(i => a.region[i] === region);
-      const rim = ids.filter(i => adj[i].some(j => a.region[j] !== region));
+      const original = Uint32Array.from({ length: a.nBody }, (_, i) => i).filter(i => a.region[i] === region);
+      const originalRim = original.filter(i => adj[i].some(j => a.region[j] !== region));
+      const support = new Set(original);
+      const freeSurface = new Set(original);
+      const cup = a.targets.get('female-young-averagemuscle-averageweight-maxcup-averagefirmness');
+      if (cup) for (let k = 0; k < cup.indices.length; k++) {
+        const i = cup.indices[k];
+        if (i >= a.nBody || B[i * 3] * (side === 'L' ? 1 : -1) <= 0 || a.region[i] !== a.regions.indexOf('torso')) continue;
+        const projection = cup.deltas[k * 3 + 2] * a.deltaStep;
+        if (projection > 0.08) support.add(i);
+        if (projection > 0.3) freeSurface.add(i);
+      }
+      const ids = Uint32Array.from(support);
+      const rim = ids.filter(i => adj[i].some(j => !support.has(j)));
       if (!ids.length || !rim.length) throw new Error('缺少胸部拓撲標記');
       const root: V3 = [0, 0, 0];
-      for (const i of rim) for (let k = 0; k < 3; k++) root[k] += B[i * 3 + k] / rim.length;
+      for (const i of originalRim) for (let k = 0; k < 3; k++) root[k] += B[i * 3 + k] / originalRim.length;
       const weights = new Float32Array(a.nBody);
       // 以原始表面投影區界定內部，邊界沿拓撲擴到根部過渡，固定外圈為零。
       const distance = new Int16Array(a.nBody).fill(-1);
       const queue = [...ids];
-      for (const i of ids) { distance[i] = 0; weights[i] = 1; }
+      for (const i of ids) { distance[i] = 0; weights[i] = freeSurface.has(i) ? 1 : 0; }
       const torso = a.regions.indexOf('torso');
       for (let head = 0; head < queue.length; head++) {
         const i = queue[head];
@@ -50,23 +88,31 @@ export class BreastRig {
       const depth = new Float32Array(a.nBody);
       for (const i of queue) depth[i] = Math.max(0, B[i * 3 + 2] - root[2]);
       const apexY = B[a.landmarks[`bustApex${side}`] * 3 + 1];
-      this.bindings.push({ indices: Uint32Array.from(queue), weights, rim, root, depth, apexY });
+      this.bindings.push({ indices: Uint32Array.from(queue), weights, rim: originalRim, root, depth, apexY });
     }
   }
 
   apply(out: Float32Array, amount: number, shape: Morphology['breast']): void {
-    const scale = Math.exp(amount * 0.42);
+    const native = Math.max(0, Math.min(2, amount));
+    // 原生小／中／大杯曲面沿共同控制插值。底座和上胸過渡來自完整原始目標。
+    for (const i of this.nativeIndices) for (let k = 0; k < 3; k++) {
+      const d = i * 3 + k;
+      out[d] += native <= 1 ? this.average[d] * native : this.average[d] * (2 - native) + this.maximum[d] * (native - 1);
+    }
+    const extra = Math.max(0, amount - 2);
+    const scale = Math.exp(extra * 0.42);
     const growth = scale - 1;
-    const breadth = Math.exp(Math.max(0, amount) * 0.19);
-    const height = Math.exp(Math.max(0, amount) * 0.16);
+    const breadth = Math.exp(extra * 0.27);
+    const height = Math.exp(extra * 0.24) * (shape === 'long' ? 1.16 : shape === 'round' ? 0.96 : 1);
     for (const b of this.bindings) {
       const root: V3 = [0, 0, 0];
       for (const i of b.rim) for (let k = 0; k < 3; k++) root[k] += out[i * 3 + k] / b.rim.length;
       const radius = Math.max(3, Math.abs(root[0]) * 0.72);
-      const maxDepth = Math.max(...b.indices.map(i => b.depth[i]));
+      let maxDepth = 0;
+      for (const i of b.indices) maxDepth = Math.max(maxDepth, out[i * 3 + 2] - root[2]);
       for (const i of b.indices) {
         // 內部保留同一曲面的寬／高／深關係；附著限制集中在根部，不能越加越像尖錐。
-        const w = ease(0, 0.22 * maxDepth, b.depth[i]) * Math.min(1, b.weights[i] * 2.5);
+        const w = ease(0, 0.65, b.weights[i]);
         if (!w) continue;
         const dy = out[i * 3 + 1] - root[1];
         const lower = 1 - ease(-radius * 0.7, radius * 0.4, dy);
@@ -74,17 +120,38 @@ export class BreastRig {
         // 三型共用自由度；下極移動與上部飽滿各自受根部漸變限制。
         const width = shape === 'round' ? 0.12 : shape === 'long' ? -0.06 : 0;
         const fullness = shape === 'round' ? 0.28 * upper - 0.06 * lower : shape === 'long' ? -0.22 * upper + 0.08 * lower : 0;
-        const drop = shape === 'long' ? 0.45 : shape === 'round' ? -0.045 : 0.12;
-        const depth = b.depth[i];
-        const projection = depth * (growth + fullness * scale);
+        const drop = shape === 'long' ? 0.24 : shape === 'round' ? -0.045 : 0.07;
+        const depth = Math.max(0, out[i * 3 + 2] - root[2]);
+        const u = depth / Math.max(0.1, maxDepth);
+        const profile = depth * (2 - u);
+        const projection = profile * growth + depth * fullness * scale;
         const side = Math.sign(root[0]);
         const dx = out[i * 3] - root[0];
         const widening = dx * (breadth - 1 + width);
         // 內側靠胸骨的空間有限，主要展開在外側及下極；左右不互相穿越。
-        const medial = widening * side < 0 ? ease(0.8, 4, Math.abs(out[i * 3])) : 1;
+        const medial = widening * side < 0 ? 0.08 : 1;
         out[i * 3] += w * widening * medial;
-        out[i * 3 + 1] += w * ((dy - radius * 0.45) * (height - 1) - depth * (drop + 0.32 * Math.max(0, growth)) * (0.35 + 0.65 * lower));
+        out[i * 3 + 1] += w * ((dy - radius * 0.4) * (height - 1) - depth * (drop + 0.1 * Math.max(0, growth)) * (0.35 + 0.65 * lower));
         out[i * 3 + 2] += w * projection;
+      }
+      // 原始杯型在下極的少數拓撲面會在放大後形成曲率尖峰。
+      // 在同一控制支撐內做保體積傾向的曲率校正；根部權重逐漸歸零。
+      // 這是求解曲面的一部分，後續尺寸、體積與組成一律重新量測。
+      const correction = ease(0.8, 2, amount);
+      if (correction) {
+        const tmp = new Float32Array(b.indices.length * 3);
+        for (let pass = 0; pass < 8; pass++) for (const step of [0.45, -0.47]) {
+          for (let row = 0; row < b.indices.length; row++) {
+            const i = b.indices[row], neighbors = this.adjacency[i];
+            const weight = ease(0, 0.65, b.weights[i]) * correction;
+            for (let k = 0; k < 3; k++) {
+              let mean = 0;
+              for (const j of neighbors) mean += out[j * 3 + k] / neighbors.length;
+              tmp[row * 3 + k] = out[i * 3 + k] + (mean - out[i * 3 + k]) * step * weight;
+            }
+          }
+          for (let row = 0; row < b.indices.length; row++) for (let k = 0; k < 3; k++) out[b.indices[row] * 3 + k] = tmp[row * 3 + k];
+        }
       }
     }
   }

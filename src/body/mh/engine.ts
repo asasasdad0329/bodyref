@@ -3,7 +3,7 @@ import { type HeadParts, cutNeck, eggHead, headParts } from './egghead';
 import { type V3, cavity, centroid, meshVolume, vert } from './geometry';
 import { GuideBuilder } from './guides';
 import type { BodyInput } from '../goals';
-import { MEASURE_KEYS, type MeasureKey } from './measure';
+import { MEASURE_KEYS, type MeasureKey, type Measured } from './measure';
 import { type ArmPose, BodyModel, rotateArmPoint } from './model';
 import { RingBody, type Soft } from './rings';
 
@@ -46,6 +46,7 @@ export interface EngineOutput {
   bodyFat: number;
   tissues: { fat: number; muscle: number; otherLean: number };
   diagnostics: { kind: 'input-conflict' | 'unconverged'; message: string }[];
+  measurement: { version: 2; chestWallUnderbust: number; standingBust: number; sources: Measured['sources'] };
   /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
   residual: { goal: Goal; error: number }[];
   /** 各區脂肪與肌肉比素體多出的公斤數 */
@@ -153,6 +154,7 @@ export class BodyEngine {
       weight: res.weight,
       bodyFat: res.bodyFat,
       tissues: res.tissues,
+      measurement: { version: 2, chestWallUnderbust: m.values.underbust, standingBust: m.values.bust, sources: m.sources },
       diagnostics,
       residual,
       composition: res.kg,

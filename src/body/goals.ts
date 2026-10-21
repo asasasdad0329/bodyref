@@ -43,6 +43,11 @@ export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: Goa
   const preferenceSuggestion = bustDiff === null ? sug : suggest({ sex,
     locked: Object.fromEntries(Object.entries(v).filter(([k]) => L[k as keyof typeof L])),
   });
+  if (sex === 'female' && bustDiff !== null) {
+    for (const key of FRAME) if (!L[key]) frame[key] = preferenceSuggestion.values[key];
+    frame.underbust = L.underbust || L.bust ? v.underbust : preferenceSuggestion.values.underbust;
+    frame.bust = frame.underbust! + bustDiff;
+  }
   const preferred: CompositionInput['preferred'] = {};
   for (const k of SOFT) {
     if (L[k] || (k === 'bust' && sex === 'female')) continue;
@@ -56,7 +61,7 @@ export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: Goa
   }
   if (!L.upperArm) {
     const obs = nhanesPreference(sex, v.height, v.weight, v.bodyFat);
-    preferred.upperArm = { target: obs.arm, scale: Math.max(0.045, obs.scale), confidence: 0.7 };
+    preferred.upperArm = { target: obs.arm, scale: Math.max(0.045, obs.scale), confidence: 3 };
   }
   return {
     estimateReference: !Object.keys(L).some(k => k !== 'height' && L[k as keyof typeof L]) && bustDiff === null && muscleMass == null,
@@ -64,8 +69,10 @@ export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: Goa
     condition: { morphology: morphology ?? { ...DEFAULT_MORPHOLOGY }, bodyFat: v.bodyFat, muscle: 0 },
     sex,
     frame,
-    weight: v.weight,
-    bodyFat: v.bodyFat,
+    frameLocked: FRAME.filter(k => L[k]),
+    breastLocked: sex === 'female' && (bustDiff !== null || L.bust || L.underbust),
+    weight: L.weight ? v.weight : preferenceSuggestion.values.weight,
+    bodyFat: L.bodyFat ? v.bodyFat : preferenceSuggestion.values.bodyFat,
     weightLocked: L.weight,
     locked,
     preferred,

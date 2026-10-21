@@ -37,10 +37,10 @@ describe('數值連動', () => {
     expect(s.range.waist[1]).toBeGreaterThan(s.values.waist);
   });
 
-  it('身高 160、體重 52 時腰圍 56 屬於少見', () => {
+  it('最細腰不拿肚臍腰資料冒充同量法的百分位，也不改掉手動值', () => {
     const r = rarity({ sex: 'female', locked: { height: 160, weight: 52, waist: 56 } });
-    const waist = r.find((x) => x.id === 'waist')!;
-    expect(waist.percentile).toBeLessThan(0.05);
+    expect(r.find(x => x.id === 'waist')).toBeUndefined();
+    expect(suggest({ sex: 'female', locked: { height: 160, weight: 52, waist: 56 } }).values.waist).toBe(56);
   });
 });
 

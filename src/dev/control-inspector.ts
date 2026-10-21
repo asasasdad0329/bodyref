@@ -6,6 +6,7 @@ import { bodyInputFor } from '../body/goals';
 import { suggest } from '../core/linkage';
 import { DEFAULT_MORPHOLOGY } from '../core/morphology';
 import { Viewer } from '../view/viewer';
+import { SOFT_KEYS, type SoftKey } from '../body/mh/rings';
 
 // 獨立維護頁；不載入一般產品流程、不儲存使用者數據。
 const host = document.getElementById('inspection')!;
@@ -17,6 +18,7 @@ host.innerHTML = `<div id="inspection-stage" style="position:relative"></div><as
 <p><label>體脂 % <input id="inspect-fat" type="number" min="5" max="55" value="26"></label></p>
 <button id="inspect-solve">實際數值求解</button>
 <p><label>控制 <select id="inspect-control"></select></label></p>
+<p><label>隔離：停用 <select id="inspect-disable"><option value="">無</option></select></label></p>
 <p><label>單控制 cm <input id="inspect-amount" type="range" min="-1" max="3" value="0" step="0.1"></label></p>
 <p><label><input id="inspect-heat" type="checkbox" checked>權重熱圖</label></p>
 <p><label>光向 <input id="inspect-light" type="range" min="-3.14" max="3.14" value="0" step="0.2"></label></p>
@@ -29,6 +31,8 @@ const engine = new BodyEngine(asset);
 viewer.setTopology(asset);
 viewer.setDisplay({ lineStyle: 'none', outline: false, measures: false });
 const control = get<HTMLSelectElement>('inspect-control');
+const disable = get<HTMLSelectElement>('inspect-disable');
+for (const key of SOFT_KEYS) disable.append(new Option(key, key));
 let current: ReturnType<BodyEngine['run']>;
 let bindings: ReturnType<BodyEngine['rings']['inspectControls']>;
 const condition = { morphology: { ...DEFAULT_MORPHOLOGY }, bodyFat: 0.26, muscle: 0 };
@@ -46,7 +50,7 @@ function solve() {
 }
 function draw() {
   const c = bindings.surface.find(c => c.id === control.value)!;
-  const positions = current.positions.slice();
+  const positions = disable.value ? engine.model.display(engine.rings.inspectSolved([disable.value as SoftKey]), 16, false).P.slice(0, asset.nBody * 3) : current.positions.slice();
   const amount = Number(get<HTMLInputElement>('inspect-amount').value);
   for (let i = 0; i < positions.length; i++) positions[i] += c.displacement[i] * amount;
   viewer.setShape({ ...current, positions }, current.values);
@@ -69,6 +73,7 @@ function draw() {
 }
 get('inspect-solve').addEventListener('click', solve);
 control.addEventListener('change', draw);
+disable.addEventListener('change', draw);
 get('inspect-amount').addEventListener('input', draw);
 get('inspect-heat').addEventListener('change', draw);
 get('inspect-light').addEventListener('input', () => viewer.setLightOffset(Number(get<HTMLInputElement>('inspect-light').value)));

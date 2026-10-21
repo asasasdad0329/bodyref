@@ -1,0 +1,28 @@
+name: Shape evidence
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui -- "$RUNNER_TEMP/bodyref-evidence/ui"
+      - run: npm run test:body-report -- "$RUNNER_TEMP/bodyref-evidence/numeric.json" T1 T2 T3 T4 T5-105 T5-125 T6 H94 H104 H114 H124 H130 HT94 HT104 HT114 HT124 HT130 FC18 FC35 MC18 MC35
+      - run: npm run test:shape-report -- "$RUNNER_TEMP/bodyref-evidence/images" T1 T3 T4 T5-125 T6 H94 H130 FC18 FC35 MC18 MC35
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bodyref-shape-evidence
+          path: ${{ runner.temp }}/bodyref-evidence

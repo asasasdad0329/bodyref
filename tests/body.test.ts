@@ -8,7 +8,8 @@ import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
-import { BODY_CASES } from './fixtures/bodyCases';
+import { BODY_CASES, H104_THIGH } from './fixtures/bodyCases';
+import { DEFAULT_MORPHOLOGY, type Morphology } from '../src/core/morphology';
 
 let engine: BodyEngine;
 
@@ -17,11 +18,54 @@ beforeAll(() => {
   engine = new BodyEngine(parseBodyAsset(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)));
 });
 
-function run(sex: Sex, locked: Record<string, number>, cup: string | null = null): EngineOutput {
+function run(sex: Sex, locked: Record<string, number>, cup: string | null = null, options: { morphology?: Morphology; muscleMass?: number } = {}): EngineOutput {
   const bustDiff = cup ? cupDiff(cup)! : null;
   const sug = suggest({ sex, locked, bustDiff });
-  return engine.run({ ...bodyInputFor({ sex, sug, bustDiff }), armAngle: 16 });
+  return engine.run({ ...bodyInputFor({ sex, sug, bustDiff, ...options }), armAngle: 16 });
 }
+
+function expectHard(out: EngineOutput) {
+  for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
+  expect(Object.values(out.tissues).every(x => Number.isFinite(x) && x >= 0)).toBe(true);
+  expect(out.tissues.fat + out.tissues.muscle + out.tissues.otherLean).toBeCloseTo(out.weight, 8);
+  expect((out.tissues.fat / 0.9 + (out.tissues.muscle + out.tissues.otherLean) / 1.06) * 1000).toBeCloseTo(out.volume, 4);
+}
+
+describe('共同形狀控制與組成', () => {
+  for (const breast of ['teardrop', 'long', 'round'] as const) for (const bust of [85, 90, 95, 100]) {
+    it(`${breast}：E${bust} 的四組腰臀都符合，含小胸廓`, () => {
+      for (const waist of [56, 64]) for (const hip of [104, 114]) expectHard(run('female', { height: 160, bust, underbust: bust - 20, waist, hip }, null,
+        { morphology: { ...DEFAULT_MORPHOLOGY, breast } }));
+    }, 15000);
+  }
+  for (const hip of [94, 104, 114, 124, 130]) it(`H${hip}：固定原版 H104 大腿，連接仍對準`, () => {
+    expectHard(run('female', { height: 165, bust: 97, underbust: 76, waist: 68, hip, thigh: H104_THIGH }));
+  });
+  for (const sex of ['female', 'male'] as const) it(`${sex}：同尺寸的肌脂交換與獨立肌肉量`, () => {
+    const locked: Record<string, number> = sex === 'female' ? { height: 165, weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104 }
+      : { height: 175, weight: 80, bust: 105, waist: 85, hip: 100 };
+    const low = run(sex, { ...locked, bodyFat: 0.25 }, null, { muscleMass: sex === 'female' ? 20 : 26 });
+    const high = run(sex, { ...locked, bodyFat: 0.25 }, null, { muscleMass: sex === 'female' ? 28 : 36 });
+    expectHard(low); expectHard(high);
+    expect(Math.max(...high.positions.map((v, i) => Math.abs(v - low.positions[i])))).toBeGreaterThan(0.3);
+    expect(high.tissues.muscle - low.tissues.muscle).toBeGreaterThan(7.5);
+  }, 15000);
+  for (const sex of ['female', 'male'] as const) it(`${sex}：臀腹型可獨立選擇並守住尺寸與體重`, () => {
+    const locked: Record<string, number> = sex === 'female' ? { height: 165, weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104, thigh: 56 }
+      : { height: 175, weight: 80, bust: 105, waist: 85, hip: 100, thigh: 58 };
+    const a = run(sex, locked);
+    const b = run(sex, locked, null, { morphology: { breast: 'round', hip: 'projected', abdomen: 'smooth' } });
+    expectHard(a); expectHard(b);
+    expect(Math.max(...b.positions.map((v, i) => Math.abs(v - a.positions[i])))).toBeGreaterThan(0.15);
+  }, 15000);
+  it('肌肉大於已鎖去脂量時明列輸入衝突，沒有默改鎖定值', () => {
+    const out = run('female', { height: 160, weight: 50, bodyFat: 0.3 }, null, { muscleMass: 40 });
+    expect(out.diagnostics.some(d => d.kind === 'input-conflict')).toBe(true);
+    const muscle = out.residual.find(r => r.goal.kind === 'muscleMass')!;
+    expect(muscle.goal.value).toBe(40);
+    expect(out.positions.every(Number.isFinite)).toBe(true);
+  });
+});
 
 describe('人體網格', () => {
   const cases: [string, Sex, Record<string, number>, string | null][] = [

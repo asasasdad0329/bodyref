@@ -12,13 +12,14 @@ import { type SceneColors, readSceneColors } from './theme';
 // 3D 檢視器：以模型為中心旋轉（左鍵）、平移（右鍵）、滾輪縮放；
 // 提供正面／側面／背面等固定視角，並能輸出截圖與正交三視圖。
 
-export type ViewName = 'front' | 'quarter' | 'side' | 'back';
+export type ViewName = 'front' | 'quarter' | 'side' | 'rearQuarter' | 'back';
 
 const VIEW_ANGLES: Record<ViewName, { azimuth: number; elevation: number }> = {
   front: { azimuth: 0, elevation: 0.04 },
   quarter: { azimuth: Math.PI / 4.5, elevation: 0.12 },
   side: { azimuth: Math.PI / 2, elevation: 0.04 },
   back: { azimuth: Math.PI, elevation: 0.04 },
+  rearQuarter: { azimuth: Math.PI - Math.PI / 4.5, elevation: 0.12 },
 };
 
 const FOV = 28;
@@ -191,6 +192,8 @@ export class Viewer {
     const ratio = this.renderer.getPixelRatio();
     this.renderer.setPixelRatio(scale);
     this.setLineResolution(size.x * scale, size.y * scale);
+    const azimuth = Math.atan2(this.camera.position.x - this.controls.target.x, this.camera.position.z - this.controls.target.z);
+    this.placeLights(azimuth); this.placeRuler(azimuth);
     const url = this.withCleanOutput(clean, () => {
       this.renderer.render(this.scene, this.camera);
       return this.renderer.domElement.toDataURL('image/png');

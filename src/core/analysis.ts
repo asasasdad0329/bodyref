@@ -107,7 +107,7 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
   const v = resolveValues(sug, out);
   const female = state.sex === 'female';
   const H = v.height;
-  const bmi = v.weight / (H / 100) ** 2;
+  const bmi = out.weight / (H / 100) ** 2;
   const checks: Check[] = [];
   const add = (level: CheckLevel, text: string) => checks.push({ level, text });
 
@@ -155,23 +155,23 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
   if (!female && v.bodyFat < 0.06) add('rare', `體脂 ${f1(v.bodyFat * 100)}% 已接近男性的必需脂肪下限（約 2–5%）。`);
 
   for (const d of out.diagnostics) add(d.kind === 'input-conflict' ? 'conflict' : 'info', d.message);
-  const leanMass = v.weight * (1 - v.bodyFat);
+  const leanMass = out.weight * (1 - out.bodyFat);
   return {
     bmi,
     bmiLabel: bmiLabel(bmi),
-    weight: v.weight,
+    weight: out.weight,
     weightLocked: sug.locked.weight,
-    bodyFat: v.bodyFat,
+    bodyFat: out.bodyFat,
     bodyFatLocked: sug.locked.bodyFat,
     leanMass,
     muscleRate: out.tissues.muscle / out.weight,
     muscleMass: out.tissues.muscle,
     otherLean: out.tissues.otherLean,
-    braSize: female ? braSize(v.bust, v.underbust) : null,
-    whr: v.waist / v.hip,
+    braSize: female ? braSize(out.values.bust, out.values.underbust) : null,
+    whr: out.values.waist / out.values.hip,
     inseam: out.marks.crotchY,
     modelHeight: out.marks.topY,
-    shape: bodyShapeType(v.bust, v.waist, v.hip, state.sex),
+    shape: bodyShapeType(out.values.bust, out.values.waist, out.values.hip, state.sex),
     checks,
     rarity: rar,
     values: v,

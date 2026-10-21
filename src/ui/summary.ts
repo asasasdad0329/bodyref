@@ -32,7 +32,7 @@ export function renderSummary(root: HTMLElement, state: AppState, s: Summary): v
     <section class="reality" aria-label="現實檢核">
       <h3 class="reality-title">現實檢核</h3>
       ${checks}
-      <p class="reality-note">比較對象：ANSUR II 成年人實測資料（約 6,000 人），換算到台灣年輕成人的平均體型。</p>
+      <p class="reality-note">上臂參考 NHANES，其他可比較尺寸參考 ANSUR II。組成為模型估計；量法不同的項目不列百分位。</p>
     </section>`;
 }
 

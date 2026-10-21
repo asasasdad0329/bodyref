@@ -1,6 +1,6 @@
 import type { Sex } from '../../core/measurements';
 import { DEFAULT_MORPHOLOGY, type Morphology } from '../../core/morphology';
-import type { BodyAsset } from './asset';
+import { type BodyAsset, addTarget } from './asset';
 import type { Measured } from './measure';
 import type { Soft, SoftKey } from './rings';
 import { type V3, centroid } from './geometry';
@@ -45,6 +45,7 @@ interface Band {
   side?: -1 | 1;
   gain?: number;
   part?: 'upper' | 'rear' | 'lower';
+  taper?: number;
 }
 
 /**
@@ -83,9 +84,13 @@ export class SurfaceRig {
       angle: Math.PI / 2 + (female ? 0.18 : 0.38), width: female ? 0.98 + 0.12 * spread : 1.02,
       drop: female ? 0.035 : 0.015, gain: projected ? 0.75 : 1 });
     bands.push({ id: 'abdomen-front', key: 'belly',
-      y: marks.crotchY + (female ? (softBelly ? 0.34 : 0.47) : (softBelly ? 0.56 : 0.64)) * L,
-      up: (female ? 0.5 + 0.09 * fat : 0.65) * L, down: (female ? 0.42 : 0.68) * L,
-      angle: 0, width: (female ? 1.35 : 1.65) + 0.14 * fat, drop: softBelly ? 0.08 + 0.08 * fat : 0.02 });
+      y: marks.crotchY + (female ? (softBelly ? 0.34 : 0.47) : (softBelly ? 0.6 : 0.64)) * L,
+      up: (female ? 0.5 + 0.09 * fat : 0.62) * L, down: (female ? 0.42 : 0.65) * L,
+      angle: 0, width: (female ? 1.35 : 1.65) + 0.14 * fat, drop: softBelly ? (female ? 0.08 + 0.08 * fat : 0.2) : 0.02,
+      taper: female ? 0.3 : 0.3 });
+    bands.push({ id: 'lower-abdominal-cover', key: 'lowerAbdomen',
+      y: marks.crotchY + (female ? 0.3 : 0.38) * L, up: 0.5 * L, down: 0.45 * L,
+      angle: 0, width: female ? 1.45 : 1.65, drop: 0.06 + 0.08 * fat });
     addPair({ id: 'waist-side', key: 'flank', y: marks.waistY - (female ? 0.025 : -0.025) * L,
       up: (female ? 0.48 : 0.57) * L, down: (female ? 0.46 : 0.48) * L,
       angle: Math.PI / 2 + (female ? 0.22 : 0.4), width: 1.08 + 0.12 * fat, drop: 0.04 });
@@ -97,15 +102,9 @@ export class SurfaceRig {
     if (!female) bands.push({ id: 'pectoral-cover', key: 'chest', y: marks.bustY - 0.045 * H,
       up: 0.72 * H, down: (0.62 + 0.18 * fat) * H, angle: 0, width: 1.4, drop: 0.06 * fat });
     // 軀幹肌腹包含胸肩、背與臀上，與脂肪覆蓋的附著與位置不同。
-    bands.push({ id: 'pectoral-muscle', key: 'trunkMuscle', y: marks.bustY + 0.12 * H,
-      up: 0.64 * H, down: 0.52 * H, angle: 0, width: female ? 1.7 : 1.85, drop: 0, gain: female ? 0.36 : 0.95 });
-    addPair({ id: 'latissimus', key: 'trunkMuscle', y: marks.underbustY + 0.15 * H,
-      up: 0.75 * H, down: 0.8 * L, angle: Math.PI / 2 + 0.52, width: 0.94, drop: 0, gain: 0.85 });
-    addPair({ id: 'glute-muscle', key: 'trunkMuscle', y: marks.hipY + (female ? 0.045 : 0.1) * L,
-      up: 0.43 * L, down: (female ? 0.39 : 0.3) * L, angle: Math.PI - 0.55,
-      width: female ? 0.84 : 1.02, drop: 0, gain: 0.65 + 0.1 * muscular });
 
     const regionSet = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR'].map(r => a.regions.indexOf(r)));
+    if (!female) for (const name of ['breastL', 'breastR']) regionSet.add(a.regions.indexOf(name));
     for (const band of bands) {
       const w = new Float32Array(n);
       const allowed = new Uint8Array(n);
@@ -117,12 +116,13 @@ export class SurfaceRig {
         if (Math.abs(u) >= 1) continue;
         const theta = Math.atan2(x, z - torsoZ(y));
         const angle = Math.abs(Math.atan2(Math.sin(theta - band.angle), Math.cos(theta - band.angle)));
-        if (angle >= band.width) continue;
+        const width = band.width * (1 - (band.taper ?? 0) * ease(0, 1, -u));
+        if (angle >= width) continue;
         allowed[i] = 1;
-        const v = angle / band.width;
+        const v = angle / width;
         const radial = Math.max(0, 1 - u * u - v * v) ** 2;
         const tensor = (1 - u * u) ** 2 * (1 - v * v) ** 2;
-        const blend = band.key === 'buttock' || band.key === 'hipSide' ? 0.25 + 0.75 * spread : 0.4;
+        const blend = band.key === 'buttock' || band.key === 'hipSide' ? 0.25 + 0.75 * spread : band.key === 'belly' || band.key === 'lowerAbdomen' ? 0 : 0.4;
         let weight = radial * (1 - blend) + tensor * blend;
         // 同一後臀支撐分成三段，分割和為一，不把三份體積重複相加。
         if (band.part) {
@@ -133,6 +133,7 @@ export class SurfaceRig {
         }
         // 骶尾正中漸變附著；不挖低兩側來製造中線。
         if (band.key === 'buttock') weight *= ease(0, 2.8, Math.abs(x));
+        if (band.key === 'lowerAbdomen') weight *= 1 - ease(marks.waistY - 0.23 * L, marks.waistY - 0.02 * L, y);
         w[i] = weight * bodyWeight[i];
       }
       const tmp = new Float32Array(n);
@@ -148,12 +149,9 @@ export class SurfaceRig {
       const field = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) {
         const gain = (band.gain ?? 1) * w[i];
-        const chest = !female && (band.key === 'chest' || band.id === 'pectoral-muscle');
-        // 前胸在胸廓局部軸上增厚，避免把乳頭附近原始法線起伏放大成兩顆乳峰。
-        field[i * 3] = gain * normals[i * 3] * (chest ? 0.2 : 1);
-        field[i * 3 + 1] = gain * (chest ? -band.drop * w[i] : normals[i * 3 + 1] - band.drop * w[i]);
-        field[i * 3 + 2] = gain * (chest ? 1 : normals[i * 3 + 2]);
+        for (let k = 0; k < 3; k++) field[i * 3 + k] = gain * (normals[i * 3 + k] - (k === 1 ? band.drop * w[i] : 0));
       }
+      if (band.key === 'belly' || band.key === 'lowerAbdomen' || band.key === 'chest') smoothDisplacement(field, adj, 8);
       const side = band.side ?? 1;
       const radius = L * 0.3;
       this.controls.push({ id: band.id, parent: band.key === 'upperBack' || band.key === 'chest' || band.id === 'pectoral-muscle' ? 'ribcage' : 'pelvis',
@@ -165,12 +163,51 @@ export class SurfaceRig {
       this.fields.set(band.key, sum);
     }
     const general = new Float32Array(n * 3), other = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) {
-      general[i * 3 + k] = normals[i * 3 + k] * generalWeight[i];
-      other[i * 3 + k] = normals[i * 3 + k] * (0.65 * torsoWeight[i] + 0.35 * generalWeight[i]);
+    for (let i = 0; i < n; i++) {
+      const y = B[i * 3 + 1], z = B[i * 3 + 2] - torsoZ(y);
+      const chest = !female ? ease(marks.underbustY - 0.15 * H, marks.underbustY + 0.1 * H, y)
+        * (1 - ease(marks.bustY + 0.5 * H, marks.bustY + 0.95 * H, y)) * ease(0, 5, z) * torsoWeight[i] : 0;
+      for (let k = 0; k < 3; k++) {
+        const direction = normals[i * 3 + k] * (1 - chest) + (k === 2 ? chest : k === 0 ? 0.2 * chest * normals[i * 3] : 0);
+        const armRegion = ['upperarmL', 'upperarmR'].some(r => a.region[i] === a.regions.indexOf(r));
+        general[i * 3 + k] = direction * generalWeight[i] * (female && armRegion ? 0.8 : 1);
+        other[i * 3 + k] = direction * (0.65 * torsoWeight[i] + 0.35 * generalWeight[i]);
+      }
     }
     this.fields.set('general', general);
     this.fields.set('otherLean', other);
+    // CC0 原生肌肉校正保留胸大肌、背部及臀肌的整體曲面關係，
+    // 以拓撲分區承接體量；不把去脂量堆成胸前的獨立圓頂。
+    const native = new Float32Array(B.length);
+    addTarget(a, `universal-${sex}-young-maxmuscle-averageweight`, 1, native);
+    let minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < n; i++) { minY = Math.min(minY, a.base[i * 3 + 1]); maxY = Math.max(maxY, a.base[i * 3 + 1]); }
+    const scale = (marks.topY - marks.soleY) / (maxY - minY);
+    const nativeField = new Float32Array(n * 3);
+    for (const zone of ['pectoral-muscle', 'back-muscle', 'glute-muscle'] as const) {
+      const weights = new Float32Array(n), field = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const y = B[i * 3 + 1], z = B[i * 3 + 2] - torsoZ(y);
+        const pelvis = 1 - ease(marks.hipY + 0.1 * L, marks.waistY, y);
+        const front = ease(-2, 3, z);
+        const partition = zone === 'glute-muscle' ? pelvis : (1 - pelvis) * (zone === 'pectoral-muscle' ? front : 1 - front);
+        weights[i] = partition * Math.max(torsoWeight[i], bodyWeight[i] * (1 - ease(marks.crotchY - 0.2 * L, marks.crotchY, y)) * pelvis);
+        const j = i * 3, length = Math.hypot(normals[j], normals[j + 1], normals[j + 2]) || 1;
+        const normal = [normals[j] / length, normals[j + 1] / length, normals[j + 2] / length];
+        const projection = native[j] * normal[0] + native[j + 1] * normal[1] + native[j + 2] * normal[2];
+        for (let k = 0; k < 3; k++) {
+          // 原生 maxmuscle 同時含去脂收束，不能把其淨減少體積當「負的肌肉密度」。
+          // 肌肉量控制只取向外肌腹及少量切向展開，減脂由脂肪帳另行負責。
+          field[j + k] = (Math.max(0.05, projection) * normal[k] + 0.15 * (native[j + k] - projection * normal[k])) * weights[i] * scale;
+          nativeField[i * 3 + k] += field[i * 3 + k];
+        }
+      }
+      this.controls.push({ id: zone, parent: zone === 'glute-muscle' ? 'pelvis' : 'ribcage',
+        origin: [0, zone === 'glute-muscle' ? marks.hipY : marks.bustY, torsoZ(marks.bustY)],
+        axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], tissue: 'trunkMuscle', range: [-0.6, 1.8], weights,
+        displacement: field, boundary: 'CC0 原生肌肉支撐、軀幹／腿根拓撲權重及共享分區' });
+    }
+    this.fields.set('trunkMuscle', nativeField);
   }
 
   apply(out: Float32Array, soft: Soft): void {
@@ -179,5 +216,18 @@ export class SurfaceRig {
       if (!amount) continue;
       for (let i = 0; i < field.length; i++) out[i] += field[i] * amount;
     }
+  }
+}
+
+/** 載入時建立連續的向量權重，避免不同方向的控制在交界形成梯級。 */
+function smoothDisplacement(field: Float32Array, adj: number[][], passes: number): void {
+  const tmp = new Float32Array(field.length);
+  for (let pass = 0; pass < passes; pass++) {
+    for (let i = 0; i < adj.length; i++) for (let k = 0; k < 3; k++) {
+      let sum = field[i * 3 + k];
+      for (const j of adj[i]) sum += field[j * 3 + k];
+      tmp[i * 3 + k] = sum / (adj[i].length + 1);
+    }
+    field.set(tmp);
   }
 }

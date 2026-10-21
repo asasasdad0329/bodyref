@@ -1,6 +1,7 @@
 import type { MeasureId, Sex } from './measurements';
 import { REFERENCE } from './reference';
 import stats from './statsModel.json';
+import { nhanesPreference } from './nhanes';
 
 // 數值連動：把全身數據視為一個多變量常態分佈（長度與重量取對數），
 // 使用者鎖定的數值當作已知條件，其餘項目取條件期望值作為「建議值」，並附上常見範圍。
@@ -48,7 +49,13 @@ function referenceMean(sex: Sex): Float64Array {
 }
 
 function covariance(sex: Sex): number[][] {
-  return stats[sex].cov;
+  const out = stats[sex].cov.map(r => [...r]);
+  // ANSUR 骨點肩寬不轉稱服裝肩寬；後者先採身高縮放的工程參照。
+  // 固定身高後，手動服裝肩寬不再以錯誤來源共變異改變其他圍度。
+  const s = IDX.shoulder, h = IDX.height;
+  for (let i = 0; i < out.length; i++) if (i !== s) out[s][i] = out[i][s] = out[h][i];
+  out[s][s] = out[h][h] + 0.04 ** 2;
+  return out;
 }
 
 /** 解線性方程組 A x = b（A 對稱正定、維度小），用部分選主元的高斯消去法 */
@@ -115,7 +122,8 @@ export function suggest(inp: LinkageInput): Suggestion {
   const base: Observation[] = [];
   for (const id of VARS) {
     const v = inp.locked[id];
-    if (v !== undefined) base.push({ h: unit(IDX[id]), y: toZ(IDX[id], v) });
+    // 放鬆上臂、最細腰不作屈臂上臂、肚臍腰的實測觀察；手動值仍完整保留。
+    if (v !== undefined && id !== 'upperArm' && id !== 'waist') base.push({ h: unit(IDX[id]), y: toZ(IDX[id], v) });
   }
   const useDiff = inp.bustDiff != null && !(inp.locked.bust !== undefined && inp.locked.underbust !== undefined);
   let post = condition(mu, S, base);
@@ -145,6 +153,11 @@ export function suggest(inp: LinkageInput): Suggestion {
     if (locked.bust) values.underbust = values.bust - inp.bustDiff!;
     else values.bust = values.underbust + inp.bustDiff!;
   }
+  if (!locked.upperArm) {
+    const arm = nhanesPreference(inp.sex, values.height, values.weight, values.bodyFat);
+    values.upperArm = arm.arm;
+    range.upperArm = [arm.arm * Math.exp(-Z90 * arm.scale), arm.arm * Math.exp(Z90 * arm.scale)];
+  }
   return { values, range, locked };
 }
 
@@ -171,9 +184,15 @@ export function rarity(inp: LinkageInput): Rarity[] {
   const S = covariance(inp.sex);
   const ids = VARS.filter((id) => inp.locked[id] !== undefined);
   return ids
-    .filter((id) => id !== 'height')
+    .filter((id) => !['height', 'waist', 'shoulder', 'bodyFat'].includes(id))
     .map((id) => {
-      const others: Observation[] = ids.filter((o) => o !== id).map((o) => ({ h: unit(IDX[o]), y: toZ(IDX[o], inp.locked[o]!) }));
+      if (id === 'upperArm') {
+        const otherLocked = { ...inp.locked }; delete otherLocked.upperArm;
+        const v = suggest({ ...inp, locked: otherLocked }).values;
+        const arm = nhanesPreference(inp.sex, v.height, v.weight, v.bodyFat);
+        return { id, percentile: phi(Math.log(inp.locked.upperArm! / arm.arm) / arm.scale) };
+      }
+      const others: Observation[] = ids.filter((o) => o !== id && o !== 'waist' && o !== 'upperArm').map((o) => ({ h: unit(IDX[o]), y: toZ(IDX[o], inp.locked[o]!) }));
       const post = condition(mu, S, others);
       const i = IDX[id];
       const z = (toZ(i, inp.locked[id]!) - post.mean[i]) / Math.sqrt(post.variance[i] || 1e-12);

@@ -55,6 +55,7 @@ const client = new BodyClient<Tag>(
     const sugShown = { ...tag.sug, values: summary.values };
     shown = { state: tag.state, sug: sugShown };
     viewer.setShape(out, summary.values);
+    document.getElementById('stage')!.dataset.shapeKey = tag.key;
     renderSummary(summaryEl, tag.state, summary);
     if (tag.key === requestedKey) renderPanel(sugShown);
     statusEl.hidden = true;
