@@ -15,8 +15,11 @@ interface BreastBinding {
 /** 在 CC0 原曲面上綁定的根部、上極、下極與展開控制，不另生成半球或乳頭圓頂。 */
 export class BreastRig {
   readonly bindings: BreastBinding[] = [];
+  readonly support: Uint32Array;
   private readonly average: Float32Array;
   private readonly maximum: Float32Array;
+  private readonly firmAverage: Float32Array;
+  private readonly firmMaximum: Float32Array;
   private readonly nativeIndices: Uint32Array;
   private readonly adjacency: number[][];
 
@@ -25,8 +28,12 @@ export class BreastRig {
     const minimum = new Float32Array(a.nBody * 3);
     this.average = new Float32Array(a.nBody * 3);
     this.maximum = new Float32Array(a.nBody * 3);
+    this.firmAverage = new Float32Array(a.nBody * 3);
+    this.firmMaximum = new Float32Array(a.nBody * 3);
     const minTarget = a.targets.get('female-young-averagemuscle-averageweight-mincup-averagefirmness')!;
     const maxTarget = a.targets.get('female-young-averagemuscle-averageweight-maxcup-averagefirmness')!;
+    const firmAverage = a.targets.get('female-young-averagemuscle-averageweight-averagecup-maxfirmness')!;
+    const firmMaximum = a.targets.get('female-young-averagemuscle-averageweight-maxcup-maxfirmness')!;
     for (const [target, out] of [[minTarget, minimum], [maxTarget, this.maximum]] as const) {
       for (let k = 0; k < target.indices.length; k++) {
         const i = target.indices[k];
@@ -34,6 +41,13 @@ export class BreastRig {
         for (let d = 0; d < 3; d++) out[i * 3 + d] = target.deltas[k * 3 + d] * a.deltaStep;
       }
     }
+    for (const [target, out] of [[firmAverage, this.firmAverage], [firmMaximum, this.firmMaximum]] as const) {
+      for (let k = 0; k < target.indices.length; k++) {
+        const i = target.indices[k];
+        if (i < a.nBody) for (let d = 0; d < 3; d++) out[i * 3 + d] = target.deltas[k * 3 + d] * a.deltaStep;
+      }
+    }
+    for (let i = 0; i < minimum.length; i++) this.firmMaximum[i] -= this.maximum[i];
     for (let i = 0; i < minimum.length; i++) { this.average[i] = -minimum[i]; this.maximum[i] -= minimum[i]; }
     let rawLo = Infinity, rawHi = -Infinity, lo = Infinity, hi = -Infinity;
     for (let i = 0; i < a.nBody; i++) {
@@ -41,8 +55,8 @@ export class BreastRig {
       lo = Math.min(lo, B[i * 3 + 1]); hi = Math.max(hi, B[i * 3 + 1]);
     }
     const scale = (hi - lo) / (rawHi - rawLo);
-    for (let i = 0; i < minimum.length; i++) { this.average[i] *= scale; this.maximum[i] *= scale; }
-    this.nativeIndices = Uint32Array.from(new Set([...minTarget.indices, ...maxTarget.indices])).filter(i => i < a.nBody);
+    for (let i = 0; i < minimum.length; i++) { this.average[i] *= scale; this.maximum[i] *= scale; this.firmAverage[i] *= scale; this.firmMaximum[i] *= scale; }
+    this.nativeIndices = Uint32Array.from(new Set([...minTarget.indices, ...maxTarget.indices, ...firmAverage.indices, ...firmMaximum.indices])).filter(i => i < a.nBody);
     for (const side of ['L', 'R'] as const) {
       const region = a.regions.indexOf(`breast${side}`);
       const original = Uint32Array.from({ length: a.nBody }, (_, i) => i).filter(i => a.region[i] === region);
@@ -90,20 +104,23 @@ export class BreastRig {
       const apexY = B[a.landmarks[`bustApex${side}`] * 3 + 1];
       this.bindings.push({ indices: Uint32Array.from(queue), weights, rim: originalRim, root, depth, apexY });
     }
+    this.support = Uint32Array.from(new Set([...this.nativeIndices, ...this.bindings.flatMap(b => [...b.indices])]));
   }
 
   apply(out: Float32Array, amount: number, shape: Morphology['breast']): void {
     const native = Math.max(0, Math.min(2, amount));
+    const firmness = shape === 'long' ? 0.25 : shape === 'round' ? 0.8 : 0.55;
     // 原生小／中／大杯曲面沿共同控制插值。底座和上胸過渡來自完整原始目標。
     for (const i of this.nativeIndices) for (let k = 0; k < 3; k++) {
       const d = i * 3 + k;
       out[d] += native <= 1 ? this.average[d] * native : this.average[d] * (2 - native) + this.maximum[d] * (native - 1);
+      out[d] += firmness * (native <= 1 ? this.firmAverage[d] * native : this.firmAverage[d] * (2 - native) + this.firmMaximum[d] * (native - 1));
     }
     const extra = Math.max(0, amount - 2);
     const scale = Math.exp(extra * 0.42);
     const growth = scale - 1;
     const breadth = Math.exp(extra * 0.27);
-    const height = Math.exp(extra * 0.24) * (shape === 'long' ? 1.16 : shape === 'round' ? 0.96 : 1);
+    const height = Math.exp(extra * 0.14) * (shape === 'long' ? 1.16 : shape === 'round' ? 0.96 : 1);
     for (const b of this.bindings) {
       const root: V3 = [0, 0, 0];
       for (const i of b.rim) for (let k = 0; k < 3; k++) root[k] += out[i * 3 + k] / b.rim.length;
@@ -131,7 +148,9 @@ export class BreastRig {
         // 內側靠胸骨的空間有限，主要展開在外側及下極；左右不互相穿越。
         const medial = widening * side < 0 ? 0.08 : 1;
         out[i * 3] += w * widening * medial;
-        out[i * 3 + 1] += w * ((dy - radius * 0.4) * (height - 1) - depth * (drop + 0.1 * Math.max(0, growth)) * (0.35 + 0.65 * lower));
+        // 大小擴展主要放在自由下極，上方附著不能隨倍率升到鎖骨。
+        const lowerExtension = 1 - ease(-radius * 0.5, radius * 0.35, dy);
+        out[i * 3 + 1] += w * ((dy - radius * 0.4) * (height - 1) * lowerExtension - depth * (drop + 0.055 * Math.max(0, growth)) * (0.35 + 0.65 * lower));
         out[i * 3 + 2] += w * projection;
       }
       // 原始杯型在下極的少數拓撲面會在放大後形成曲率尖峰。

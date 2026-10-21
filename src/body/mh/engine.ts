@@ -61,7 +61,7 @@ export class BodyEngine {
   readonly rings: RingBody;
   private readonly guides: GuideBuilder;
   readonly head: HeadParts;
-  private fitted: { key: string; result: ReturnType<RingBody['fitComposition']> } | null = null;
+  private fitted: { key: string; result: ReturnType<RingBody['fitComposition']>; approximate: boolean } | null = null;
 
   constructor(readonly asset: BodyAsset) {
     this.model = new BodyModel(asset);
@@ -82,11 +82,25 @@ export class BodyEngine {
     }
     const { armAngle: _angle, ...shapeInput } = input;
     const key = JSON.stringify(shapeInput);
-    if (this.fitted?.key !== key) this.fitted = { key, result: this.rings.fitComposition(solveInput, { neutralize: true }) };
+    if (this.fitted?.key !== key) {
+      let result = this.rings.fitComposition(solveInput, { neutralize: true });
+      let approximate = false;
+      const sizeError = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
+        .filter(x => x.goal.kind === 'measure' || x.goal.kind === 'diff').reduce((sum, x) => sum + x.error ** 2, 0);
+      if (!diagnostics.length && input.weightLocked && Object.keys(input.locked).length >= 2 && sizeError(result) > 0.25) {
+        // 超約束時保留明確尺寸的近似解，不能為湊體重把指定臀腿推大。
+        // 原輸入仍用於殘差與診斷，沒有把放寬的重量冒充成功。
+        const candidate = this.rings.fitComposition({ ...solveInput, weightLocked: false, estimateReference: false }, { neutralize: true });
+        if (sizeError(candidate) < sizeError(result)) { result = candidate; approximate = true; }
+      }
+      this.fitted = { key, result, approximate };
+    }
     const res = this.fitted.result;
     const residual = [...residualOf(input, res.values, res.weight, res.bodyFat), ...(input.muscleMass === undefined ? [] : [{ goal: { kind: 'muscleMass' as const, value: input.muscleMass }, error: res.tissues.muscle - input.muscleMass }])];
     if (!diagnostics.length && (residual.some(r => Math.abs(r.error) > (r.goal.kind === 'bodyFat' ? 0.01 : 0.5)) || Object.values(res.tissues).some(x => x < 0))) {
-      diagnostics.push({ kind: 'unconverged', message: '目前控制尚未找到同時符合全部尺寸與組成的解；這是模型求解未達標，不能據此判定這個體型不可能。' });
+      diagnostics.push({ kind: 'unconverged', message: this.fitted.approximate
+        ? `目前控制未能同時符合鎖定尺寸與體重；顯示優先維持尺寸的近似解，實際體重 ${res.weight.toFixed(1)} kg。原體重目標仍保留，這不代表輸入在生理上不可能。`
+        : '目前控制尚未找到同時符合全部尺寸與組成的解；這是模型求解未達標，不能據此判定這個體型不可能。' });
     }
     const { P, armRotation } = this.model.display(res.P, input.armAngle, false);
     const a = this.asset;

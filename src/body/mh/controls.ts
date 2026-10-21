@@ -149,7 +149,11 @@ export class SurfaceRig {
       const field = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) {
         const gain = (band.gain ?? 1) * w[i];
-        for (let k = 0; k < 3; k++) field[i * 3 + k] = gain * (normals[i * 3 + k] - (k === 1 ? band.drop * w[i] : 0));
+        const x = B[i * 3], z = B[i * 3 + 2] - torsoZ(B[i * 3 + 1]);
+        const radius = Math.hypot(x, z) || 1;
+        // 骨盆覆蓋沿共同截面向外展開，不沿臀溝相向的法線推穿正中面。
+        const direction = band.key === 'buttock' || band.key === 'hipSide' ? [x / radius, 0, z / radius] : normals.subarray(i * 3, i * 3 + 3);
+        for (let k = 0; k < 3; k++) field[i * 3 + k] = gain * (direction[k] - (k === 1 ? band.drop * w[i] : 0));
       }
       if (band.key === 'belly' || band.key === 'lowerAbdomen' || band.key === 'chest') smoothDisplacement(field, adj, 8);
       const side = band.side ?? 1;
@@ -167,8 +171,11 @@ export class SurfaceRig {
       const y = B[i * 3 + 1], z = B[i * 3 + 2] - torsoZ(y);
       const chest = !female ? ease(marks.underbustY - 0.15 * H, marks.underbustY + 0.1 * H, y)
         * (1 - ease(marks.bustY + 0.5 * H, marks.bustY + 0.95 * H, y)) * ease(0, 5, z) * torsoWeight[i] : 0;
+      const radial = torsoWeight[i] * (1 - ease(marks.waistY, marks.underbustY, y));
+      const radius = Math.hypot(B[i * 3], z) || 1;
       for (let k = 0; k < 3; k++) {
-        const direction = normals[i * 3 + k] * (1 - chest) + (k === 2 ? chest : k === 0 ? 0.2 * chest * normals[i * 3] : 0);
+        const outward = normals[i * 3 + k] * (1 - radial) + (k === 0 ? B[i * 3] / radius : k === 2 ? z / radius : 0) * radial;
+        const direction = outward * (1 - chest) + (k === 2 ? chest : k === 0 ? 0.2 * chest * normals[i * 3] : 0);
         const armRegion = ['upperarmL', 'upperarmR'].some(r => a.region[i] === a.regions.indexOf(r));
         general[i * 3 + k] = direction * generalWeight[i] * (female && armRegion ? 0.8 : 1);
         other[i * 3 + k] = direction * (0.65 * torsoWeight[i] + 0.35 * generalWeight[i]);
@@ -191,7 +198,9 @@ export class SurfaceRig {
         const pelvis = 1 - ease(marks.hipY + 0.1 * L, marks.waistY, y);
         const front = ease(-2, 3, z);
         const partition = zone === 'glute-muscle' ? pelvis : (1 - pelvis) * (zone === 'pectoral-muscle' ? front : 1 - front);
-        weights[i] = partition * Math.max(torsoWeight[i], bodyWeight[i] * (1 - ease(marks.crotchY - 0.2 * L, marks.crotchY, y)) * pelvis);
+        const upperThigh = ease(marks.crotchY - 0.65 * L, marks.crotchY - 0.2 * L, y)
+          * (1 - ease(marks.crotchY, marks.crotchY + 0.3 * L, y));
+        weights[i] = partition * Math.max(torsoWeight[i], bodyWeight[i] * upperThigh * pelvis);
         const j = i * 3, length = Math.hypot(normals[j], normals[j + 1], normals[j + 2]) || 1;
         const normal = [normals[j] / length, normals[j + 1] / length, normals[j + 2] / length];
         const projection = native[j] * normal[0] + native[j + 1] * normal[1] + native[j + 2] * normal[2];

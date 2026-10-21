@@ -656,6 +656,13 @@ export class RingBody {
     const surfaceSoft = soft ?? { ...zeroSoft(), buttock: (male ? 14 : 26) * Math.max(-0.25, dH), hipSide: (male ? 4 : 9) * Math.max(-0.25, dH) };
     p.surfaceRig.apply(out, surfaceSoft);
 
+    // 內側軟組織可接近正中面，但左右表面不能交換位置。
+    // 指數壓縮保留連續斜率；體積與皮尺仍在此約束後重新量測。
+    for (let i = 0; i < n; i++) {
+      const x = B[i * 3];
+      if (Math.abs(x) > 1e-5 && out[i * 3] / x < 0.2) out[i * 3] = 0.2 * x * Math.exp(out[i * 3] / (0.2 * x) - 1);
+    }
+
     // ── 整隻手臂跟著肩關節處的軀幹平移（肩寬、胸廓變寬時手臂往外移）
     for (const [ax, set] of [[p.arms[0], p.armSets.L], [p.arms[1], p.armSets.R]] as const) {
       const t = torsoDisp(ax.S[0], ax.S[1], ax.S[2]);
@@ -668,11 +675,12 @@ export class RingBody {
     if (!male) {
       p.chestWall ??= new Float32Array(out.length);
       p.chestWall.set(out);
-      this.surface.finish(p.chestWall);
       p.breastRig.apply(out, q.breast, p.condition.morphology.breast);
+      this.surface.finishPair(p.chestWall, out, p.breastRig.support);
+    } else {
+      this.surface.finish(out);
     }
     // 任何改變輪廓的平滑都在求解與量測前完成；姿勢階段不再修改曲面。
-    this.surface.finish(out);
   }
 
   /** 每一圈各自調整（割線法），直到網格上量到的數值等於目標；四肢長度在圍度調好後再校正一次 */

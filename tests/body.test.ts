@@ -10,6 +10,7 @@ import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
 import { BODY_CASES, H104_THIGH } from './fixtures/bodyCases';
 import { DEFAULT_MORPHOLOGY, type Morphology } from '../src/core/morphology';
+import { BreastRig } from '../src/body/mh/breast';
 
 let engine: BodyEngine;
 
@@ -32,6 +33,20 @@ function expectHard(out: EngineOutput) {
 }
 
 describe('共同形狀控制與組成', () => {
+  it('局部差分平滑與兩份完整曲面一致', () => {
+    const m = engine.model, rig = new BreastRig(engine.asset, engine.asset.base, m.adj);
+    const base = new Float32Array(engine.asset.base), shaped = new Float32Array(base);
+    rig.apply(shaped, 3.5, 'long');
+    const expectedBase = new Float32Array(base), expectedShape = new Float32Array(shaped);
+    m.finish(expectedBase); m.finish(expectedShape);
+    m.finishPair(base, shaped, rig.support);
+    expect(Math.max(...base.map((v, i) => Math.abs(v - expectedBase[i])))).toBeLessThan(0.00003);
+    expect(Math.max(...shaped.map((v, i) => Math.abs(v - expectedShape[i])))).toBe(0);
+  });
+  for (const breast of ['teardrop', 'long', 'round'] as const) it(`${breast}：B／G／S 維持站姿胸圍差與總帳`, () => {
+    for (const cup of ['B', 'G', 'S']) expectHard(run('female', { height: 160, underbust: 70 }, cup,
+      { morphology: { ...DEFAULT_MORPHOLOGY, breast } }));
+  }, 15000);
   for (const breast of ['teardrop', 'long', 'round'] as const) for (const bust of [85, 90, 95, 100]) {
     it(`${breast}：E${bust} 的四組腰臀都符合，含小胸廓`, () => {
       for (const waist of [56, 64]) for (const hip of [104, 114]) expectHard(run('female', { height: 160, bust, underbust: bust - 20, waist, hip }, null,
@@ -65,6 +80,26 @@ describe('共同形狀控制與組成', () => {
     expect(muscle.goal.value).toBe(40);
     expect(out.positions.every(Number.isFinite)).toBe(true);
   });
+  for (const sex of ['female', 'male'] as const) it(`${sex}：自由圍度的獨立肌肉量也有可見響應`, () => {
+    const locked = sex === 'female' ? { height: 165, weight: 60, bodyFat: 0.25 } : { height: 175, weight: 80, bodyFat: 0.25 };
+    const a = run(sex, locked, null, { muscleMass: sex === 'female' ? 20 : 26 });
+    const b = run(sex, locked, null, { muscleMass: sex === 'female' ? 28 : 36 });
+    expectHard(a); expectHard(b);
+    expect(Math.max(...a.positions.map((v, i) => Math.abs(v - b.positions[i])))).toBeGreaterThan(0.3);
+  }, 15000);
+  for (const id of ['MULTI90', 'MULTI90-T']) it(`${id}：容量不足保留尺寸、原體重殘差及未收斂診斷`, () => {
+    const c = BODY_CASES.find(c => c.id === id)!;
+    const out = run(c.sex, c.locked as Record<string, number>);
+    if (!out.diagnostics.length) expectHard(out);
+    else {
+      expect(out.diagnostics.every(d => d.kind === 'unconverged')).toBe(true);
+      for (const r of out.residual.filter(r => r.goal.kind === 'measure')) expect(Math.abs(r.error)).toBeLessThan(0.5);
+      const weight = out.residual.find(r => r.goal.kind === 'weight')!;
+      expect(weight.goal.value).toBe(90);
+      expect(weight.error).toBeCloseTo(out.weight - 90, 6);
+      expect(Object.values(out.tissues).every(x => x >= 0)).toBe(true);
+    }
+  }, 15000);
 });
 
 describe('人體網格', () => {
