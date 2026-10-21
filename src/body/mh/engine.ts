@@ -87,7 +87,9 @@ export class BodyEngine {
       let approximate = false;
       const sizeError = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
         .filter(x => x.goal.kind === 'measure' || x.goal.kind === 'diff').reduce((sum, x) => sum + x.error ** 2, 0);
-      if (!diagnostics.length && input.weightLocked && Object.keys(input.locked).length >= 2 && sizeError(result) > 0.25) {
+      const missesSize = residualOf(input, result.values, result.weight, result.bodyFat)
+        .some(x => (x.goal.kind === 'measure' || x.goal.kind === 'diff') && Math.abs(x.error) > 0.5);
+      if (!diagnostics.length && input.weightLocked && Object.keys(input.locked).length >= 2 && missesSize) {
         // 超約束時保留明確尺寸的近似解，不能為湊體重把指定臀腿推大。
         // 原輸入仍用於殘差與診斷，沒有把放寬的重量冒充成功。
         const candidate = this.rings.fitComposition({ ...solveInput, weightLocked: false, estimateReference: false }, { neutralize: true });

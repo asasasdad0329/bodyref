@@ -31,12 +31,13 @@ export const MEASURE_KEYS: readonly MeasureKey[] = [
   'thigh', 'calf', 'ankle', 'shoulder', 'upperArmLen', 'forearmLen', 'thighLen', 'calfLen',
 ];
 
-type SearchKey = 'neck' | 'waist' | 'upperArm' | 'wrist' | 'thigh' | 'calf' | 'ankle';
+type SearchKey = 'neck' | 'waist' | 'hip' | 'upperArm' | 'wrist' | 'thigh' | 'calf' | 'ankle';
 
 /** 搜尋型量測的範圍（相對位置）與找最大或最小 */
 const SEARCH: Record<SearchKey, { from: number; to: number; steps: number; mode: 'min' | 'max' }> = {
   neck: { from: 0.15, to: 0.45, steps: 5, mode: 'min' },
   waist: { from: 0.42, to: 0.85, steps: 10, mode: 'min' },
+  hip: { from: 0.2, to: 0.46, steps: 7, mode: 'max' },
   upperArm: { from: 0.5, to: 0.5, steps: 1, mode: 'max' },
   wrist: { from: 0.93, to: 0.93, steps: 1, mode: 'min' },
   thigh: { from: 0.1, to: 0.1, steps: 1, mode: 'max' },
@@ -174,6 +175,10 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
 
   // 每個搜尋型量測：依相對位置 t 產生平面與參考點
   const planes: Record<SearchKey, (t: number) => { faces: Uint32Array; plane: Plane; ref: V3; union?: boolean }> = {
+    hip: (t) => {
+      const y = crotchY + (underbustY - crotchY) * t;
+      return { faces: ctx.faces.trunk, plane: horizontal(y), ref: [0, y, 0], union: true };
+    },
     neck: (t) => {
       const p = lerp3(neckJ, headJ, t);
       return { faces: ctx.faces.neck, plane: { p, n: norm(sub(headJ, neckJ)) }, ref: p };
@@ -238,17 +243,9 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
     if (best) tapes[key] = best.path;
   }
 
-  // 臀圍：臀部最往後凸的高度
-  let hipY = crotchY, minZ = Infinity;
-  for (const i of ctx.buttock) {
-    if (P[i * 3 + 2] < minZ) {
-      minZ = P[i * 3 + 2];
-      hipY = P[i * 3 + 1];
-    }
-  }
-  const hip = trunkGirth(ctx.faces.trunk, hipY);
-  values.hip = hip?.length ?? NaN;
-  if (hip) tapes.hip = hip.path;
+  // 臀圍量臀區最大的水平皮尺；不以單一最凸頂點的高度代表整圈，
+  // 否則兩個相近臀峰交換前後順序時，量測會突然跳幾公分。
+  const hipY = crotchY + (underbustY - crotchY) * levels.hip;
 
   const bust = trunkGirth(ctx.faces.trunk, bustY);
   values.bust = bust?.length ?? NaN;

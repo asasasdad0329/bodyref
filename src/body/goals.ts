@@ -55,13 +55,15 @@ export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: Goa
     preferred[k] = {
       target: preferenceSuggestion.values[k],
       scale: Math.max(0.045, Math.log(hi / lo) / (2 * 1.2816)),
-      // 來源的上臂與腰量法不同，先降低偏好強度，不捏造公分換算。
+      // 最細腰仍是來源不完全相同的造型先驗；上臂稍後由 NHANES 覆寫。
       confidence: k === 'upperArm' ? 0.55 : k === 'waist' ? 0.65 : 1,
     };
   }
   if (!L.upperArm) {
     const obs = nhanesPreference(sex, v.height, v.weight, v.bodyFat);
-    preferred.upperArm = { target: obs.arm, scale: Math.max(0.045, obs.scale), confidence: 3 };
+    // 實測中點的偏好優先於其餘人工／跨族群先驗；4 是分配成本權重，
+    // 不更動來源留出誤差或介面顯示的預測範圍。
+    preferred.upperArm = { target: obs.arm, scale: Math.max(0.045, obs.scale), confidence: 4 };
   }
   return {
     estimateReference: !Object.keys(L).some(k => k !== 'height' && L[k as keyof typeof L]) && bustDiff === null && muscleMass == null,
