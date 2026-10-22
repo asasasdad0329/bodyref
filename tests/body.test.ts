@@ -306,3 +306,42 @@ describe('固定尺寸的局部形態配對', () => {
     for (const area of ['chest', 'back', 'arm', 'hip', 'thigh'] as const) expect(regionalRms(a, b, area), area).toBeGreaterThan(0.1);
   }, 10000);
 });
+
+// 小步輸入應連續改形；這是工程跳變護欄，不能代替多視角外觀判讀。
+describe('小幅尺寸與組成變動不跨到另一個表面解', () => {
+  const scenarios = [
+    ...['teardrop', 'long', 'round'].map(shape => ({ id: `SMALL-E-${shape}`, key: 'bust', values: [85, 85.25, 85.5] })),
+    { id: 'COMP-F18', key: 'bodyFat', values: [0.18, 0.185, 0.19] },
+    { id: 'COMP-M18', key: 'bodyFat', values: [0.18, 0.185, 0.19] },
+    { id: 'MUSCLE-male-fixed-30', key: 'muscleMass', values: [32, 32.25, 32.5] },
+    { id: 'MUSCLE-female-fixed-20', key: 'muscleMass', values: [22, 22.25, 22.5] },
+    { id: 'HF104', key: 'hip', values: [104, 104.25, 104.5] },
+    { id: 'MORPH-male-projected-smooth-thigh', key: 'hip', values: [100, 100.05, 100.1, 100.15, 100.2, 100.25, 100.3, 100.35, 100.4, 100.45, 100.5] },
+  ];
+  for (const scenario of scenarios) {
+    const samples = new Map<number, CaseResult>();
+    const sample = (value: number) => {
+      const cached = samples.get(value);
+      if (cached) return cached;
+      const c = BODY_CASES.find(c => c.id === scenario.id)!;
+      const locked = { ...c.locked, ...(scenario.key === 'muscleMass' ? {} : { [scenario.key]: value }) };
+      const bustDiff = c.cup ? cupDiff(c.cup)! : null;
+      const out = engine.run({ ...bodyInputFor({ sex: c.sex, sug: suggest({ sex: c.sex, locked, bustDiff }),
+        bustDiff, morphology: c.morphology, muscleMass: scenario.key === 'muscleMass' ? value : c.muscleMass }), armAngle: 16 });
+      expect(out.diagnostics).toEqual([]);
+      const result = { out, neutral: engine.rings.inspectSolved() };
+      samples.set(value, result); return result;
+    };
+    for (let step = 1; step < scenario.values.length; step++) it(`${scenario.id} ${scenario.key} ${scenario.values[step - 1]} → ${scenario.values[step]}`, () => {
+      const before = sample(scenario.values[step - 1]), after = sample(scenario.values[step]);
+      let sum = 0, max = 0;
+      for (let i = 0; i < engine.asset.nBody; i++) {
+        const distance = Math.hypot(...[0, 1, 2].map(k => after.neutral[i * 3 + k] - before.neutral[i * 3 + k]));
+        sum += distance * distance; max = Math.max(max, distance);
+      }
+      expect(max).toBeGreaterThan(0.001);
+      expect(max).toBeLessThan(0.5);
+      expect(Math.sqrt(sum / engine.asset.nBody)).toBeLessThan(0.1);
+    }, 15000);
+  }
+});

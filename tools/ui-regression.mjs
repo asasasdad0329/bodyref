@@ -90,7 +90,7 @@ try {
   assert.equal(shared.ratios.legRatio, 0.4); assert.equal(shared.ratios.thighCalf, 0.5);
   assert.equal(shared.ratios.armRatio, 0.38); assert.equal(shared.ratios.upperFore, 1.6);
   await change(() => page.locator('#reset').click());
-  await change(() => page.locator('#sex-male').check());
+  await change(() => page.locator('label[for="sex-male"]').click());
   assert.equal((await readShare()).sex, 'male');
   assert.equal(await page.locator('#shape-breast').isVisible(), false);
   for (const [key, options] of [['hip', ['projected', 'balanced']], ['abdomen', ['smooth', 'soft']]]) {

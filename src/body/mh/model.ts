@@ -9,6 +9,7 @@ export class BodyModel {
   /** 顯示前要抹平的頂點（手、腳的細節保留） */
   private readonly surfaceVerts: Uint32Array;
   private readonly contactVerts: Uint32Array;
+  private deltaScratch?: Float32Array;
   private readonly deltaSupports = new WeakMap<Uint32Array, Uint32Array>();
 
   constructor(readonly asset: BodyAsset) {
@@ -49,7 +50,8 @@ export class BodyModel {
       affected = Uint32Array.from(reach).filter(i => surface.has(i));
       this.deltaSupports.set(support, affected);
     }
-    const delta = new Float32Array(shaped.length);
+    if (this.deltaScratch?.length !== shaped.length) this.deltaScratch = new Float32Array(shaped.length);
+    const delta = this.deltaScratch; delta.fill(0);
     for (const i of support) for (let k = 0; k < 3; k++) delta[i * 3 + k] = shaped[i * 3 + k] - base[i * 3 + k];
     smooth(shaped, this.adj, this.nippleVerts, 2, 0.3);
     smooth(delta, this.adj, this.nippleVerts, 2, 0.3);

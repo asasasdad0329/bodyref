@@ -252,6 +252,8 @@ export class RingBody {
   readonly ctx: MeasureContext;
   readonly adj: number[][];
   private readonly surface: BodyModel;
+  private readonly frameDelta: Float32Array;
+  private readonly rawFrameDelta: Float32Array;
   private regionFields?: Pick<Prepared, 'w' | 'raw' | 'wGen' | 'armSets'>;
   private inspectionState: { p: Prepared; q: Params; soft: Soft } | null = null;
   private readonly setups = new Map<string, {
@@ -271,6 +273,8 @@ export class RingBody {
     this.ctx = measureContext(asset);
     this.adj = adjacency(asset.quads, asset.nBody);
     this.surface = new BodyModel(asset);
+    this.frameDelta = new Float32Array(asset.nBody * 3);
+    this.rawFrameDelta = new Float32Array(asset.nBody * 3);
   }
 
   private region(name: string): number {
@@ -415,22 +419,27 @@ export class RingBody {
 
     // 中心線：每公分高度一個點
     const centerLine = (set: Set<number>, axis: 0 | 2, mode: 'mid' | 'mean') => {
+      // 頂點以連續高度權重分攤到相鄰切層；不能依四捨五入突然換桶。
+      // 前後中點用平滑極值，避免單個頂點進出高度桶便改變整段中心線。
       const acc = new Map<number, [number, number, number, number]>();
       for (let i = 0; i < n; i++) {
         if (!set.has(a.region[i])) continue;
-        const y = Math.round(B[i * 3 + 1]);
-        const e = acc.get(y) ?? [Infinity, -Infinity, 0, 0];
-        const v = B[i * 3 + axis];
-        e[0] = Math.min(e[0], v);
-        e[1] = Math.max(e[1], v);
-        e[2] += v;
-        e[3]++;
-        acc.set(y, e);
+        const y = B[i * 3 + 1], value = B[i * 3 + axis];
+        for (let level = Math.floor(y) - 1; level <= Math.floor(y) + 2; level++) {
+          const u = Math.abs(y - level) / 2;
+          if (u >= 1) continue;
+          const weight = (1 - u * u) ** 2;
+          const e = acc.get(level) ?? [0, 0, 0, 0];
+          e[0] += weight * Math.exp(value / 2);
+          e[1] += weight * Math.exp(-value / 2);
+          e[2] += weight * value; e[3] += weight;
+          acc.set(level, e);
+        }
       }
       const ys = [...acc.keys()].sort((p, q) => p - q);
       const vs = ys.map((y) => {
         const e = acc.get(y)!;
-        return mode === 'mid' ? (e[0] + e[1]) / 2 : e[2] / e[3];
+        return mode === 'mid' ? Math.log(e[0] / e[1]) : e[2] / e[3];
       });
       // 稍微抹平
       const sm = vs.map((_, i) => {
@@ -717,9 +726,9 @@ export class RingBody {
       out[i * 3 + 2] += dsum[2] / norm;
     }
     // 增加的量是「一層」：把位移場抹平再加回去，素體原本的細節（膝蓋、肌肉起伏）不會跟著被放大
-    const D = new Float32Array(n * 3);
+    const D = this.frameDelta;
     for (let i = 0; i < n * 3; i++) D[i] = out[i] - B[i];
-    const D0 = new Float32Array(D);
+    const D0 = this.rawFrameDelta; D0.set(D);
     smoothVectors(D, this.adj, 12);
     for (let i = 0; i < n * 3; i++) {
       const r = p.raw[(i / 3) | 0];
@@ -856,14 +865,9 @@ export class RingBody {
 
     // 骨架與校準只和身高、四肢長度、胸部底稿有關：算過就留著，拖動圍度滑桿時不用重算
     const f = inp.frame;
-    // 以固定半公分格點建立骨架快取，格點只決定起點；最後仍對準實際長度。
-    // 不借用「最先遇到的相近體型」，否則分配校準會因操作路徑而得到不同的基底。
+    // 使用完整長度作確定快取鍵；半公分量化會在跨格時改掉組織校準基底，
+    // 即使最終皮尺達標，小幅改臀圍仍可能讓腹背突然跳到另一個解。
     const setupFrame: RingTargets = { ...f };
-    for (const [name] of LENGTHS) {
-      const k = name as keyof RingTargets;
-      const value = f[k];
-      if (value !== undefined) setupFrame[k] = Math.round(value * 2) / 2;
-    }
     const frameVec = [setupFrame.height, setupFrame.upperArmLen, setupFrame.forearmLen,
       setupFrame.thighLen, setupFrame.calfLen];
     const key = JSON.stringify([sex, opts.neutralize, opts.condition, opts.hipExpansion, ...frameVec]);
@@ -984,6 +988,9 @@ export class RingBody {
     const FRAME: ParamKey[] = ['underbust', 'shoulder', 'neck', 'wrist', 'ankle', ...(male ? [] : (['breast'] as ParamKey[]))];
     const hardFrame = (k: ParamKey) => k === 'breast' ? inp.breastLocked !== false
       : inp.frameLocked === undefined || inp.frameLocked.includes(k as MeasureKey);
+    const iterationKeys: MeasureKey[] = [...goals, ...Object.keys(inp.preferred ?? {}) as MeasureKey[],
+      ...FRAME.filter(k => hardFrame(k) || (k !== 'shoulder' && !(male && k === 'underbust')))
+        .flatMap(k => k === 'breast' ? ['bust', 'underbust'] as MeasureKey[] : [k as MeasureKey])];
     // 分配從同一個起點求解，避免接受步數受上一個體型影響；骨架與公斤校準仍使用快取。
     const shrinkKey: Record<SoftGoal, ParamKey> = { bust: 'breast', waist: 'waist', hip: 'hip', thigh: 'thigh', calf: 'calf', upperArm: 'upperArm' };
     const upper: Partial<Record<SoftKey, number>> = { general: 2.2, upperBack: 2.5, lowerBack: 5,
@@ -1091,14 +1098,18 @@ export class RingBody {
       let best: State | null = null, bestPenalty = Infinity, attempts = 0, stepScale = 0.8;
       let response: GirthResponse | null = null;
       let responseState: { soft: Soft; q: Params } | null = null;
+      let previousControls: number[] | null = null, smallSteps = 0;
       const prevQ = new Map<ParamKey, [number, number]>();
       const prevX = new Map<SoftGoal, [number, number]>();
       for (let it = 0; it < 80; it++, total++) {
         soft = allocate().soft;
         this.build(p, q, P, soft);
-        m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+        m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall, iterationKeys);
         // 候選必須保存真正產生本次量測的參數，不能保存下方尚未驗證的修正量。
         const evaluatedState = save();
+        const currentControls = [...PARAM_KEYS.map(k => q[k]), ...SOFT_KEYS.map(k => soft[k])];
+        const change = previousControls ? Math.max(...currentControls.map((v, k) => Math.abs(v - previousControls![k]))) : Infinity;
+        smallSteps = change < 0.001 ? smallSteps + 1 : 0; previousControls = currentControls;
         let worst = 0;
         for (const k of FRAME) {
           const target = want(k);
@@ -1165,6 +1176,9 @@ export class RingBody {
           prevW = [restAdj, w];
           restAdj += (0.9 * err) / slope;
         }
+        // 實際控制只剩微小更新、硬條件仍未收斂時，交給後面的有界聯立。
+        // 不反覆等待飽和積分量，亦不改最後的尺寸與組成接受門檻。
+        if (it >= 24 && worst >= 0.15 && smallSteps >= 6) { restore(evaluatedState); break; }
         // 若局部圈已收到下限，先釋放跨區基底的壓力；不能靠繼續累加無效的局部修正。
         const blockedGoals = goals.filter((g) => q[shrinkKey[g]] <= 0.5001 && m.values[g] > inp.locked[g]! + 0.15);
         const seekFeasible = blockedGoals.length > 0 && it >= 12 && it % 8 === 4;
@@ -1194,13 +1208,13 @@ export class RingBody {
           const candidatePreferred = { ...preferred };
           for (const g of blockedGoals) candidatePreferred[g] = { target: inp.locked[g]!, scale: 0.015, confidence: 4 };
           const penalty = distributionPenalty(preferenceValues(m), preferred) + 0.035 * SOFT_KEYS.reduce((s, k) => s + bias[k] ** 2 * regionalCost[k], 0);
-          if (worst < 0.15 && p.quality.evaluate(P).valid && penalty < bestPenalty - 1e-4) { best = evaluatedState; bestPenalty = penalty; }
+          if (worst < 0.15 && penalty < bestPenalty - 1e-4 && p.quality.evaluate(P).valid) { best = evaluatedState; bestPenalty = penalty; }
           else if (best && !seekFeasible) { restore(best); stepScale *= 0.4; }
           if (!Object.keys(candidatePreferred).length || attempts++ >= 10 || it >= 56 || stepScale < 0.08 || bestPenalty < 0.03) break;
           if (best) {
             // 使用與保存狀態一致的量測提出候選，不能沿用剛被退回的身體。
             restore(best);
-            soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+            soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall, iterationKeys);
           }
           // 跨區轉移超過一公斤或框架明顯改變後，舊斜率不再代表目前的形態。
           // 更新相鄰響應，不能一直沿初次候選的斜率累加後再縮小步長。
@@ -1216,7 +1230,7 @@ export class RingBody {
             for (const k of free.filter((k) => coupled.includes(k))) {
               const probe = { ...soft, [k]: soft[k] + 0.15 / kgPer[k] };
               this.build(p, q, probeP, probe);
-              const probeMeasured = measure(this.ctx, probeP, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+              const probeMeasured = measure(this.ctx, probeP, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall, iterationKeys);
               const v = preferenceValues(probeMeasured);
               response[k] = Object.fromEntries((Object.keys(v) as MeasureKey[]).map((g) => [g, (v[g] - preferenceValues(m)[g]) / 0.15]));
             }
@@ -1253,7 +1267,7 @@ export class RingBody {
         restore(best);
         soft = allocate().soft;
         this.build(p, q, P, soft);
-        m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+        m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall, iterationKeys);
       }
       const lens = [...p.lens];
       let worstLen = 0;
@@ -1271,7 +1285,7 @@ export class RingBody {
     // 最後只對尚未達標的局部責任區作小型聯立校正；不讓分配候選的最後一步
     // 或量測位置更新留下未收斂的硬條件。每個參數仍只屬於自己的尺寸區。
     const evaluate = () => {
-      soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, undefined, [], p.chestWall);
+      soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, undefined, [], p.chestWall, correctionKeys);
     };
     type Variable = { target: number; read: () => number; get: () => number; set: (v: number) => void; probe: number; maxStep: number };
     const frameVariable = (k: ParamKey): Variable => ({ target: want(k)!, read: () => read(m.values, k),
@@ -1285,6 +1299,7 @@ export class RingBody {
       ...goals.filter(g => !['waist', 'hip', 'thigh'].includes(g)).map(g => [softVariable(g)]),
       ...frameVars.filter(k => k !== 'underbust' && k !== 'breast').map(k => [frameVariable(k)]),
     ].filter(b => b.length);
+    const correctionKeys: MeasureKey[] = [...goals, ...frameVars.flatMap(k => k === 'breast' ? ['bust', 'underbust'] as MeasureKey[] : [k as MeasureKey])];
     evaluate();
     for (let pass = 0; pass < 10; pass++) {
       const tissue = weightOf(soft);
@@ -1307,7 +1322,7 @@ export class RingBody {
         let accepted = false;
         if (delta) for (const damping of [0.9, 0.45, 0.2, 0.08]) {
           block.forEach((v, k) => v.set(base[k] + damping * Math.max(-v.maxStep, Math.min(v.maxStep, delta[k])))); evaluate();
-          if (p.quality.evaluate(P).valid && block.reduce((s, v) => s + (v.read() - v.target) ** 2, 0) < cost) { accepted = true; break; }
+          if (block.reduce((s, v) => s + (v.read() - v.target) ** 2, 0) < cost && p.quality.evaluate(P).valid) { accepted = true; break; }
         }
         if (!accepted) { block.forEach((v, k) => v.set(base[k])); evaluate(); }
       }
@@ -1336,13 +1351,13 @@ export class RingBody {
       const dimensionsValid = () => constraints.slice(0, dimensionCount).every(v => Math.abs(v.read() - v.target) < 0.5);
       const costOf = () => constraints.reduce((sum, v) => sum + (v.read() - v.target) ** 2, 0);
       let feasible = dimensionsValid() && p.quality.evaluate(P).valid ? { q: { ...q }, soft: { ...soft }, cost: costOf() } : null;
-      type Control = { get: () => number; set: (v: number) => void; probe: number; step: number; high: number };
+      type Control = { get: () => number; set: (v: number) => void; probe: number; step: number; low: number; high: number };
       const variables: Control[] = [];
       const frameKeys = new Set([...frameVars, ...goals.map(g => shrinkKey[g])]);
       for (const k of frameKeys) {
         const lo = k === 'breast' && !male ? 0 : 0.5;
         const high = k === 'breast' && !male ? 6 : frameVars.includes(k) ? 3 : 1;
-        variables.push({ get: () => q[k], set: v => { q[k] = Math.max(lo, Math.min(high, v)); }, probe: 0.01, step: 0.05, high });
+        variables.push({ get: () => q[k], set: v => { q[k] = Math.max(lo, Math.min(high, v)); }, probe: 0.01, step: 0.05, low: lo, high });
       }
       for (const k of SOFT_KEYS) {
         if (!kgPer[k] || (male && k === 'upperBack')) continue;
@@ -1353,9 +1368,9 @@ export class RingBody {
         const high = (upper[k] ?? Infinity) * kgPer[k];
         variables.push({ get: () => soft[k] * kgPer[k],
           set: v => { soft[k] = Math.max(lo, Math.min(upper[k] ?? Infinity, v / kgPer[k])); },
-          probe: 0.1, step: 1, high });
+          probe: 0.1, step: 1, low: lo * kgPer[k], high });
       }
-      const update = () => { this.build(p, q, P, soft); m = measure(this.ctx, P, undefined, [], p.chestWall); };
+      const update = () => { this.build(p, q, P, soft); m = measure(this.ctx, P, undefined, [], p.chestWall, correctionKeys); };
       for (let pass = 0; pass < 6; pass++) {
         const current = constraints.map(v => v.read()), error = constraints.map((v, i) => v.target - current[i]);
         if (Math.max(...error.map(Math.abs)) < 0.15) break;
@@ -1368,10 +1383,22 @@ export class RingBody {
         });
         // 少數硬條件、較多區域自由度：在相同控制尺度下取最小變動解。
         // 阻尼只防止秩不足放大步長，不放寬任何目標或控制邊界。
-        const normal = constraints.map((_, row) => constraints.map((_, other) =>
-          columns.reduce((sum, c) => sum + c[row] * c[other], 0) + (row === other ? 0.001 : 0)));
-        const multiplier = solveLocal(normal, error);
-        const delta = multiplier && columns.map(c => c.reduce((sum, v, row) => sum + v * multiplier[row], 0));
+        // 在邊界上仍向外的方向沒有實際響應。移除這些欄再解，
+        // 不能先把校正分給已飽和控制，最後夾回而留下沒有被其他區承接的殘差。
+        let active = variables.map((_, k) => k);
+        let delta: number[] | null = null;
+        for (let boundPass = 0; boundPass <= variables.length && active.length; boundPass++) {
+          const normal = constraints.map((_, row) => constraints.map((_, other) =>
+            active.reduce((sum, k) => sum + columns[k][row] * columns[k][other], 0) + (row === other ? 0.001 : 0)));
+          const multiplier = solveLocal(normal, error);
+          if (!multiplier) break;
+          delta = variables.map((_, k) => active.includes(k)
+            ? columns[k].reduce((sum, v, row) => sum + v * multiplier[row], 0) : 0);
+          const blocked = active.filter(k => (base[k] <= variables[k].low + 1e-7 && delta![k] < 0)
+            || (base[k] >= variables[k].high - 1e-7 && delta![k] > 0));
+          if (!blocked.length) break;
+          active = active.filter(k => !blocked.includes(k));
+        }
         let accepted = false;
         if (delta) for (const damping of [0.9, 0.45, 0.2, 0.08]) {
           variables.forEach((v, k) => v.set(base[k] + damping * Math.max(-1, Math.min(1, delta[k])) * v.step)); update();

@@ -43,6 +43,7 @@ export function toWorld(frame: ControlFrame, point: V3): V3 {
 /** 控制全部參照同一份輸入曲面，交界的變換一次合成；不依控制登錄順序逐次推頂點。 */
 export class LocalControlRig {
   readonly controls: readonly BoundControl[];
+  private displacement?: Float64Array;
 
   constructor(controls: readonly BoundControl[]) {
     const ids = new Set<string>();
@@ -58,10 +59,12 @@ export class LocalControlRig {
 
   apply(surface: Float32Array, frames: Readonly<Record<string, ControlFrame>>,
     state: Readonly<Record<string, LocalTransform | undefined>>, output: Float32Array = new Float32Array(surface)): Float32Array {
-    // 輸入／輸出可共用，仍以固定快照求所有控制的響應。
-    const source = output === surface ? new Float32Array(surface) : surface;
-    output.set(source);
-    const displacement = new Float64Array(source.length);
+    // 完成所有響應前不寫回輸出，因此共用輸入／輸出也不需額外複製。
+    // 暫存僅在同步呼叫內使用；每次清零，不能帶入上一個體型的位移。
+    const source = surface;
+    if (this.displacement?.length !== source.length) this.displacement = new Float64Array(source.length);
+    const displacement = this.displacement;
+    displacement.fill(0);
     for (const control of this.controls) {
       const transform = state[control.id];
       if (!transform) continue;

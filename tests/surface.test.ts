@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
-import { parseBodyAsset } from '../src/body/mh/asset';
+import { addTarget, parseBodyAsset } from '../src/body/mh/asset';
 import { BodyModel } from '../src/body/mh/model';
 import { centroid, dot, norm, sub, vert, horizontal, horizontalPoints, slice, tape } from '../src/body/mh/geometry';
 import { measure, measureContext, measureSkeleton } from '../src/body/mh/measure';
@@ -48,4 +48,22 @@ it('骨架校準的快速長度與完整皮尺量測一致', () => {
   const full = measure(ctx, P), skeleton = measureSkeleton(ctx, P);
   for (const [key, value] of Object.entries(skeleton.values)) expect(value).toBe(full.values[key as keyof typeof full.values]);
   expect(skeleton.marks.soleY).toBe(full.marks.soleY);
+});
+
+
+it('局部聯立的指定皮尺與完整量測完全一致，未量的圈不冒充有效數值', () => {
+  for (const sex of ['female', 'male'] as const) {
+    const ctx = measureContext(asset, sex), wall = Float32Array.from(asset.base, (v, i) => v * (i % 3 === 1 ? 1.08 : 0.94));
+    const P = new Float32Array(wall);
+    if (sex === 'female') addTarget(asset, 'female-young-averagemuscle-averageweight-maxcup-averagefirmness', 0.5, P);
+    const keys = ['bust', 'underbust', 'waist', 'hip', 'thigh', 'upperArm'] as const;
+    const full = measure(ctx, P, undefined, [], sex === 'female' ? wall : undefined);
+    const local = measure(ctx, P, undefined, [], sex === 'female' ? wall : undefined, keys);
+    for (const key of keys) {
+      expect(local.values[key], key).toBe(full.values[key]);
+      expect(local.tapes[key], key).toEqual(full.tapes[key]);
+    }
+    expect(local.sources.navelWaist).toEqual(full.sources.navelWaist);
+    expect(Number.isNaN(local.values.shoulder)).toBe(true);
+  }
 });
