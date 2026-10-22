@@ -56,7 +56,7 @@ export const PLAN_CASES: BodyCase[] = [
     female(`E${bust}-W${waist}-H${hip}`, { height: 160, bust, underbust: bust - 20, waist, hip })))),
   ...[18, 35].map(bf => female(`COMP-F${bf}`, { height: 165, weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104, thigh: 56, bodyFat: bf / 100 })),
   ...[18, 35].map(bf => ({ id: `COMP-M${bf}`, sex: 'male' as const, locked: { height: 175, weight: 80, bust: 105, waist: 85, hip: 100, bodyFat: bf / 100 } })),
-  ...[60, 75, 90].flatMap(weight => [false, true].map(thigh => female(`FIXED-${weight}${thigh ? '-T56' : ''}`,
+  ...[60, 67.5, 75, 82.5, 90].flatMap(weight => [false, true].map(thigh => female(`FIXED-${weight}${thigh ? '-T56' : ''}`,
     { height: 165, weight, bust: 94, underbust: 74, waist: 68, hip: 104, ...(thigh ? { thigh: 56 } : {}) }))),
   ...(['teardrop', 'long', 'round'] as const).flatMap(breast => ['A', 'B', 'D', 'F', 'G', 'S'].map(cup => ({
     ...female(`SHAPE-${breast}-${cup}`, { height: 160, underbust: 70 }), cup, morphology: { breast, hip: 'balanced' as const, abdomen: 'soft' as const } }))),

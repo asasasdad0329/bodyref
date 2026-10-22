@@ -248,6 +248,24 @@ describe('形狀控制計畫的必要尺寸與幾何', () => {
   });
 });
 
+// 超約束序列也保留全部輸入；可行解與控制容量不足分別驗證，不能刪除失敗點。
+describe('固定多圈增重的容量與失敗診斷', () => {
+  for (const c of PLAN_CASES.filter(c => c.id.startsWith('FIXED-'))) it(`${c.id}：保留目標、實際曲面與診斷一致`, () => {
+    const { out, neutral } = planResult(c.id);
+    expect(out.quality.valid).toBe(true);
+    expect(out.diagnostics.some(d => d.kind === 'input-conflict')).toBe(false);
+    for (const r of out.residual.filter(r => r.goal.kind === 'measure')) expect(Math.abs(r.error), JSON.stringify(r.goal)).toBeLessThan(0.5);
+    const mass = out.residual.find(r => r.goal.kind === 'weight')!;
+    expect(mass.goal.value).toBe(c.locked.weight);
+    expect(mass.error).toBeCloseTo(out.weight - c.locked.weight!, 7);
+    expect(out.diagnostics.some(d => d.kind === 'unconverged')).toBe(Math.abs(mass.error) > 0.5);
+    if (c.locked.weight! <= 60 || c.id === 'FIXED-75') expect(Math.abs(mass.error)).toBeLessThan(0.5);
+    expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
+    expect(meshVolume(neutral, engine.asset.quads)).toBeCloseTo(out.volume, 2);
+    expect(out.volume / 1000).toBeCloseTo(out.tissues.fat / 0.9 + (out.tissues.muscle + out.tissues.otherLean) / 1.06, 3);
+  });
+});
+
 
 // 同尺寸的型態必須改到責任區；毫米級數值檢查只攔住失效控制，外觀仍另作多視角驗收。
 function regionalRms(a: CaseResult, b: CaseResult, area: 'abdomen' | 'hip' | 'chest' | 'back' | 'arm' | 'thigh'): number {

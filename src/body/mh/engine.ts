@@ -88,26 +88,8 @@ export class BodyEngine {
       let result = this.rings.fitComposition(solveInput, { neutralize: true });
       let restoreInspection = this.rings.preserveInspection();
       let approximate = false;
-      const score = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
-        .reduce((sum, x) => sum + (x.error / (x.goal.kind === 'bodyFat' ? 0.01 : 0.5)) ** 2, 0)
-        + (input.muscleMass === undefined ? 0 : ((r.tissues.muscle - input.muscleMass) / 0.5) ** 2);
-      const valid = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
-        .every(x => Math.abs(x.error) < (x.goal.kind === 'bodyFat' ? 0.01 : 0.5))
-        && (input.muscleMass === undefined || Math.abs(r.tissues.muscle - input.muscleMass) < 0.5)
-        && Object.values(r.tissues).every(x => x >= 0) && r.quality.valid;
-      if (!diagnostics.length && input.weightLocked && input.locked.hip !== undefined
-        && input.locked.thigh === undefined && input.preferred?.thigh && !valid(result)) {
-        // 以來源腿圍建立有界的另一個分配起點；只是候選導引，並非使用者硬輸入。
-        // 較粗自由腿卡住臀圈時，先限制腿量再分配，可找到原求解路徑漏掉的解。
-        for (const fraction of [1, 0.9]) {
-          const candidate = this.rings.fitComposition({ ...solveInput,
-            locked: { ...solveInput.locked, thigh: input.preferred.thigh.target * fraction } }, { neutralize: true });
-          if (valid(candidate) || score(candidate) < score(result)) {
-            result = candidate; restoreInspection = this.rings.preserveInspection();
-          }
-          if (valid(result)) break;
-        }
-      }
+      // 共同校正已在實際控制上處理固定圈與總量；不能在外層再把自由腿
+      // 變成兩個虛構的手動條件，重跑整個求解卻得到更差的尺寸／重量折衷。
       const sizeError = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
         .filter(x => x.goal.kind === 'measure' || x.goal.kind === 'diff').reduce((sum, x) => sum + x.error ** 2, 0);
       const missesSize = residualOf(input, result.values, result.weight, result.bodyFat)
@@ -116,7 +98,7 @@ export class BodyEngine {
         // 超約束時保留明確尺寸的近似解，不能為湊體重把指定臀腿推大。
         // 原輸入仍用於殘差與診斷，沒有把放寬的重量冒充成功。
         const candidate = this.rings.fitComposition({ ...solveInput, weightLocked: false, estimateReference: false }, { neutralize: true });
-        if (sizeError(candidate) < sizeError(result)) {
+        if (candidate.quality.valid && Object.values(candidate.tissues).every(x => x >= 0) && sizeError(candidate) < sizeError(result)) {
           result = candidate; approximate = true; restoreInspection = this.rings.preserveInspection();
         }
       }

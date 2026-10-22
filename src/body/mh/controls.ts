@@ -11,8 +11,8 @@ export const ease = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
-export interface ShapeCondition { morphology: Morphology; bodyFat: number; muscle: number }
-export const defaultCondition = (): ShapeCondition => ({ morphology: { ...DEFAULT_MORPHOLOGY }, bodyFat: 0.26, muscle: 0 });
+export interface ShapeCondition { morphology: Morphology; bodyFat: number }
+export const defaultCondition = (): ShapeCondition => ({ morphology: { ...DEFAULT_MORPHOLOGY }, bodyFat: 0.26 });
 export interface ShapeControl extends BoundControl {
   tissue: SoftKey;
   range: [number, number];

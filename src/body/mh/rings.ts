@@ -586,6 +586,8 @@ export class RingBody {
     // 膝蓋、大腿中段跟著大腿與小腿的總變化
     const dT = d.thigh + sf.thighFat + sf.thighMuscle, dC = d.calf + sf.calfFat + sf.calfMuscle;
     const knee = aniso(1, 0.3 * dT + 0.3 * dC, 0.35 * dT + 0.3 * dC, 0.2 * dT + 0.15 * dC, 0.3 * dT + 0.35 * dC);
+    const rootScale = (value: number, retained: number) => 1 + (value - 1)
+      * (1 - (male ? 0 : 1 - retained) * smoothstep(0, 0.3, 1 - value));
     const legRings: [number, Aniso][] = [
       [mk.soleY + 0.01 * L, aniso(d.ankle, 0.45, 0.45, 0, 0)],
       [ankleRingY, K],
@@ -593,8 +595,10 @@ export class RingBody {
       [kneeY, knee],
       [midY, plus(aniso(d.thigh, 0.55, 0.6, 0.5, 0.55), FAT.thigh(0.6 * sf.thighFat + sf.thighCover), MUSCLE.thigh(0.8 * sf.thighMuscle))],
       [thighY, T],
-      // 大腿根部內側收回來，避免把恥骨三角區夾成凹陷
-      [mk.crotchY + 0.05 * L, { ...T, inner: 1 + 0.75 * (T.inner - 1) }],
+      // 大腿圈到骨盆共享邊界逐步減弱，後側優先交回臀下控制。
+      // 不能把固定大腿所需的整圈收縮一路搬到臀根；內側仍保留恥骨附著。
+      [mk.crotchY + 0.05 * L, { side: rootScale(T.side, 0.55),
+        front: rootScale(T.front, 0.65), back: rootScale(T.back, 0.35), inner: 1 + 0.75 * (T.inner - 1) }],
     ];
     const legCurve = curves(legRings);
     const legDisp = (x: number, y: number, z: number, side: number): V3 => {
@@ -843,7 +847,7 @@ export class RingBody {
     const male = sex === 'male';
     const ref = REFERENCE[sex];
     const hip = inp.locked.hip ?? inp.preferred?.hip?.target ?? ref.girths.hip * inp.frame.height / ref.height;
-    opts = { ...opts, condition: { ...(inp.condition ?? defaultCondition()), bodyFat: inp.bodyFat, muscle: inp.muscleMass === undefined ? 0 : (inp.muscleMass / (inp.weight * (1 - inp.bodyFat)) - MUSCLE_OF_LEAN) * 4 }, hipExpansion: smoothstep(1.02, 1.43, (hip / inp.frame.height) / (ref.girths.hip / ref.height)) };
+    opts = { ...opts, condition: { ...(inp.condition ?? defaultCondition()), bodyFat: inp.bodyFat }, hipExpansion: smoothstep(1.02, 1.43, (hip / inp.frame.height) / (ref.girths.hip / ref.height)) };
     const a = this.asset;
     const n = a.nBody;
     const P = new Float32Array(a.base.length);

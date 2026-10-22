@@ -46,8 +46,9 @@ try {
     const cachedStarted = performance.now();
     engine.run(input);
     const cachedMs = performance.now() - cachedStarted;
-    // 先改肩寬再回到原輸入，量真正沿用骨架校準的重算時間。
-    engine.run({ ...input, frame: { ...input.frame, shoulder: input.frame.shoulder + 0.3 } });
+    // 先改真正的手動尺寸再回到原輸入；未鎖肩寬的估計值可能被引擎忽略。
+    const preferred = { ...input.preferred }; delete preferred.upperArm;
+    engine.run({ ...input, locked: { ...input.locked, upperArm: out.values.upperArm + 0.3 }, preferred, estimateReference: false });
     const warmStarted = performance.now();
     const again = engine.run(input);
     const warmMs = performance.now() - warmStarted;
