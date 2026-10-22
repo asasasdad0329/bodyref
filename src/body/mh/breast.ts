@@ -1,4 +1,4 @@
-import type { BodyAsset } from './asset';
+import { freeBreastVertices, type BodyAsset } from './asset';
 import type { Morphology } from '../../core/morphology';
 import { ease } from './controls';
 import type { V3 } from './geometry';
@@ -57,6 +57,7 @@ export class BreastRig {
     const scale = (hi - lo) / (rawHi - rawLo);
     for (let i = 0; i < minimum.length; i++) { this.average[i] *= scale; this.maximum[i] *= scale; this.firmAverage[i] *= scale; this.firmMaximum[i] *= scale; }
     this.nativeIndices = Uint32Array.from(new Set([...minTarget.indices, ...maxTarget.indices, ...firmAverage.indices, ...firmMaximum.indices])).filter(i => i < a.nBody);
+    const freeVertices = freeBreastVertices(a);
     for (const side of ['L', 'R'] as const) {
       const region = a.regions.indexOf(`breast${side}`);
       const original = Uint32Array.from({ length: a.nBody }, (_, i) => i).filter(i => a.region[i] === region);
@@ -68,8 +69,8 @@ export class BreastRig {
         const i = cup.indices[k];
         if (i >= a.nBody || B[i * 3] * (side === 'L' ? 1 : -1) <= 0 || a.region[i] !== a.regions.indexOf('torso')) continue;
         const projection = cup.deltas[k * 3 + 2] * a.deltaStep;
-        if (projection > 0.08) support.add(i);
-        if (projection > 0.3) freeSurface.add(i);
+        if (projection > 0.08 || freeVertices.has(i)) support.add(i);
+        if (freeVertices.has(i)) freeSurface.add(i);
       }
       const ids = Uint32Array.from(support);
       const rim = ids.filter(i => adj[i].some(j => !support.has(j)));

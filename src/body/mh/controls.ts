@@ -79,12 +79,17 @@ export class SurfaceRig {
       angle: Math.PI - (female ? 0.6 : 0.48), width: (female ? 0.76 : 0.9) + 0.44 * spread,
       drop: female ? 0.08 + 0.045 * fat : 0.025, gain: projected ? 1.16 : 1, part,
     });
+    addPair({ id: 'lateral-glute', key: 'hipSide', y: marks.hipY + (female ? 0.08 - 0.03 * fat : 0.1) * L,
+      up: (female ? 0.55 + 0.1 * spread : 0.51) * L,
+      down: (female ? (condition.thighConstrained ? 0.32 : 0.45) : 0.32) * L,
+      angle: Math.PI / 2 + (female ? 0.18 : 0.38), width: female ? 0.98 + 0.12 * spread : 1.02,
+      drop: female ? 0.035 : 0.015, gain: (projected ? 0.75 : 1) * 0.7 });
     addPair({ id: 'lateral-root', key: 'hipSide', y: marks.crotchY + (female ? 0.055 : 0.14) * L,
       up: (female ? 0.6 + 0.13 * spread : 0.51) * L, down: (female ? (condition.thighConstrained ? 0.22 + 0.02 * spread : 0.35 + 0.12 * spread) : 0.42) * L,
       angle: Math.PI / 2 + (female ? 0.18 : 0.38), width: female ? 0.98 + 0.12 * spread : 1.02,
-      drop: female ? 0.035 : 0.015, gain: projected ? 0.75 : 1 });
+      drop: female ? 0.035 : 0.015, gain: (projected ? 0.75 : 1) * 0.3 });
     bands.push({ id: 'abdomen-front', key: 'belly',
-      y: marks.crotchY + (female ? (softBelly ? 0.34 : 0.47) : (softBelly ? 0.6 : 0.64)) * L,
+      y: marks.crotchY + (female ? (softBelly ? 0.34 + 0.08 * fat : 0.47 + 0.02 * fat) : (softBelly ? 0.6 : 0.64)) * L,
       up: (female ? 0.5 + 0.09 * fat : 0.62) * L, down: (female ? 0.42 : 0.65) * L,
       angle: 0, width: (female ? 1.35 : 1.65) + 0.14 * fat, drop: softBelly ? (female ? 0.08 + 0.08 * fat : 0.2) : 0.02,
       taper: female ? 0.3 : 0.3 });
@@ -178,7 +183,11 @@ export class SurfaceRig {
         const direction = outward * (1 - chest) + (k === 2 ? chest : k === 0 ? 0.2 * chest * normals[i * 3] : 0);
         const armRegion = ['upperarmL', 'upperarmR'].some(r => a.region[i] === a.regions.indexOf(r));
         general[i * 3 + k] = direction * generalWeight[i] * (female && armRegion ? 0.8 : 1);
-        other[i * 3 + k] = direction * (0.65 * torsoWeight[i] + 0.35 * generalWeight[i]);
+        // 其餘去脂採平順的胸腹包絡，不能沿胸肌法線鼓出假肌腹。
+        // 肌肉增加、其餘去脂下降時，原生肌腹控制仍能保留自己的起伏。
+        const envelope = normals[i * 3 + k] * (1 - torsoWeight[i])
+          + (k === 0 ? B[i * 3] / radius : k === 2 ? z / radius : 0) * torsoWeight[i];
+        other[i * 3 + k] = envelope * (0.65 * torsoWeight[i] + 0.35 * generalWeight[i]);
       }
     }
     this.fields.set('general', general);

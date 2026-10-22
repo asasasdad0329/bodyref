@@ -14,14 +14,15 @@ const dest = path.resolve(output);
 const relative = path.relative(root, dest);
 if (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) throw new Error('回歸產物必須放在倉庫外');
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
-const fingerprint = () => {
+const fingerprint = (modelOnly = false) => {
   const hash = crypto.createHash('sha256');
   for (const file of git('ls-files', '--cached', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean).sort()) {
+    if (modelOnly && !file.startsWith('src/body/') && !file.startsWith('src/core/') && file !== 'public/body.bin') continue;
     if (fs.existsSync(file)) { hash.update(file); hash.update(fs.readFileSync(file)); }
   }
   return hash.digest('hex');
 };
-const snapshot = { commit: git('rev-parse', 'HEAD'), treeSha256: fingerprint(),
+const snapshot = { commit: git('rev-parse', 'HEAD'), treeSha256: fingerprint(), modelSha256: fingerprint(true),
   assetSha256: crypto.createHash('sha256').update(fs.readFileSync('public/body.bin')).digest('hex'), measurementVersion: 2 };
 const server = await createServer({ optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' });
 try {
@@ -52,7 +53,9 @@ try {
     const warmStarted = performance.now();
     const again = engine.run(input);
     const warmMs = performance.now() - warmStarted;
-    const row = { ...c, snapshot, suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
+    const row = { ...c, snapshot, modelInput: { frame: input.frame, weight: input.weight, bodyFat: input.bodyFat,
+      weightLocked: input.weightLocked, bodyFatLocked: input.bodyFatLocked, preferred: input.preferred },
+      suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
       bodyFat: out.bodyFat, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, diagnostics: out.diagnostics, composition: out.composition, residual: out.residual, volume: out.volume,
       timing: { coldMs, warmMs, cachedMs }, repeat: { values: again.values, weight: again.weight, bodyFat: again.bodyFat } };
     if (process.env.BODYREF_SURFACE_QUALITY === '1') row.surface = surfaceQuality(out.positions, out.bodyIndex, asset);

@@ -62,10 +62,17 @@ try {
   shared = await readShare(); assert.equal(shared.ratios.thighCalf, undefined); assert.equal(shared.ratios.legRatio, undefined);
   await change(() => page.locator('#reset').click());
   shared = await readShare(); assert.equal(shared.muscleMass, null); assert.equal(shared.morphology.breast, 'teardrop'); assert.equal(shared.morphology.hip, 'balanced');
+  for (const [id, value] of [['legRatio', '0.4'], ['thighCalf', '2'], ['armRatio', '0.38'], ['upperFore', '0.625']]) {
+    await change(() => page.locator(`#n-${id}`).fill(value));
+  }
+  shared = await readShare();
+  assert.equal(shared.ratios.legRatio, 0.4); assert.equal(shared.ratios.thighCalf, 0.5);
+  assert.equal(shared.ratios.armRatio, 0.38); assert.equal(shared.ratios.upperFore, 1.6);
+  await change(() => page.locator('#reset').click());
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '手機版無水平溢出');
   assert.deepEqual(errors, []);
   fs.mkdirSync(dest, { recursive: true }); await page.screenshot({ path: path.join(dest, 'mobile.png'), fullPage: true });
-  fs.writeFileSync(path.join(dest, 'result.json'), JSON.stringify({ passed: true, checks: ['肌肉獨立', '型態', '比例互斥與舊碼', '分享', '乾淨輸出與恢復', '三視圖', '重設', '手機排版'], errors }, null, 2));
+  fs.writeFileSync(path.join(dest, 'result.json'), JSON.stringify({ passed: true, checks: ['肌肉獨立', '型態', '比例互斥與舊碼', '極端比值與倒數', '分享', '乾淨輸出與恢復', '三視圖', '重設', '手機排版'], errors }, null, 2));
   console.log('產品操作回歸通過');
 } finally { await browser?.close(); await server.close(); }

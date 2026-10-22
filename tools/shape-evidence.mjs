@@ -14,13 +14,16 @@ const root = process.cwd(), dest = path.resolve(output), rendererRoot = process.
 const relative = path.relative(root, dest);
 if (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)) throw new Error('產物必須在倉庫外');
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
-const fingerprint = () => {
+const fingerprint = (modelOnly = false) => {
   const hash = crypto.createHash('sha256');
   const files = git('ls-files', '--cached', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean).sort();
-  for (const file of files) { if (!fs.existsSync(file)) continue; hash.update(file); hash.update(fs.readFileSync(file)); }
+  for (const file of files) {
+    if (modelOnly && !file.startsWith('src/body/') && !file.startsWith('src/core/') && file !== 'public/body.bin') continue;
+    if (!fs.existsSync(file)) continue; hash.update(file); hash.update(fs.readFileSync(file));
+  }
   return hash.digest('hex');
 };
-const snapshot = { commit: git('rev-parse', 'HEAD'), treeSha256: fingerprint(),
+const snapshot = { commit: git('rev-parse', 'HEAD'), treeSha256: fingerprint(), modelSha256: fingerprint(true),
   assetSha256: crypto.createHash('sha256').update(fs.readFileSync('public/body.bin')).digest('hex'), rendererRoot,
   measurement: '中性最終曲面、放鬆上臂中點、胸壁下胸參照 v2；基準使用其原量法' };
 const server = await createServer({ root, server: { port: 0, host: '127.0.0.1', hmr: false, fs: { allow: [root, rendererRoot] } },
@@ -74,7 +77,9 @@ try {
           width: Math.max(...points.map(p => p[0])) - Math.min(...points.map(p => p[0])),
           depth: Math.max(...points.map(p => p[2])) - Math.min(...points.map(p => p[2])), points });
       }
-      return { values: out.values, residual: out.residual, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
+      return { modelInput: { frame: input.frame, weight: input.weight, bodyFat: input.bodyFat,
+        weightLocked: input.weightLocked, bodyFatLocked: input.bodyFatLocked, preferred: input.preferred },
+        values: out.values, residual: out.residual, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
     }, c);
     for (const view of ['front', 'quarter', 'side', 'rearQuarter', 'back']) {
       const png = await page.evaluate(view => {

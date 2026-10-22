@@ -992,10 +992,7 @@ export class RingBody {
     let soft = zeroSoft();
     let prevW: [number, number] | null = null;
     for (let pass = 0; pass < 2; pass++) {
-      const baseSource = measure(this.ctx, p.B, p.levels);
       const preferred = { ...inp.preferred };
-      if (preferred.waist) preferred.waist = { ...preferred.waist, source: 'navel', minimumTarget: preferred.waist.target,
-        target: preferred.waist.target + baseSource.sources.navelWaist.value - baseSource.values.waist };
       const preferenceValues = (measured: Measured) => preferred.waist?.source === 'navel'
         ? { ...measured.values, minWaist: measured.values.waist, waist: measured.sources.navelWaist.value } : measured.values;
       // 男性胸圍是軟偏好，不能讓未量測的上背代替胸前吸收補償；上背保留預設分配。

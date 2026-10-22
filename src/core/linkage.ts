@@ -116,6 +116,16 @@ function unit(i: number): number[] {
 
 const Z90 = 1.2816;
 
+/** ANSUR 原調查的肚臍腰偏好；不把東亞最細腰參照加固定差值冒充來源。 */
+export function navelWaistPreference(sex: Sex, height: number, weight: number) {
+  const row = stats[sex];
+  const post = condition(Float64Array.from(row.ansurMean), covariance(sex), [
+    { h: unit(IDX.height), y: toZ(IDX.height, height) },
+    { h: unit(IDX.weight), y: toZ(IDX.weight, weight) },
+  ]);
+  return { target: Math.exp(post.mean[IDX.waist]), scale: Math.sqrt(post.variance[IDX.waist]) };
+}
+
 export function suggest(inp: LinkageInput): Suggestion {
   const mu = referenceMean(inp.sex);
   const S = covariance(inp.sex);
@@ -123,22 +133,12 @@ export function suggest(inp: LinkageInput): Suggestion {
   for (const id of VARS) {
     const v = inp.locked[id];
     // 放鬆上臂、最細腰不作屈臂上臂、肚臍腰的實測觀察；手動值仍完整保留。
-    if (v !== undefined && id !== 'upperArm' && id !== 'waist') base.push({ h: unit(IDX[id]), y: toZ(IDX[id], v) });
+    if (v !== undefined && id !== 'upperArm' && id !== 'waist' && !(inp.sex === 'female' && id === 'bust')) base.push({ h: unit(IDX[id]), y: toZ(IDX[id], v) });
   }
   const useDiff = inp.bustDiff != null && !(inp.locked.bust !== undefined && inp.locked.underbust !== undefined);
-  let post = condition(mu, S, base);
-  if (useDiff) {
-    // 上胸圍 − 下胸圍 = d：以 exp(zb) − exp(zu) 在「只考慮其他鎖定值」的估計附近線性化，只更新一次。
-    // 不反覆迭代：在對數空間裡罩杯是比例，迭代到底會變成「大罩杯 = 整個胸廓變大、體重變重」，
-    // 但罩杯應該主要是胸部本身的事。最後再把上胸圍對齊到下胸圍 + d。
-    const ib = IDX.bust, iu = IDX.underbust;
-    const eb = Math.exp(post.mean[ib]), eu = Math.exp(post.mean[iu]);
-    const h = new Array(VARS.length).fill(0);
-    h[ib] = eb;
-    h[iu] = -eu;
-    const y = inp.bustDiff! - (eb - eu) + eb * post.mean[ib] - eu * post.mean[iu];
-    post = condition(mu, S, [...base, { h, y }]);
-  }
+  const post = condition(mu, S, base);
+  // 杯差只建立下方的胸圍關係，不作全身體重或骨架的觀測條件。
+
   const values = {} as Record<VarId, number>;
   const range = {} as Record<VarId, [number, number]>;
   const locked = {} as Record<VarId, boolean>;
@@ -192,7 +192,7 @@ export function rarity(inp: LinkageInput): Rarity[] {
         const arm = nhanesPreference(inp.sex, v.height, v.weight, v.bodyFat);
         return { id, percentile: phi(Math.log(inp.locked.upperArm! / arm.arm) / arm.scale) };
       }
-      const others: Observation[] = ids.filter((o) => o !== id && o !== 'waist' && o !== 'upperArm').map((o) => ({ h: unit(IDX[o]), y: toZ(IDX[o], inp.locked[o]!) }));
+      const others: Observation[] = ids.filter((o) => o !== id && o !== 'waist' && o !== 'upperArm' && !(inp.sex === 'female' && o === 'bust')).map((o) => ({ h: unit(IDX[o]), y: toZ(IDX[o], inp.locked[o]!) }));
       const post = condition(mu, S, others);
       const i = IDX[id];
       const z = (toZ(i, inp.locked[id]!) - post.mean[i]) / Math.sqrt(post.variance[i] || 1e-12);

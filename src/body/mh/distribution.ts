@@ -12,13 +12,15 @@ export interface GirthPreference {
 export type GirthPreferences = Partial<Record<SoftGoal, GirthPreference>>;
 export type GirthResponse = Partial<Record<SoftKey, Partial<Record<MeasureKey | 'minWaist', number>>>>;
 type DistributionValues = Record<MeasureKey, number> & { minWaist?: number };
+// 最細腰是造型先驗，肚臍腰是來源偏好；自由腰仍須承擔肥胖時的腹部量體。
+const MIN_WAIST_PRIORITY = 8;
 
 export function distributionPenalty(values: DistributionValues, preferences: GirthPreferences): number {
   let sum = 0;
   for (const [key, p] of Object.entries(preferences) as [SoftGoal, GirthPreference][]) {
     const z = Math.log(values[key] / p.target) / p.scale;
     sum += p.confidence * z * z;
-    if (p.minimumTarget && values.minWaist) sum += 0.75 * (Math.log(values.minWaist / p.minimumTarget) / p.scale) ** 2;
+    if (p.minimumTarget && values.minWaist) sum += MIN_WAIST_PRIORITY * (Math.log(values.minWaist / p.minimumTarget) / p.scale) ** 2;
   }
   return sum;
 }
@@ -49,7 +51,7 @@ export function redistributionStep(
     A.push(columns.map(({ key, anchor }) => (slope(key, g) - slope(anchor, g)) * w / values[g]));
     b.push(Math.log(p.target / values[g]) * w);
     if (p.minimumTarget && values.minWaist) {
-      const weight = Math.sqrt(0.75) / p.scale;
+      const weight = Math.sqrt(MIN_WAIST_PRIORITY) / p.scale;
       A.push(columns.map(({ key, anchor }) => (slope(key, 'minWaist') - slope(anchor, 'minWaist')) * weight / values.minWaist!));
       b.push(Math.log(p.minimumTarget / values.minWaist) * weight);
     }

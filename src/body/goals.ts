@@ -1,6 +1,6 @@
 import { nhanesPreference } from '../core/nhanes';
 import { DEFAULT_MORPHOLOGY, type Morphology } from '../core/morphology';
-import { suggest, type Suggestion } from '../core/linkage';
+import { navelWaistPreference, suggest, type Suggestion } from '../core/linkage';
 import type { Sex } from '../core/measurements';
 import type { MeasureKey } from './mh/measure';
 import type { CompositionInput, RingTargets, SoftGoal } from './mh/rings';
@@ -39,14 +39,15 @@ export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: Goa
   if (sex === 'female') Object.assign(frame, { bust: v.bust, underbust: v.underbust });
   const locked: CompositionInput['locked'] = {};
   for (const k of SOFT) if (L[k] && !(k === 'bust' && sex === 'female')) locked[k] = v[k];
-  // 罩杯是胸部形狀控制，不拿它重新推動全身軟組織偏好。
-  const preferenceSuggestion = bustDiff === null ? sug : suggest({ sex,
-    locked: Object.fromEntries(Object.entries(v).filter(([k]) => L[k as keyof typeof L])),
+  // 女性杯量及明確上胸都是局部控制，不反推全身脂肪、骨架或肌肉。
+  const detachedBreast = sex === 'female' && (bustDiff !== null || L.bust);
+  const preferenceSuggestion = !detachedBreast ? sug : suggest({ sex,
+    locked: Object.fromEntries(Object.entries(v).filter(([k]) => L[k as keyof typeof L] && k !== 'bust')),
   });
-  if (sex === 'female' && bustDiff !== null) {
+  if (detachedBreast) {
     for (const key of FRAME) if (!L[key]) frame[key] = preferenceSuggestion.values[key];
-    frame.underbust = L.underbust || L.bust ? v.underbust : preferenceSuggestion.values.underbust;
-    frame.bust = frame.underbust! + bustDiff;
+    frame.underbust = L.underbust || (bustDiff !== null && L.bust) ? v.underbust : preferenceSuggestion.values.underbust;
+    frame.bust = bustDiff === null ? v.bust : frame.underbust! + bustDiff;
   }
   const preferred: CompositionInput['preferred'] = {};
   for (const k of SOFT) {
@@ -60,10 +61,17 @@ export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: Goa
     };
   }
   if (!L.upperArm) {
-    const obs = nhanesPreference(sex, v.height, v.weight, v.bodyFat);
+    const pv = preferenceSuggestion.values;
+    const obs = nhanesPreference(sex, pv.height, pv.weight, pv.bodyFat);
     // 實測中點的偏好優先於其餘人工／跨族群先驗；3 是分配成本權重，
     // 不更動來源留出誤差或介面顯示的預測範圍。
     preferred.upperArm = { target: obs.arm, scale: Math.max(0.045, obs.scale), confidence: 3 };
+  }
+  if (!L.waist) {
+    const pv = preferenceSuggestion.values;
+    const source = navelWaistPreference(sex, pv.height, pv.weight);
+    preferred.waist = { ...source, scale: Math.max(0.045, source.scale), confidence: 0.65,
+      source: 'navel', minimumTarget: pv.waist };
   }
   return {
     estimateReference: !Object.keys(L).some(k => k !== 'height' && L[k as keyof typeof L]) && bustDiff === null && muscleMass == null,
