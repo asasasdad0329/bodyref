@@ -55,6 +55,7 @@ const client = new BodyClient<Tag>(
     const sugShown = { ...tag.sug, values: summary.values };
     shown = { state: tag.state, sug: sugShown };
     viewer.setShape(out, summary.values);
+    document.getElementById('stage')!.dataset.shapeKey = tag.key;
     renderSummary(summaryEl, tag.state, summary);
     if (tag.key === requestedKey) renderPanel(sugShown);
     statusEl.hidden = true;
@@ -73,7 +74,7 @@ const panel = new Panel(document.getElementById('panel')!, {
   onSex(sex) {
     // 換性別時，其他手動數值大多不再適用，只保留身高與體重
     const { height, weight } = state.locked;
-    state = { ...state, sex, cup: null, locked: weight === undefined ? { height } : { height, weight } };
+    state = { ...state, sex, cup: null, muscleMass: null, locked: weight === undefined ? { height } : { height, weight } };
     meshValues = null;
     presetSelect.value = '';
     update();
@@ -112,6 +113,12 @@ const panel = new Panel(document.getElementById('panel')!, {
     presetSelect.value = '';
     update();
   },
+  onMuscle(muscleMass) {
+    state = { ...state, muscleMass }; presetSelect.value = ''; update();
+  },
+  onMorphology(key, value) {
+    state = { ...state, morphology: { ...state.morphology, [key]: value } }; presetSelect.value = ''; update();
+  },
   onCup(cup) {
     state = { ...state, cup };
     presetSelect.value = '';
@@ -137,7 +144,7 @@ function update(): void {
 function renderPanel(s: Suggestion): void {
   const diff = bustDiff(state);
   const rare = Object.fromEntries(rarity({ sex: state.sex, locked: state.locked, bustDiff: diff }).map((r) => [r.id, r.percentile]));
-  panel.render(state, s, rare, state.sex === 'female' ? braSize(s.values.bust, s.values.underbust) : null, derived);
+  panel.render(state, s, rare, state.sex === 'female' ? braSize(s.values.bust, s.values.underbust) : null, derived, summary?.muscleMass);
 }
 
 function apply(): void {
@@ -155,10 +162,10 @@ function apply(): void {
   viewer.setDisplay({ lineStyle: state.view.lineStyle, outline: state.view.showOutline, measures: state.view.showMeasures });
   toolbar.render(state.view);
 
-  const key = JSON.stringify([state.sex, state.locked, state.cup, state.ratios, state.view.armAngle]);
+  const key = JSON.stringify([state.sex, state.locked, state.cup, state.ratios, state.muscleMass, state.morphology, state.view.armAngle]);
   if (key !== requestedKey) {
     requestedKey = key;
-    client.request({ ...bodyInputFor({ sex: state.sex, sug, bustDiff: diff }), armAngle: state.view.armAngle }, { state, sug, bustDiff: diff, key });
+    client.request({ ...bodyInputFor({ sex: state.sex, sug, bustDiff: diff, muscleMass: state.muscleMass, morphology: state.morphology }), armAngle: state.view.armAngle }, { state, sug, bustDiff: diff, key });
   }
   save(state);
 }
@@ -188,12 +195,13 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-view]')) {
 // 匯出與分享
 const exportDialog = new ExportDialog();
 const stamp = () => new Date().toISOString().slice(0, 10);
+const exportMeasurements = () => (document.getElementById('export-measurements') as HTMLInputElement).checked;
 document.getElementById('shot')!.addEventListener('click', () => {
-  exportDialog.show('目前視角截圖', viewer.captureCurrent(2), `bodyref-${stamp()}.png`);
+  exportDialog.show('目前視角截圖', viewer.captureCurrent(2, !exportMeasurements()), `bodyref-${stamp()}.png`);
 });
 document.getElementById('three-view')!.addEventListener('click', () => {
   if (!shown || !summary) return;
-  exportDialog.show('三視圖', composeThreeView(viewer, shown.state, shown.sug, summary), `bodyref-三視圖-${stamp()}.png`);
+  exportDialog.show('三視圖', composeThreeView(viewer, shown.state, shown.sug, summary, exportMeasurements()), `bodyref-三視圖-${stamp()}.png`);
 });
 const shareDialog = new ShareDialog((s) => {
   state = { ...s, view: state.view };

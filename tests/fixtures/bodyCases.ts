@@ -32,4 +32,15 @@ export const BODY_CASES: BodyCase[] = [
   ...[45, 60, 75, 90].map((weight) => female(`W${weight}`, { height: 160, weight })),
   { ...female('CUP-A', { height: 160, bodyFat: 0.27 }), cup: 'A' },
   { ...female('CUP-G', { height: 160, bodyFat: 0.27 }), cup: 'G' },
+  // 審查報告的可重現輸入；未提供的欄位維持推算，不冒稱還原所有原圖設定。
+  { ...female('AUDIT-G168', { height: 168 }), cup: 'G' },
+  { ...female('AUDIT-G170-H114', { height: 170, hip: 114 }), cup: 'G' },
+  { ...female('AUDIT-G170-H114-T68', { height: 170, hip: 114, thigh: 68 }), cup: 'G' },
+  { ...female('AUDIT-G170-H114-T72', { height: 170, hip: 114, thigh: 72 }), cup: 'G' },
+  { ...female('AUDIT-G170-H114-W68', { height: 170, hip: 114, waist: 68 }), cup: 'G' },
+  ...[168, 170].map(height => ({ ...female(`AUDIT-E${height}-H114-W64`, { height, bust: 97, waist: 64, hip: 114 }), cup: 'E' })),
+  // 男性圖片缺少完整輸入；以下明示身高 175 作受控壓力案例，並非原圖的精確重現。
+  { id: 'AUDIT-M130', sex: 'male', locked: { height: 175, weight: 130 } },
+  { id: 'AUDIT-M-CHEST20', sex: 'male', locked: { height: 175, bust: 110, underbust: 90 } },
+  { id: 'AUDIT-M-H114-W68', sex: 'male', locked: { height: 175, hip: 114, waist: 68 } },
 ];

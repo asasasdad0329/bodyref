@@ -8,8 +8,9 @@ import {
   type Sex,
   WEIGHT_RANGE,
 } from '../core/measurements';
-import { RATIOS, type RatioId, ratiosOf } from '../core/proportions';
-import { CUP_TABLE, MUSCLE_OF_LEAN } from '../core/reference';
+import { RATIOS, type RatioId, ratiosOf, ratioToDisplay, ratioFromDisplay, ratioDisplayRange } from '../core/proportions';
+import { CUP_TABLE } from '../core/reference';
+import { ABDOMEN_SHAPES, BREAST_SHAPES, HIP_SHAPES, type Morphology } from '../core/morphology';
 import type { AppState } from '../core/state';
 
 // 右側輸入面板。每個數值不是「手動」（你填的）就是「推算」（依你填的數值與體型算出）。
@@ -21,6 +22,8 @@ export interface PanelCallbacks {
   /** value 為 null 表示改回推算值 */
   onLock(id: VarId, value: number | null): void;
   onRatio(id: RatioId, value: number | null): void;
+  onMuscle(value: number | null): void;
+  onMorphology(key: keyof Morphology, value: string): void;
   onCup(cup: string | null): void;
   onFocusMeasure(id: MeasureId | null): void;
 }
@@ -42,7 +45,7 @@ interface Row {
   row: HTMLElement;
 }
 
-const MUSCLE_RANGE = { min: 24, max: 52, step: 0.5 };
+const MUSCLE_RANGE = { min: 5, max: 100, step: 0.5 };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -100,7 +103,8 @@ const fmt = (v: number) => v.toFixed(1);
 export class Panel {
   private rows = new Map<string, Row>();
   private height!: NumberField;
-  private muscle!: NumberField;
+  private shapeSelects = new Map<keyof Morphology, HTMLSelectElement>();
+  private breastShapeRow!: HTMLElement;
   private sexInputs: HTMLInputElement[] = [];
   private cupSelect!: HTMLSelectElement;
   private cupRow!: HTMLElement;
@@ -115,6 +119,7 @@ export class Panel {
     root.append(
       this.buildBasic(),
       this.buildMeasures(MAIN_GIRTHS, '三圍與腿圍', 'GIRTH'),
+      this.buildShapes(),
       this.buildProportions(),
       this.buildDetails(),
       el(
@@ -211,16 +216,9 @@ export class Panel {
       () => this.cb.onLock('bodyFat', null),
     );
 
-    const muscleRow = el('div', 'field');
-    const muscleTop = el('div', 'field-top');
-    const muscleLab = el('label', 'field-label', '骨骼肌率');
-    muscleLab.htmlFor = 'n-muscle';
-    muscleTop.append(muscleLab);
-    const muscle = numberControl('muscle', '骨骼肌率', MUSCLE_RANGE, '%', (v) =>
-      this.cb.onLock('bodyFat', Math.min(0.55, Math.max(0.05, 1 - v / 100 / MUSCLE_OF_LEAN))),
-    );
-    muscleRow.append(muscleTop, muscle.node, el('p', 'hint', '骨骼肌重 ÷ 體重，和體脂率連動（以骨骼肌約占去脂體重 55% 換算）。'));
-    this.muscle = muscle.field;
+    const muscleRow = this.lockRow('muscleMass', '骨骼肌量', MUSCLE_RANGE, 'kg',
+      '模型中的骨骼肌估計量，可獨立調整；不等於全部去脂體重。',
+      v => this.cb.onMuscle(v), () => this.cb.onMuscle(null));
 
     this.cupRow = el('div', 'field');
     const cupTop = el('div', 'field-top');
@@ -236,6 +234,23 @@ export class Panel {
     this.cupRow.append(cupTop, this.cupSelect, this.cupNote);
 
     g.append(sexRow, hRow, weight, fat, muscleRow, this.cupRow);
+    return g;
+  }
+
+  private buildShapes(): HTMLElement {
+    const g = this.group('局部型態', 'SHAPE', '型態改變分布，已填寫的圍度與組成維持指定值。脂肪分布是模型預設。');
+    const choices = [ ['breast', '胸型', BREAST_SHAPES], ['hip', '臀型', HIP_SHAPES], ['abdomen', '腹型', ABDOMEN_SHAPES] ] as const;
+    for (const [key, title, items] of choices) {
+      const row = el('div', 'field');
+      const label = el('label', 'field-label', title);
+      label.htmlFor = `shape-${key}`;
+      const select = el('select', 'select');
+      select.id = label.htmlFor;
+      for (const item of items) select.append(new Option(item.label, item.id));
+      select.addEventListener('change', () => this.cb.onMorphology(key, select.value));
+      row.append(label, select); g.append(row); this.shapeSelects.set(key, select);
+      if (key === 'breast') this.breastShapeRow = row;
+    }
     return g;
   }
 
@@ -272,8 +287,10 @@ export class Panel {
     );
     this.ratioCount = count;
     for (const d of RATIOS) {
-      const range = { min: d.min, max: d.max, step: d.step };
-      node.append(this.lockRow(d.id, d.label, range, d.unit, d.hint, (v) => this.cb.onRatio(d.id, v / d.scale), () => this.cb.onRatio(d.id, null)));
+      const range = ratioDisplayRange(d);
+      const row = this.lockRow(d.id, d.label, range, '', d.hint, v => this.cb.onRatio(d.id, ratioFromDisplay(d.id, v)), () => this.cb.onRatio(d.id, null));
+      row.querySelector('.num')!.prepend(el('span', 'ratio-prefix', '1 :'));
+      node.append(row);
     }
     this.proportionNote = el('p', 'hint proportion-note');
     node.append(this.proportionNote);
@@ -301,10 +318,17 @@ export class Panel {
    * @param sug 顯示用的數值（鎖定的是輸入值，其他是網格量到的數值）
    * @param derived 依比例推算的長度
    */
-  render(state: AppState, sug: Suggestion, rarity: Partial<Record<VarId, number>>, braSize: string | null, derived: MeasureId[]): void {
+  render(state: AppState, sug: Suggestion, rarity: Partial<Record<VarId, number>>, braSize: string | null, derived: MeasureId[], muscleEstimate?: number): void {
     for (const input of this.sexInputs) input.checked = input.value === state.sex;
     setValue(this.height, state.locked.height);
-    setValue(this.muscle, MUSCLE_OF_LEAN * (1 - sug.values.bodyFat) * 100);
+    const muscle = this.rows.get('muscleMass')!;
+    setValue(muscle.field, state.muscleMass ?? muscleEstimate ?? sug.values.weight * (1 - sug.values.bodyFat) * 0.55);
+    const manualMuscle = state.muscleMass !== null;
+    muscle.tag.textContent = manualMuscle ? '手動' : '推算';
+    muscle.tag.dataset.state = manualMuscle ? 'manual' : 'auto';
+    muscle.reset!.hidden = !manualMuscle;
+    for (const [key, select] of this.shapeSelects) select.value = state.morphology[key];
+    this.breastShapeRow.hidden = state.sex !== 'female';
 
     const female = state.sex === 'female';
     this.cupRow.hidden = !female;
@@ -341,7 +365,7 @@ export class Panel {
     for (const d of RATIOS) {
       const r = this.rows.get(d.id)!;
       const locked = state.ratios[d.id] !== undefined;
-      setValue(r.field, (state.ratios[d.id] ?? ratios[d.id]) * d.scale, d.digits);
+      setValue(r.field, ratioToDisplay(d.id, state.ratios[d.id] ?? ratios[d.id]), 3);
       mark(r, locked ? 'manual' : 'auto');
       r.note.textContent = locked ? d.hint : `目前由長度算出・${d.hint}`;
     }

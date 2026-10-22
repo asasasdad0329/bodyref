@@ -3,7 +3,7 @@ import { type HeadParts, cutNeck, eggHead, headParts } from './egghead';
 import { type V3, cavity, centroid, meshVolume, vert } from './geometry';
 import { GuideBuilder } from './guides';
 import type { BodyInput } from '../goals';
-import { MEASURE_KEYS, type MeasureKey } from './measure';
+import { MEASURE_KEYS, type MeasureKey, type Measured } from './measure';
 import { type ArmPose, BodyModel, rotateArmPoint } from './model';
 import { RingBody, type Soft } from './rings';
 
@@ -15,6 +15,7 @@ export type Goal =
   | { kind: 'measure'; key: MeasureKey; value: number }
   | { kind: 'weight'; value: number }
   | { kind: 'bodyFat'; value: number }
+  | { kind: 'muscleMass'; value: number }
   | { kind: 'diff'; value: number };
 
 export interface EngineInput extends BodyInput {
@@ -43,6 +44,11 @@ export interface EngineOutput {
   /** 模型的體重（瘦體重 + 脂肪）與體脂率 */
   weight: number;
   bodyFat: number;
+  tissues: { fat: number; muscle: number; otherLean: number };
+  accounting: { otherLeanBase: number; otherLeanControl: number; breastOtherLean: number };
+  diagnostics: { kind: 'input-conflict' | 'unconverged' | 'invalid-shape'; message: string }[];
+  quality: ReturnType<RingBody['fitComposition']>['quality'];
+  measurement: { version: 2; chestWallUnderbust: number; standingBust: number; sources: Measured['sources'] };
   /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
   residual: { goal: Goal; error: number }[];
   /** 各區脂肪與肌肉比素體多出的公斤數 */
@@ -57,7 +63,7 @@ export class BodyEngine {
   readonly rings: RingBody;
   private readonly guides: GuideBuilder;
   readonly head: HeadParts;
-  private fitted: { key: string; result: ReturnType<RingBody['fitComposition']> } | null = null;
+  private fitted: { key: string; result: ReturnType<RingBody['fitComposition']>; approximate: boolean } | null = null;
 
   constructor(readonly asset: BodyAsset) {
     this.model = new BodyModel(asset);
@@ -67,11 +73,65 @@ export class BodyEngine {
   }
 
   run(input: EngineInput): EngineOutput {
+    const diagnostics: EngineOutput['diagnostics'] = [];
+    let solveInput = input;
+    if (input.muscleMass !== undefined && input.weightLocked) {
+      const available = input.weight * (input.bodyFatLocked ? 1 - input.bodyFat : 1);
+      if (input.muscleMass >= available) {
+        diagnostics.push({ kind: 'input-conflict', message: `骨骼肌 ${input.muscleMass.toFixed(1)} kg 已超過鎖定體重與體脂所剩的去脂總量 ${available.toFixed(1)} kg，沒有空間容納其餘去脂組織。請調整其中一項；目前顯示有差距的近似體型。` });
+        solveInput = { ...input, muscleMass: available * 0.7 };
+      }
+    }
     const { armAngle: _angle, ...shapeInput } = input;
     const key = JSON.stringify(shapeInput);
-    if (this.fitted?.key !== key) this.fitted = { key, result: this.rings.fitComposition(input, { neutralize: true }) };
+    if (this.fitted?.key !== key) {
+      let result = this.rings.fitComposition(solveInput, { neutralize: true });
+      let restoreInspection = this.rings.preserveInspection();
+      let approximate = false;
+      const score = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
+        .reduce((sum, x) => sum + (x.error / (x.goal.kind === 'bodyFat' ? 0.01 : 0.5)) ** 2, 0)
+        + (input.muscleMass === undefined ? 0 : ((r.tissues.muscle - input.muscleMass) / 0.5) ** 2);
+      const valid = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
+        .every(x => Math.abs(x.error) < (x.goal.kind === 'bodyFat' ? 0.01 : 0.5))
+        && (input.muscleMass === undefined || Math.abs(r.tissues.muscle - input.muscleMass) < 0.5)
+        && Object.values(r.tissues).every(x => x >= 0) && r.quality.valid;
+      if (!diagnostics.length && input.weightLocked && input.locked.hip !== undefined
+        && input.locked.thigh === undefined && input.preferred?.thigh && !valid(result)) {
+        // 以來源腿圍建立有界的另一個分配起點；只是候選導引，並非使用者硬輸入。
+        // 較粗自由腿卡住臀圈時，先限制腿量再分配，可找到原求解路徑漏掉的解。
+        for (const fraction of [1, 0.9]) {
+          const candidate = this.rings.fitComposition({ ...solveInput,
+            locked: { ...solveInput.locked, thigh: input.preferred.thigh.target * fraction } }, { neutralize: true });
+          if (valid(candidate) || score(candidate) < score(result)) {
+            result = candidate; restoreInspection = this.rings.preserveInspection();
+          }
+          if (valid(result)) break;
+        }
+      }
+      const sizeError = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
+        .filter(x => x.goal.kind === 'measure' || x.goal.kind === 'diff').reduce((sum, x) => sum + x.error ** 2, 0);
+      const missesSize = residualOf(input, result.values, result.weight, result.bodyFat)
+        .some(x => (x.goal.kind === 'measure' || x.goal.kind === 'diff') && Math.abs(x.error) > 0.5);
+      if (!diagnostics.length && input.weightLocked && Object.keys(input.locked).length >= 2 && missesSize) {
+        // 超約束時保留明確尺寸的近似解，不能為湊體重把指定臀腿推大。
+        // 原輸入仍用於殘差與診斷，沒有把放寬的重量冒充成功。
+        const candidate = this.rings.fitComposition({ ...solveInput, weightLocked: false, estimateReference: false }, { neutralize: true });
+        if (sizeError(candidate) < sizeError(result)) {
+          result = candidate; approximate = true; restoreInspection = this.rings.preserveInspection();
+        }
+      }
+      restoreInspection();
+      this.fitted = { key, result, approximate };
+    }
     const res = this.fitted.result;
-    const { P, armRotation } = this.model.display(res.P, input.armAngle);
+    const residual = [...residualOf(input, res.values, res.weight, res.bodyFat), ...(input.muscleMass === undefined ? [] : [{ goal: { kind: 'muscleMass' as const, value: input.muscleMass }, error: res.tissues.muscle - input.muscleMass }])];
+    if (!diagnostics.length && (residual.some(r => Math.abs(r.error) > (r.goal.kind === 'bodyFat' ? 0.01 : 0.5)) || Object.values(res.tissues).some(x => x < 0))) {
+      diagnostics.push({ kind: 'unconverged', message: this.fitted.approximate
+        ? `目前控制未能同時符合鎖定尺寸與體重；顯示優先維持尺寸的近似解，實際體重 ${res.weight.toFixed(1)} kg。原體重目標仍保留，這不代表輸入在生理上不可能。`
+        : '目前控制尚未找到同時符合全部尺寸與組成的解；這是模型求解未達標，不能據此判定這個體型不可能。' });
+    }
+    if (!res.quality.valid) diagnostics.push({ kind: 'invalid-shape', message: `目前曲面有 ${res.quality.foldedFaces} 個新增折返面、${res.quality.collapsedFaces} 個塌縮面；即使尺寸接近目標，也尚未形成有效體型。` });
+    const { P, armRotation } = this.model.display(res.P, input.armAngle, false);
     const a = this.asset;
     const m = res.measured;
 
@@ -136,7 +196,12 @@ export class BodyEngine {
       values: res.values,
       weight: res.weight,
       bodyFat: res.bodyFat,
-      residual: residualOf(input, res.values, res.weight, res.bodyFat),
+      tissues: res.tissues,
+      accounting: res.accounting,
+      quality: res.quality,
+      measurement: { version: 2, chestWallUnderbust: m.values.underbust, standingBust: m.values.bust, sources: m.sources },
+      diagnostics,
+      residual,
       composition: res.kg,
       volume: meshVolume(res.P.subarray(0, a.nBody * 3), a.quads),
       marks: { topY, crotchY, kneeY: knee[1], ankleY: ankle[1] },
