@@ -12,13 +12,14 @@ import { type SceneColors, readSceneColors } from './theme';
 // 3D 檢視器：以模型為中心旋轉（左鍵）、平移（右鍵）、滾輪縮放；
 // 提供正面／側面／背面等固定視角，並能輸出截圖與正交三視圖。
 
-export type ViewName = 'front' | 'quarter' | 'side' | 'back';
+export type ViewName = 'front' | 'quarter' | 'side' | 'rearQuarter' | 'back';
 
 const VIEW_ANGLES: Record<ViewName, { azimuth: number; elevation: number }> = {
   front: { azimuth: 0, elevation: 0.04 },
   quarter: { azimuth: Math.PI / 4.5, elevation: 0.12 },
   side: { azimuth: Math.PI / 2, elevation: 0.04 },
   back: { azimuth: Math.PI, elevation: 0.04 },
+  rearQuarter: { azimuth: Math.PI - Math.PI / 4.5, elevation: 0.12 },
 };
 
 const FOV = 28;
@@ -45,6 +46,8 @@ export class Viewer {
   private leftInset = 0;
   private colors: SceneColors;
   private dirty = true;
+  private lightOffset = 0;
+  private display = { lineStyle: 'none' as LineStyle, outline: false, measures: false };
   private tween: { from: THREE.Vector3; to: THREE.Vector3; fromT: THREE.Vector3; toT: THREE.Vector3; start: number; dur: number } | null = null;
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -121,6 +124,7 @@ export class Viewer {
   }
 
   setDisplay(opts: { lineStyle: LineStyle; outline: boolean; measures: boolean }): void {
+    this.display = { ...opts };
     this.body.setVisibility(opts);
     this.measures.setShowAll(opts.measures);
     this.dirty = true;
@@ -183,13 +187,17 @@ export class Viewer {
   }
 
   /** 目前視角的截圖（PNG data URL） */
-  captureCurrent(scale = 2): string {
+  captureCurrent(scale = 2, clean = false): string {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     this.renderer.setPixelRatio(scale);
     this.setLineResolution(size.x * scale, size.y * scale);
-    this.renderer.render(this.scene, this.camera);
-    const url = this.renderer.domElement.toDataURL('image/png');
+    const azimuth = Math.atan2(this.camera.position.x - this.controls.target.x, this.camera.position.z - this.controls.target.z);
+    this.placeLights(azimuth); this.placeRuler(azimuth);
+    const url = this.withCleanOutput(clean, () => {
+      this.renderer.render(this.scene, this.camera);
+      return this.renderer.domElement.toDataURL('image/png');
+    });
     this.renderer.setPixelRatio(ratio);
     this.setLineResolution(size.x * ratio, size.y * ratio);
     this.dirty = true;
@@ -197,7 +205,7 @@ export class Viewer {
   }
 
   /** 以正交鏡頭渲染指定視角，所有視角使用相同比例尺；回傳畫布供合成 */
-  renderOrtho(view: Exclude<ViewName, 'quarter'>, width: number, height: number, target: CanvasRenderingContext2D, dx: number, dy: number): { pxPerCm: number } {
+  renderOrtho(view: Exclude<ViewName, 'quarter'>, width: number, height: number, target: CanvasRenderingContext2D, dx: number, dy: number, clean = false): { pxPerCm: number } {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     const halfH = this.modelHeight * 0.56;
@@ -213,8 +221,10 @@ export class Viewer {
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(width, height, false);
     this.setLineResolution(width, height);
-    this.renderer.render(this.scene, cam);
-    target.drawImage(this.renderer.domElement, dx, dy, width, height);
+    this.withCleanOutput(clean, () => {
+      this.renderer.render(this.scene, cam);
+      target.drawImage(this.renderer.domElement, dx, dy, width, height);
+    });
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(size.x, size.y, false);
     this.setLineResolution(size.x * ratio, size.y * ratio);
@@ -222,8 +232,27 @@ export class Viewer {
     return { pxPerCm: height / (halfH * 2) };
   }
 
+  /** 暫時移除所有疊線與地面格線；輸出後完整恢復預覽開關。 */
+  private withCleanOutput<T>(clean: boolean, render: () => T): T {
+    if (!clean) return render();
+    const ruler = this.ruler.visible, measures = this.measures.group.visible;
+    const grids = this.floorGroup.children.filter(o => o instanceof THREE.PolarGridHelper).map(o => ({ o, visible: o.visible }));
+    try {
+      this.body.setVisibility({ lineStyle: 'none', outline: false });
+      this.ruler.visible = false; this.measures.group.visible = false;
+      for (const { o } of grids) o.visible = false;
+      return render();
+    } finally {
+      this.body.setVisibility(this.display);
+      this.ruler.visible = ruler; this.measures.group.visible = measures;
+      for (const { o, visible } of grids) o.visible = visible;
+      this.dirty = true;
+    }
+  }
+
   /** 主光在鏡頭右上前方，輪廓光在左後方 */
   private placeLights(azimuth: number): void {
+    azimuth += this.lightOffset;
     const h = this.modelHeight || 160;
     const key = azimuth + 0.6;
     this.keyLight.position.set(Math.sin(key) * 200, h * 2.3, Math.cos(key) * 200);
@@ -232,6 +261,9 @@ export class Viewer {
     this.rimLight.target.position.set(0, h * 0.5, 0);
     this.rimLight.target.updateMatrixWorld();
   }
+
+  /** 維護頁可換光向，辨別幾何起伏與光影；一般預設為攝影棚方向。 */
+  setLightOffset(offset: number): void { this.lightOffset = offset; this.dirty = true; }
 
   /** 把身高尺放在指定水平視角的左側，刻度朝向模型 */
   private placeRuler(azimuth: number): void {

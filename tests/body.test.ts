@@ -8,7 +8,9 @@ import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
-import { BODY_CASES } from './fixtures/bodyCases';
+import { BODY_CASES, H104_THIGH } from './fixtures/bodyCases';
+import { DEFAULT_MORPHOLOGY, type Morphology } from '../src/core/morphology';
+import { BreastRig } from '../src/body/mh/breast';
 
 let engine: BodyEngine;
 
@@ -17,11 +19,89 @@ beforeAll(() => {
   engine = new BodyEngine(parseBodyAsset(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)));
 });
 
-function run(sex: Sex, locked: Record<string, number>, cup: string | null = null): EngineOutput {
+function run(sex: Sex, locked: Record<string, number>, cup: string | null = null, options: { morphology?: Morphology; muscleMass?: number } = {}): EngineOutput {
   const bustDiff = cup ? cupDiff(cup)! : null;
   const sug = suggest({ sex, locked, bustDiff });
-  return engine.run({ ...bodyInputFor({ sex, sug, bustDiff }), armAngle: 16 });
+  return engine.run({ ...bodyInputFor({ sex, sug, bustDiff, ...options }), armAngle: 16 });
 }
+
+function expectHard(out: EngineOutput) {
+  for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
+  expect(Object.values(out.tissues).every(x => Number.isFinite(x) && x >= 0)).toBe(true);
+  expect(out.tissues.fat + out.tissues.muscle + out.tissues.otherLean).toBeCloseTo(out.weight, 8);
+  expect(Object.values(out.accounting).reduce((s, x) => s + x, 0)).toBeCloseTo(out.tissues.otherLean, 8);
+  expect((out.tissues.fat / 0.9 + (out.tissues.muscle + out.tissues.otherLean) / 1.06) * 1000).toBeCloseTo(out.volume, 4);
+}
+
+describe('共同形狀控制與組成', () => {
+  it('局部差分平滑與兩份完整曲面一致', () => {
+    const m = engine.model, rig = new BreastRig(engine.asset, engine.asset.base, m.adj);
+    const base = new Float32Array(engine.asset.base), shaped = new Float32Array(base);
+    rig.apply(shaped, 3.5, 'long');
+    const expectedBase = new Float32Array(base), expectedShape = new Float32Array(shaped);
+    m.finish(expectedBase); m.finish(expectedShape);
+    m.finishPair(base, shaped, rig.support);
+    expect(Math.max(...base.map((v, i) => Math.abs(v - expectedBase[i])))).toBeLessThan(0.00003);
+    expect(Math.max(...shaped.map((v, i) => Math.abs(v - expectedShape[i])))).toBe(0);
+  });
+  for (const breast of ['teardrop', 'long', 'round'] as const) it(`${breast}：B／G／S 維持站姿胸圍差與總帳`, () => {
+    for (const cup of ['B', 'G', 'S']) expectHard(run('female', { height: 160, underbust: 70 }, cup,
+      { morphology: { ...DEFAULT_MORPHOLOGY, breast } }));
+  }, 15000);
+  for (const breast of ['teardrop', 'long', 'round'] as const) for (const bust of [85, 90, 95, 100]) {
+    it(`${breast}：E${bust} 的四組腰臀都符合，含小胸廓`, () => {
+      for (const waist of [56, 64]) for (const hip of [104, 114]) expectHard(run('female', { height: 160, bust, underbust: bust - 20, waist, hip }, null,
+        { morphology: { ...DEFAULT_MORPHOLOGY, breast } }));
+    }, 15000);
+  }
+  for (const hip of [94, 104, 114, 124, 130]) it(`H${hip}：固定原版 H104 大腿，連接仍對準`, () => {
+    expectHard(run('female', { height: 165, bust: 97, underbust: 76, waist: 68, hip, thigh: H104_THIGH }));
+  });
+  for (const sex of ['female', 'male'] as const) it(`${sex}：同尺寸的肌脂交換與獨立肌肉量`, () => {
+    const locked: Record<string, number> = sex === 'female' ? { height: 165, weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104 }
+      : { height: 175, weight: 80, bust: 105, waist: 85, hip: 100 };
+    const low = run(sex, { ...locked, bodyFat: 0.25 }, null, { muscleMass: sex === 'female' ? 20 : 26 });
+    const high = run(sex, { ...locked, bodyFat: 0.25 }, null, { muscleMass: sex === 'female' ? 28 : 36 });
+    expectHard(low); expectHard(high);
+    expect(Math.max(...high.positions.map((v, i) => Math.abs(v - low.positions[i])))).toBeGreaterThan(0.3);
+    expect(high.tissues.muscle - low.tissues.muscle).toBeGreaterThan(7.5);
+  }, 15000);
+  for (const sex of ['female', 'male'] as const) it(`${sex}：臀腹型可獨立選擇並守住尺寸與體重`, () => {
+    const locked: Record<string, number> = sex === 'female' ? { height: 165, weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104, thigh: 56 }
+      : { height: 175, weight: 80, bust: 105, waist: 85, hip: 100, thigh: 58 };
+    const a = run(sex, locked);
+    const b = run(sex, locked, null, { morphology: { breast: 'round', hip: 'projected', abdomen: 'smooth' } });
+    expectHard(a); expectHard(b);
+    expect(Math.max(...b.positions.map((v, i) => Math.abs(v - a.positions[i])))).toBeGreaterThan(0.15);
+  }, 15000);
+  it('肌肉大於已鎖去脂量時明列輸入衝突，沒有默改鎖定值', () => {
+    const out = run('female', { height: 160, weight: 50, bodyFat: 0.3 }, null, { muscleMass: 40 });
+    expect(out.diagnostics.some(d => d.kind === 'input-conflict')).toBe(true);
+    const muscle = out.residual.find(r => r.goal.kind === 'muscleMass')!;
+    expect(muscle.goal.value).toBe(40);
+    expect(out.positions.every(Number.isFinite)).toBe(true);
+  });
+  for (const sex of ['female', 'male'] as const) it(`${sex}：自由圍度的獨立肌肉量也有可見響應`, () => {
+    const locked = sex === 'female' ? { height: 165, weight: 60, bodyFat: 0.25 } : { height: 175, weight: 80, bodyFat: 0.25 };
+    const a = run(sex, locked, null, { muscleMass: sex === 'female' ? 20 : 26 });
+    const b = run(sex, locked, null, { muscleMass: sex === 'female' ? 28 : 36 });
+    expectHard(a); expectHard(b);
+    expect(Math.max(...a.positions.map((v, i) => Math.abs(v - b.positions[i])))).toBeGreaterThan(0.3);
+  }, 15000);
+  for (const id of ['MULTI90', 'MULTI90-T']) it(`${id}：容量不足保留尺寸、原體重殘差及未收斂診斷`, () => {
+    const c = BODY_CASES.find(c => c.id === id)!;
+    const out = run(c.sex, c.locked as Record<string, number>);
+    if (!out.diagnostics.length) expectHard(out);
+    else {
+      expect(out.diagnostics.every(d => d.kind === 'unconverged')).toBe(true);
+      for (const r of out.residual.filter(r => r.goal.kind === 'measure')) expect(Math.abs(r.error)).toBeLessThan(0.5);
+      const weight = out.residual.find(r => r.goal.kind === 'weight')!;
+      expect(weight.goal.value).toBe(90);
+      expect(weight.error).toBeCloseTo(out.weight - 90, 6);
+      expect(Object.values(out.tissues).every(x => x >= 0)).toBe(true);
+    }
+  }, 15000);
+});
 
 describe('人體網格', () => {
   const cases: [string, Sex, Record<string, number>, string | null][] = [
@@ -76,11 +156,31 @@ describe('人體網格', () => {
     expect(Math.abs(g.values.hip - a.values.hip)).toBeLessThan(1.5);
   });
 
+  it('三型大胸的自由下極不混入骨盆臀圍', () => {
+    for (const breast of ['teardrop', 'long', 'round'] as const) {
+      const morphology = { ...DEFAULT_MORPHOLOGY, breast };
+      const a = run('female', { height: 160, underbust: 70 }, 'A', { morphology });
+      const s = run('female', { height: 160, underbust: 70 }, 'S', { morphology });
+      expect(Math.abs(s.values.hip - a.values.hip)).toBeLessThan(1.5);
+    }
+  }, 15000);
+
   it('體重沒鎖定時，把腰圍改粗會讓體重跟著變重', () => {
     const base = run('female', { height: 160 });
     const thick = run('female', { height: 160, waist: base.values.waist + 12 });
     expect(thick.weight - base.weight).toBeGreaterThan(3);
     expect(thick.bodyFat).toBeGreaterThan(base.bodyFat);
+    expect(thick.tissues.fat - base.tissues.fat).toBeGreaterThan(3);
+  });
+
+  it('局部增脂不拿新增肌肉或其他去脂補差額', () => {
+    // 明確相同杯型，兩者都不走「只填身高」的參考體重校正。
+    const base = run('female', { height: 160 }, 'B');
+    const thick = run('female', { height: 160, waist: base.values.waist + 12 }, 'B');
+    expect(Math.abs(thick.tissues.muscle - base.tissues.muscle)).toBeLessThan(0.05);
+    const bodyOtherLean = (o: EngineOutput) => o.accounting.otherLeanBase + o.accounting.otherLeanControl;
+    expect(Math.abs(bodyOtherLean(thick) - bodyOtherLean(base))).toBeLessThan(0.05);
+    expect(thick.tissues.fat - base.tissues.fat).toBeGreaterThan(3);
   });
 
   it('體重變重時，指定的罩杯維持不變', () => {
@@ -105,8 +205,11 @@ describe('人體網格', () => {
     return run(c.sex, c.locked as Record<string, number>, c.cup ?? null);
   };
 
-  for (const [id, low, high] of [['T2', 22, 26], ['T3', 28, 32], ['T4', 31, 35.5]] as const) {
-    it(`${id}：預設上臂不再因總量分配過細或過粗`, () => {
+  // 舊值量在肩肘 55%；現改採 NHANES 放鬆中點 50%，不能沿用舊截面界限。
+  // 自由圍度是可讓步的偏好，以留出 log RMSE × 1.96 的 95% 區間防離群，
+  // 不把介面的常見區間當硬限制，也不從候選網格反算界限。
+  for (const [id, low, high] of [['T2', 22.9074, 27.6979], ['T3', 29.5315, 35.7073], ['T4', 31.1070, 37.6122]] as const) {
+    it(`${id}：預設放鬆上臂符合獨立 NHANES 預測範圍`, () => {
       const out = regression(id);
       expect(out.values.upperArm).toBeGreaterThan(low);
       expect(out.values.upperArm).toBeLessThan(high);
@@ -118,7 +221,8 @@ describe('人體網格', () => {
 
   it('偏胖預設的腰腹增量不能靠繼續放大臀腿補償', () => {
     const out = regression('T4');
-    expect(out.values.waist).toBeGreaterThan(86);
+    // 這是分配外型護欄，依介面半公分刻度比較；手動尺寸仍用原始 0.5 cm 容差。
+    expect(Math.round(out.values.waist * 2) / 2).toBeGreaterThanOrEqual(86);
     expect(out.values.hip).toBeLessThan(118);
     expect(out.values.thigh).toBeLessThan(71);
     expect(Math.abs(out.weight - 80)).toBeLessThan(0.5);

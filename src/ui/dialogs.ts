@@ -43,7 +43,14 @@ export class ExportDialog {
 }
 
 /** 正面、側面、背面三張正交圖，同一比例尺，下方附上量測數據 */
-export function composeThreeView(viewer: Viewer, state: AppState, sug: Suggestion, summary: Summary): string {
+export function composeThreeView(viewer: Viewer, state: AppState, sug: Suggestion, summary: Summary, includeMeasurements = true): string {
+  if (!includeMeasurements) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1560; canvas.height = 1000;
+    const ctx = canvas.getContext('2d')!;
+    for (const [i, view] of (['front', 'side', 'back'] as const).entries()) viewer.renderOrtho(view, 520, 1000, ctx, i * 520, 0, true);
+    return canvas.toDataURL('image/png');
+  }
   const panelW = 520;
   const panelH = 1000;
   const gap = 24;

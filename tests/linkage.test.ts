@@ -1,8 +1,26 @@
 import { ANKLE_HEIGHT, applyRatios, ratiosOf } from '../src/core/proportions';
 import { describe, expect, it } from 'vitest';
-import { rarity, suggest } from '../src/core/linkage';
+import { navelWaistPreference, rarity, suggest } from '../src/core/linkage';
 
 describe('數值連動', () => {
+  it('女性上胸與罩杯不反向改變全身建議，明確數值仍保留', () => {
+    const a = suggest({ sex: 'female', locked: { height: 160, underbust: 70, bust: 85 } });
+    const b = suggest({ sex: 'female', locked: { height: 160, underbust: 70, bust: 125 } });
+    const small = suggest({ sex: 'female', locked: { height: 160 }, bustDiff: 10 });
+    const large = suggest({ sex: 'female', locked: { height: 160 }, bustDiff: 55 });
+    expect(a.values.bust).toBe(85); expect(b.values.bust).toBe(125);
+    for (const key of ['weight', 'bodyFat', 'waist', 'hip', 'shoulder', 'upperArmLen'] as const) {
+      expect(a.values[key]).toBe(b.values[key]); expect(small.values[key]).toBe(large.values[key]);
+    }
+    expect(large.values.bust - large.values.underbust).toBe(55);
+  });
+  it('來源肚臍腰與最細腰造型參照使用各自的平均值', () => {
+    const source = navelWaistPreference('female', 158, 80);
+    const minimum = suggest({ sex: 'female', locked: { height: 158, weight: 80 } }).values.waist;
+    expect(source.target).toBeGreaterThan(95); expect(source.target).toBeLessThan(110);
+    expect(source.target - minimum).toBeGreaterThan(5);
+    expect(source.scale).toBeGreaterThan(0);
+  });
   it('只填參考身高體重時，建議值等於參考體型', () => {
     const s = suggest({ sex: 'female', locked: { height: 160, weight: 52 } });
     expect(s.values.waist).toBeCloseTo(64, 1);
@@ -37,10 +55,10 @@ describe('數值連動', () => {
     expect(s.range.waist[1]).toBeGreaterThan(s.values.waist);
   });
 
-  it('身高 160、體重 52 時腰圍 56 屬於少見', () => {
+  it('最細腰不拿肚臍腰資料冒充同量法的百分位，也不改掉手動值', () => {
     const r = rarity({ sex: 'female', locked: { height: 160, weight: 52, waist: 56 } });
-    const waist = r.find((x) => x.id === 'waist')!;
-    expect(waist.percentile).toBeLessThan(0.05);
+    expect(r.find(x => x.id === 'waist')).toBeUndefined();
+    expect(suggest({ sex: 'female', locked: { height: 160, weight: 52, waist: 56 } }).values.waist).toBe(56);
   });
 });
 
