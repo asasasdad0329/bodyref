@@ -1,0 +1,42 @@
+# 圖片及數值放在 Actions 產物，不能把產出或作者參考圖提交到倉庫。
+name: Shape and UI evidence
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build:single
+      - name: Product and offline file operations
+        run: node tools/ui-regression.mjs "$RUNNER_TEMP/bodyref-verification/ui"
+        env:
+          BODYREF_SINGLE_HTML: dist/bodyref-single.html
+      - name: Numerical and nine-view evidence
+        run: node tools/shape-evidence.mjs "$RUNNER_TEMP/bodyref-verification/views"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bodyref-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/bodyref-verification
+            dist/bodyref-single.html
+          retention-days: 90

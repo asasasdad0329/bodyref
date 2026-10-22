@@ -181,6 +181,13 @@ textarea {
   color: var(--muted);
 }
 
+.build-version {
+  color: var(--muted);
+  font-family: var(--font-data);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;

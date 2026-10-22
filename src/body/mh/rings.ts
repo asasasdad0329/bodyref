@@ -559,7 +559,7 @@ export class RingBody {
     const armK = 1 + 0.5 * d.underbust + (p.sex === 'male' ? 0.3 * d.breast : 0);
     const male = p.sex === 'male';
     // 男性：上胸圍是胸大肌那一圈（另一個關鍵圈）；女性：上胸圍由胸部部件決定
-    const chest = male ? plus(U, aniso(d.breast, 0.8, 0.8, 0.8, 0.35)) : U;
+    const chest = male ? plus(U, aniso(d.breast, 0.9, 0.9, 0.35, 0.75)) : U;
     const chestY = male ? mk.bustY : (mk.underbustY + yA) / 2;
     const chestSide = male ? chest.side : (U.side + armK) / 2;
     // 骨盆：男性的臀圍主要在骨架（骨盆寬與後側），量體較小

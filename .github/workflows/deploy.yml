@@ -10,6 +10,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      evidence:
+        description: '附上本次版本的數值與九視角驗證頁'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,6 +39,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Prepare evidence renderer
+        if: github.event_name == 'workflow_dispatch' && inputs.evidence
+        run: npx playwright install --with-deps chromium
+      - name: Include same-version evidence gallery
+        if: github.event_name == 'workflow_dispatch' && inputs.evidence
+        run: |
+          export BODYREF_CHROMIUM=$(node --input-type=module -e 'import { chromium } from "playwright"; process.stdout.write(chromium.executablePath())')
+          node tools/shape-evidence.mjs "$RUNNER_TEMP/bodyref-views"
+          mkdir -p dist/evidence
+          cp "$RUNNER_TEMP/bodyref-views/"*.png "$RUNNER_TEMP/bodyref-views/report.json" "$RUNNER_TEMP/bodyref-views/index.html" dist/evidence/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

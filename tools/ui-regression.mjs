@@ -32,6 +32,7 @@ try {
     morphology: { breast: 'long', hip: 'projected', abdomen: 'smooth' } };
   await page.goto(root + '?b=' + Buffer.from(JSON.stringify(state)).toString('base64url'));
   await page.waitForFunction(() => Boolean(document.getElementById('stage')?.dataset.shapeKey), null, { timeout: 60000 });
+  assert.equal((await page.locator('#build-version').textContent()).includes(snapshot.commit.slice(0, 7)), true);
   assert.equal(await page.locator('#shape-breast').inputValue(), 'long');
   assert.equal(await page.locator('#shape-hip').inputValue(), 'projected');
   assert.equal(await page.locator('#shape-abdomen').inputValue(), 'smooth');
@@ -123,6 +124,7 @@ try {
         await filePage.goto(pathToFileURL(path.resolve(process.env.BODYREF_SINGLE_HTML)).href); offlineMethod = 'file-navigation';
       }
       await filePage.waitForFunction(() => Boolean(document.getElementById('stage')?.dataset.shapeKey), null, { timeout: 60000 });
+      assert.equal((await filePage.locator('#build-version').textContent()).includes(snapshot.commit.slice(0, 7)), true);
       const old = await filePage.locator('#stage').getAttribute('data-shape-key');
       await filePage.locator('#shape-breast').selectOption('long');
       await filePage.waitForFunction(old => document.getElementById('stage').dataset.shapeKey !== old, old, { timeout: 60000 });
