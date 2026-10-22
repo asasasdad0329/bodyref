@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
@@ -73,6 +74,25 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '手機版無水平溢出');
   assert.deepEqual(errors, []);
   fs.mkdirSync(dest, { recursive: true }); await page.screenshot({ path: path.join(dest, 'mobile.png'), fullPage: true });
-  fs.writeFileSync(path.join(dest, 'result.json'), JSON.stringify({ passed: true, checks: ['肌肉獨立', '型態', '比例互斥與舊碼', '極端比值與倒數', '分享', '乾淨輸出與恢復', '三視圖', '重設', '手機排版'], errors }, null, 2));
+  const checks = ['肌肉獨立', '型態', '比例互斥與舊碼', '極端比值與倒數', '分享', '乾淨輸出與恢復', '三視圖', '重設', '手機排版'];
+  if (process.env.BODYREF_SINGLE_HTML) {
+    const offline = await browser.newContext({ offline: true, viewport: { width: 1440, height: 1000 } });
+    try {
+      const filePage = await offline.newPage();
+      filePage.on('pageerror', e => errors.push(e.message));
+      await filePage.goto(pathToFileURL(path.resolve(process.env.BODYREF_SINGLE_HTML)).href);
+      await filePage.waitForFunction(() => Boolean(document.getElementById('stage')?.dataset.shapeKey), null, { timeout: 60000 });
+      const old = await filePage.locator('#stage').getAttribute('data-shape-key');
+      await filePage.locator('#shape-breast').selectOption('long');
+      await filePage.waitForFunction(old => document.getElementById('stage').dataset.shapeKey !== old, old, { timeout: 60000 });
+      await filePage.locator('#shot').click();
+      await filePage.locator('#export-image').evaluate(img => img.decode());
+      assert.ok(await filePage.locator('#export-image').evaluate(img => img.naturalWidth > 0 && img.naturalHeight > 0));
+      assert.deepEqual(errors, []);
+      await filePage.screenshot({ path: path.join(dest, 'offline.png') });
+      checks.push('單檔離線載入、Worker 求解與圖片輸出');
+    } finally { await offline.close(); }
+  }
+  fs.writeFileSync(path.join(dest, 'result.json'), JSON.stringify({ passed: true, checks, errors }, null, 2));
   console.log('產品操作回歸通過');
 } finally { await browser?.close(); await server.close(); }

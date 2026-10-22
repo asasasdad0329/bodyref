@@ -17,10 +17,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build:single
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:ui -- "$RUNNER_TEMP/bodyref-evidence/ui"
+      - run: BODYREF_SINGLE_HTML="$GITHUB_WORKSPACE/dist/bodyref-single.html" npm run test:ui -- "$RUNNER_TEMP/bodyref-evidence/ui"
+      - run: cp dist/bodyref-single.html "$RUNNER_TEMP/bodyref-evidence/"
       - run: npm run test:body-report -- "$RUNNER_TEMP/bodyref-evidence/numeric.json"
-      - run: npm run test:shape-report -- "$RUNNER_TEMP/bodyref-evidence/images" T1 T3 T4 T6 H94 H130 HT94 HT130 FC18 FC35 MC18 MC35 MULTI75 MULTI90 MULTI90-T teardrop-B teardrop-E teardrop-G teardrop-S long-B long-E long-G long-S round-B round-E round-G round-S female-M20-fixed female-M28-fixed male-M26-fixed male-M36-fixed female-types male-types
+      - run: npm run test:shape-report -- "$RUNNER_TEMP/bodyref-evidence/images"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -7,6 +7,7 @@ interface BreastBinding {
   indices: Uint32Array;
   weights: Float32Array;
   rim: Uint32Array;
+  cageRim: Uint32Array;
   root: V3;
   apexY: number;
   depth: Float32Array;
@@ -76,7 +77,7 @@ export class BreastRig {
       const rim = ids.filter(i => adj[i].some(j => !support.has(j)));
       if (!ids.length || !rim.length) throw new Error('缺少胸部拓撲標記');
       const root: V3 = [0, 0, 0];
-      for (const i of originalRim) for (let k = 0; k < 3; k++) root[k] += B[i * 3 + k] / originalRim.length;
+      for (const i of rim) for (let k = 0; k < 3; k++) root[k] += B[i * 3 + k] / rim.length;
       const weights = new Float32Array(a.nBody);
       // 以原始表面投影區界定內部，邊界沿拓撲擴到根部過渡，固定外圈為零。
       const distance = new Int16Array(a.nBody).fill(-1);
@@ -103,7 +104,9 @@ export class BreastRig {
       const depth = new Float32Array(a.nBody);
       for (const i of queue) depth[i] = Math.max(0, B[i * 3 + 2] - root[2]);
       const apexY = B[a.landmarks[`bustApex${side}`] * 3 + 1];
-      this.bindings.push({ indices: Uint32Array.from(queue), weights, rim: originalRim, root, depth, apexY });
+      // 附著邊界取完整形變支撐；內部籠的尺度中心仍取原生乳房區。
+      // 籠中心只用來描述上下極，不是胸壁附著或下胸排除標記。
+      this.bindings.push({ indices: Uint32Array.from(queue), weights, rim, cageRim: originalRim, root, depth, apexY });
     }
     this.support = Uint32Array.from(new Set([...this.nativeIndices, ...this.bindings.flatMap(b => [...b.indices])]));
   }
@@ -124,7 +127,7 @@ export class BreastRig {
     const height = Math.exp(extra * 0.14) * (shape === 'long' ? 1.16 : shape === 'round' ? 0.96 : 1);
     for (const b of this.bindings) {
       const root: V3 = [0, 0, 0];
-      for (const i of b.rim) for (let k = 0; k < 3; k++) root[k] += out[i * 3 + k] / b.rim.length;
+      for (const i of b.cageRim) for (let k = 0; k < 3; k++) root[k] += out[i * 3 + k] / b.cageRim.length;
       const radius = Math.max(3, Math.abs(root[0]) * 0.72);
       let maxDepth = 0;
       for (const i of b.indices) maxDepth = Math.max(maxDepth, out[i * 3 + 2] - root[2]);
