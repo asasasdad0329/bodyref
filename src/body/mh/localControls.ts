@@ -76,6 +76,20 @@ export class LocalControlRig {
         throw new Error(`無效控制變換：${control.id}`);
       }
       const cs = Math.cos(yaw), sn = Math.sin(yaw);
+      // 純材料控制不需要逐頂點轉入再轉出局部座標；只旋轉有號位移。
+      // 與通用分支使用同一父參照和雙精度累加，不改變控制的幾何意義。
+      if (!transform.scale && !transform.translation && !yaw) {
+        if (!material || !control.material) continue;
+        const ax = frame.axes[0], ay = frame.axes[1], az = frame.axes[2];
+        for (let row = 0; row < control.vertices.length; row++) {
+          const i = control.vertices[row] * 3, j = row * 3, w = control.weights[row] * material;
+          const x = control.material[j], y = control.material[j + 1], z = control.material[j + 2];
+          displacement[i] += (ax[0] * x + ay[0] * y + az[0] * z) * w;
+          displacement[i + 1] += (ax[1] * x + ay[1] * y + az[1] * z) * w;
+          displacement[i + 2] += (ax[2] * x + ay[2] * y + az[2] * z) * w;
+        }
+        continue;
+      }
       for (let row = 0; row < control.vertices.length; row++) {
         const i = control.vertices[row] * 3, w = control.weights[row];
         if (!w) continue;

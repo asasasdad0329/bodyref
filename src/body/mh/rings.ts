@@ -582,9 +582,13 @@ export class RingBody {
       // 腳踝以下只變寬，不往前後拉長腳掌
       const zk = smoothstep(ankleY - 0.03 * L, ankleRingY, y);
       // 腿根和正中恥骨共用邊界：內腿增厚不把附著於正中的皮膚拉過另一側。
-      const attachment = 1 - (1 - smoothstep(0, 3, Math.abs(x)))
-        * smoothstep(mk.crotchY - 3, mk.crotchY + 1, y);
-      return [ox * (sx - 1) * attachment, 0, oz * (sz - 1) * zk * attachment];
+      const root = smoothstep(mk.crotchY - 0.22 * (mk.crotchY - kneeY), mk.crotchY - 1, y);
+      const anchor = root * (1 - smoothstep(0.35 * cx, 0.8 * cx, Math.abs(x)));
+      // 根部內側以正比例壓縮保留頂點次序，不能先越過正中再逐點夾回。
+      const rootDx = x * (1 / (1 + Math.max(0, sx - 1)) - 1);
+      const dx = ox * (sx - 1) * (1 - anchor) + rootDx * anchor;
+      const attachment = 1 - (1 - smoothstep(0, 0.35 * cx, Math.abs(x))) * root;
+      return [dx, 0, oz * (sz - 1) * zk * attachment];
     };
 
     // ── 手臂：沿「肩 → 肘 → 腕」的軸線，u = 0 肩、1 肘、2 腕
@@ -700,11 +704,33 @@ export class RingBody {
       if (Math.abs(x) > 1e-5 && out[i * 3] / x < 0.2) out[i * 3] = 0.2 * x * Math.exp(out[i * 3] / (0.2 * x) - 1);
     }
 
+    // 肩寬帶動手臂後，量測軸與擺姿勢樞紐也要跟隨同一骨性位移。
+    // 只移動皮膚會讓中段皮尺沿舊軸切割，亦會繞錯誤的肩點轉動。
+    for (const [row, side] of ['l', 'r'].entries()) {
+      const ax = p.arms[row], delta = torsoDisp(...ax.S);
+      for (const name of ['shoulder', 'elbow', 'hand']) {
+        const [start, count] = a.joints[`${side}-${name}`];
+        for (let i = start; i < start + count; i++) {
+          out[i * 3] = B[i * 3] + delta[0];
+          out[i * 3 + 2] = B[i * 3 + 2] + delta[2] * 0.5;
+        }
+      }
+    }
+
     if (!male) {
       p.chestWall ??= new Float32Array(out.length);
-      p.chestWall.set(out);
-      p.breastRig.apply(out, q.breast, p.condition.morphology.breast);
-      this.surface.finishPair(p.chestWall, out, p.breastRig.support);
+      if (q.breast <= 0) {
+        this.surface.finish(out); p.chestWall.set(out);
+      } else {
+        p.chestWall.set(out);
+        p.breastRig.apply(out, q.breast, p.condition.morphology.breast, (i, delta) => {
+          const x = B[i * 3], y = B[i * 3 + 1], z = B[i * 3 + 2];
+          const before = torsoDisp(x, y, z), after = torsoDisp(x + delta[0], y + delta[1], z + delta[2]);
+          const w = p.w.torso[i] / Math.max(1, p.w.torso[i] + p.w.legL[i] + p.w.legR[i] + p.w.armL[i] + p.w.armR[i] + p.w.neck[i]);
+          return delta.map((v, k) => v + (after[k] - before[k]) * w) as V3;
+        });
+        this.surface.finishPair(p.chestWall, out, p.breastRig.support);
+      }
     } else {
       this.surface.finish(out);
     }
@@ -814,7 +840,6 @@ export class RingBody {
       const kgPer = zeroSoft();
       const response: GirthResponse = {};
       {
-        const baseValues = measure(this.ctx, P, pp.levels, [], pp.chestWall).values;
         for (const k of SOFT_KEYS) {
           if (k === 'chest' && !male) continue;
           const unit = RING_SOFT.includes(k) ? 0.05 : 1;
@@ -829,8 +854,7 @@ export class RingBody {
             kgPer[k] = M0 * (1 - BASE_FAT[sex]) * MUSCLE_OF_LEAN * 0.35
               * ({ chestMuscle: 0.22, trunkMuscle: 0.5, gluteMuscle: 0.28 }[k]);
           }
-          const values = measure(this.ctx, P, pp.levels, [], pp.chestWall).values;
-          response[k] = Object.fromEntries((Object.keys(values) as MeasureKey[]).map((g) => [g, (values[g] - baseValues[g]) / (unit * kgPer[k])]));
+          // 分配的有限差分會在當前體型重新量測；不建立隨即被覆寫的素體圍度響應。
         }
       }
       setup = { sex, neutralize: opts.neutralize, frame: frameVec, p: pp, V0, breastV0, M0, kgPer, response };
@@ -1000,12 +1024,13 @@ export class RingBody {
       const muscleKg = baseMuscle + SOFT_KEYS.reduce((sum, k) => sum + (isMuscle(k) ? sft[k] * kgPer[k] : 0), 0);
       const otherLeanBase = (M0 - baseFat) * (1 - MUSCLE_OF_LEAN);
       const otherLeanControl = sft.otherLean * kgPer.otherLean;
-      const breastOtherLean = p.chestWall ? (vol(P) - vol(p.chestWall) - setup!.breastV0)
+      const volume = vol(P);
+      const breastOtherLean = p.chestWall ? (volume - vol(p.chestWall) - setup!.breastV0)
         * bodyDensity(inp.bodyFat) * (1 - inp.bodyFat) / 1000 : 0;
       const otherKg = otherLeanBase + otherLeanControl + breastOtherLean;
       // 剩餘皮下量體在固定密度下計為脂肪；局部脂肪公斤斜率只用於提出候選，
       // 不把非線性膨脹差當成額外去脂。負剩餘量會保留並觸發未收斂診斷。
-      const fat = (vol(P) / 1000 - (muscleKg + otherKg) / LEAN_DENSITY) * FAT_DENSITY;
+      const fat = (volume / 1000 - (muscleKg + otherKg) / LEAN_DENSITY) * FAT_DENSITY;
       return { weight: fat + muscleKg + otherKg, fatKg: fat - baseFat, muscleKg,
         accounting: { otherLeanBase, otherLeanControl, breastOtherLean } };
     };
@@ -1111,10 +1136,11 @@ export class RingBody {
           }
         }
         if (worst < 0.15 || seekFeasible) {
-          if (!inp.weightLocked && inp.breastLocked !== true && preferred.upperArm) {
-            // 未鎖體重的原統計建議仍是估計；用目前模型的較小質量更新軟偏好，
-            // 不將局部增胸後的輸出重量升格成新的全身肌肉／骨架實測。
-            const estimate = Math.min(inp.weight, weightOf(soft).weight);
+          if (!inp.weightLocked && preferred.upperArm) {
+            // 上臂偏好使用扣除局部增胸量後的模型估計。手動胸圍不應凍結
+            // 上臂的分配，也不能把更大罩杯的重量回饋成全身增肌／增脂。
+            const breastWeight = p.chestWall ? (vol(P) - vol(p.chestWall) - setup!.breastV0) * bodyDensity(inp.bodyFat) / 1000 : 0;
+            const estimate = Math.min(inp.weight, Math.max(1, weightOf(soft).weight - breastWeight));
             preferred.upperArm = { ...preferred.upperArm, target: nhanesPreference(sex, inp.frame.height, estimate, inp.bodyFat).arm };
           }
           const candidatePreferred = { ...preferred };

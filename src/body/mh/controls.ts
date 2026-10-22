@@ -17,7 +17,7 @@ export interface ShapeControl extends BoundControl {
   tissue: SoftKey;
   range: [number, number];
   boundary: string;
-  driver?: 'positive-muscle' | 'negative-muscle';
+  driver?: 'positive-muscle' | 'negative-muscle' | 'fat-positive-muscle' | 'fat-negative-muscle';
 }
 interface Band {
   id: string; key: SoftKey; y: number; up: number; down: number; angle: number; width: number;
@@ -69,7 +69,7 @@ export class SurfaceRig {
       up: 0.85 * H, down: 1.35 * H, angle: Math.PI, width: 1.6 });
     if (!female) bands.push({ id: 'pectoral-cover', key: 'chest', y: marks.bustY,
       up: 0.85 * H, down: 1.35 * (marks.bustY - marks.underbustY), angle: 0, width: 2.65 });
-    const regions = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR', 'upperarmL', 'upperarmR', ...(!female ? ['breastL', 'breastR'] : [])].map(r => a.regions.indexOf(r)));
+    const regions = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR', 'upperarmL', 'upperarmR', 'breastL', 'breastR'].map(r => a.regions.indexOf(r)));
     const bind = (id: string, key: SoftKey, parent: string, weights: Float32Array, material?: Float32Array): ShapeControl => {
       const vertices = Uint32Array.from({ length: n }, (_, i) => i).filter(i => weights[i] > 0.00001);
       const frame = this.reference[parent];
@@ -155,15 +155,24 @@ export class SurfaceRig {
     const native = new Float32Array(B.length), nativeMinimum = new Float32Array(B.length);
     addTarget(a, `universal-${sex}-young-maxmuscle-averageweight`, 1, native);
     addTarget(a, `universal-${sex}-young-minmuscle-averageweight`, 1, nativeMinimum);
+    const interactions = [new Float32Array(B.length), new Float32Array(B.length)];
+    for (const [index, muscle] of ['max', 'min'].entries()) {
+      // 原生材料的肌脂聯合目標保留腋下等交界；兩個單獨目標相加不等於聯合體型。
+      addTarget(a, `universal-${sex}-young-${muscle}muscle-maxweight`, 1, interactions[index]);
+      addTarget(a, `universal-${sex}-young-averagemuscle-maxweight`, -1, interactions[index]);
+      addTarget(a, `universal-${sex}-young-${muscle}muscle-averageweight`, -1, interactions[index]);
+    }
     let rawLo = Infinity, rawHi = -Infinity;
     for (let i = 0; i < n; i++) { rawLo = Math.min(rawLo, a.base[i * 3 + 1]); rawHi = Math.max(rawHi, a.base[i * 3 + 1]); }
     const scale = (marks.topY - marks.soleY) / (rawHi - rawLo);
     for (const [zone, key] of [['pectoral-muscle', 'chestMuscle'], ['back-muscle', 'trunkMuscle'], ['glute-muscle', 'gluteMuscle']] as const) {
       const w = new Float32Array(n), material = new Float32Array(n * 3), minimum = new Float32Array(n * 3), envelope = new Float32Array(n * 3);
+      const coupled = [new Float32Array(n * 3), new Float32Array(n * 3)];
       for (let i = 0; i < n; i++) {
         const y = B[i * 3 + 1], z = B[i * 3 + 2] - torsoZ(y);
         const pelvis = 1 - ease(marks.hipY, marks.waistY + 0.12 * L, y), front = ease(-3, 4, z);
-        const partition = zone === 'glute-muscle' ? pelvis : (1 - pelvis) * (zone === 'pectoral-muscle' ? front : 1 - front);
+        // 臀肌支撐骨盆後側與側面，不把原生腹前／恥骨材料也當成臀肌拉動。
+        const partition = zone === 'glute-muscle' ? pelvis * (1 - ease(0, 5, z)) : (1 - pelvis) * (zone === 'pectoral-muscle' ? front : 1 - front);
         // 臀肌止於臀下接合區；大腿後側由自己的肌肉控制負責，不向膝延長臀肌。
         const attachment = ease(marks.crotchY - 0.12 * L, marks.crotchY + 0.14 * L, y);
         w[i] = partition * bodyWeight[i] * attachment * (regions.has(a.region[i]) ? 1 : 0);
@@ -173,12 +182,15 @@ export class SurfaceRig {
           // 超出原生材料後，額外體量由平順包絡負責，完整有號形態仍保留。
           material[i * 3 + k] = native[i * 3 + k] * scale;
           minimum[i * 3 + k] = nativeMinimum[i * 3 + k] * scale;
+          for (let j = 0; j < 2; j++) coupled[j][i * 3 + k] = interactions[j][i * 3 + k] * scale;
           envelope[i * 3 + k] = (k === 0 ? x / radius : k === 2 ? z / radius : 0) * (female ? 0.7 : 0.9);
         }
       }
       const parent = zone === 'glute-muscle' ? 'pelvis' : 'ribcage';
       bind(zone + '-maximum', key, parent, w, material).driver = 'positive-muscle';
       bind(zone + '-minimum', key, parent, w, minimum).driver = 'negative-muscle';
+      bind(zone + '-fat-maximum', key, parent, w, coupled[0]).driver = 'fat-positive-muscle';
+      bind(zone + '-fat-minimum', key, parent, w, coupled[1]).driver = 'fat-negative-muscle';
       bind(zone + '-volume', key, parent, w, envelope);
     }
     this.rig = new LocalControlRig(this.controls);
@@ -201,6 +213,8 @@ export class SurfaceRig {
       let amount = (soft[c.tissue] ?? 0) + (single?.id === c.id ? single.amount : 0);
       if (c.driver === 'positive-muscle') amount = Math.max(0, Math.min(1, amount));
       if (c.driver === 'negative-muscle') amount = Math.max(0, Math.min(1, -amount));
+      if (c.driver === 'fat-positive-muscle') amount = Math.max(0, Math.min(1, amount)) * Math.max(0, Math.min(1, soft.general * 0.5));
+      if (c.driver === 'fat-negative-muscle') amount = Math.max(0, Math.min(1, -amount)) * Math.max(0, Math.min(1, soft.general * 0.5));
       if (!amount) continue;
       state[c.id] = { material: amount };
     }
