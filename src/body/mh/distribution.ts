@@ -6,21 +6,15 @@ export interface GirthPreference {
   target: number;
   scale: number;
   confidence: number;
-  source?: 'navel';
-  minimumTarget?: number;
 }
 export type GirthPreferences = Partial<Record<SoftGoal, GirthPreference>>;
-export type GirthResponse = Partial<Record<SoftKey, Partial<Record<MeasureKey | 'minWaist', number>>>>;
-type DistributionValues = Record<MeasureKey, number> & { minWaist?: number };
-// 最細腰是造型先驗，肚臍腰是來源偏好；自由腰仍須承擔肥胖時的腹部量體。
-const MIN_WAIST_PRIORITY = 8;
+export type GirthResponse = Partial<Record<SoftKey, Partial<Record<MeasureKey, number>>>>;
 
-export function distributionPenalty(values: DistributionValues, preferences: GirthPreferences): number {
+export function distributionPenalty(values: Record<MeasureKey, number>, preferences: GirthPreferences): number {
   let sum = 0;
   for (const [key, p] of Object.entries(preferences) as [SoftGoal, GirthPreference][]) {
     const z = Math.log(values[key] / p.target) / p.scale;
     sum += p.confidence * z * z;
-    if (p.minimumTarget && values.minWaist) sum += MIN_WAIST_PRIORITY * (Math.log(values.minWaist / p.minimumTarget) / p.scale) ** 2;
   }
   return sum;
 }
@@ -31,10 +25,9 @@ export function distributionPenalty(values: DistributionValues, preferences: Gir
  * 線性響應只用來提出候選；呼叫端必須重做硬條件並量測後才接受。
  */
 export function redistributionStep(
-  free: SoftKey[], response: GirthResponse, values: DistributionValues,
+  free: SoftKey[], response: GirthResponse, values: Record<MeasureKey, number>,
   preferences: GirthPreferences, protectedKeys: MeasureKey[], bias: Soft, capacity: Soft,
 ): Soft {
-  free = free.filter(k => k !== 'otherLean');
   const result = Object.fromEntries(Object.keys(bias).map((k) => [k, 0])) as Soft;
   const anchorFor = (muscle: boolean) => free.filter((k) => k.endsWith('Muscle') === muscle)
     .sort((a, b) => capacity[b] - capacity[a])[0];
@@ -45,16 +38,11 @@ export function redistributionStep(
   const n = columns.length;
   if (!n) return result;
   const A: number[][] = [], b: number[] = [];
-  const slope = (k: SoftKey, g: MeasureKey | 'minWaist') => response[k]?.[g] ?? 0;
+  const slope = (k: SoftKey, g: MeasureKey) => response[k]?.[g] ?? 0;
   for (const [g, p] of Object.entries(preferences) as [SoftGoal, GirthPreference][]) {
     const w = Math.sqrt(p.confidence) / p.scale;
     A.push(columns.map(({ key, anchor }) => (slope(key, g) - slope(anchor, g)) * w / values[g]));
     b.push(Math.log(p.target / values[g]) * w);
-    if (p.minimumTarget && values.minWaist) {
-      const weight = Math.sqrt(MIN_WAIST_PRIORITY) / p.scale;
-      A.push(columns.map(({ key, anchor }) => (slope(key, 'minWaist') - slope(anchor, 'minWaist')) * weight / values.minWaist!));
-      b.push(Math.log(p.minimumTarget / values.minWaist) * weight);
-    }
   }
   // 抑制跨區影響，精確達成仍由原有硬條件求解器負責。
   for (const g of protectedKeys) {

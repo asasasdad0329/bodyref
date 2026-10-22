@@ -59,7 +59,7 @@ export const REFERENCE: Record<Sex, ReferenceBody> = {
   },
 };
 
-/** 未指定骨骼肌時的工程先驗，不是由圍度測得或由 DXA 直接取得的肌肉比例。 */
+/** 骨骼肌重約占去脂體重的比例（InBody 等體組成儀的常見關係） */
 export const MUSCLE_OF_LEAN = 0.55;
 
 /** 台灣／日本內衣尺寸：上下胸圍差（cm）對應罩杯 */

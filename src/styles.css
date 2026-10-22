@@ -13,7 +13,7 @@
   --tape-ink: #7a5600;
   --tape-soft: rgba(229, 169, 18, 0.16);
   --tape-tick: rgba(35, 26, 0, 0.62);
-  --mannequin: #b8b8b8;
+  --mannequin: #f3f3f1;
   --mannequin-grid: #7e8995;
   --mannequin-guide: #7b8590;
   --mannequin-edge: #3b4450;
@@ -32,9 +32,6 @@
   --radius: 8px;
 }
 
-.ratio-prefix { padding-left: 7px; white-space: nowrap; color: var(--muted); }
-.export-option { display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 12px; white-space: nowrap; }
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     --bg: #0f1318;
@@ -49,7 +46,7 @@
     --tape-ink: #f3cb55;
     --tape-soft: rgba(240, 190, 46, 0.14);
     --tape-tick: rgba(35, 26, 0, 0.7);
-    --mannequin: #b8b8b8;
+    --mannequin: #c9cdd2;
     --mannequin-grid: #59626d;
     --mannequin-guide: #5a636e;
     --mannequin-edge: #05070a;
@@ -75,7 +72,7 @@
   --tape-ink: #f3cb55;
   --tape-soft: rgba(240, 190, 46, 0.14);
   --tape-tick: rgba(35, 26, 0, 0.7);
-  --mannequin: #b8b8b8;
+  --mannequin: #c9cdd2;
   --mannequin-grid: #59626d;
   --mannequin-guide: #5a636e;
   --mannequin-edge: #05070a;

@@ -9,7 +9,6 @@ export class BodyModel {
   readonly nippleVerts: Uint32Array;
   /** 顯示前要抹平的頂點（手、腳的細節保留） */
   private readonly surfaceVerts: Uint32Array;
-  private readonly deltaSupports = new WeakMap<Uint32Array, Uint32Array>();
 
   constructor(readonly asset: BodyAsset) {
     this.adj = adjacency(asset.quads, asset.nBody);
@@ -29,35 +28,10 @@ export class BodyModel {
   }
 
   /** 顯示用網格：乳頭附近抹平、整體表面去掉細小凹凸，手臂轉到指定的外展角度 */
-  finish(P: Float32Array): void {
+  display(rest: Float32Array, armAngle: number): { P: Float32Array; armRotation: { L: ArmPose; R: ArmPose } } {
+    const P = new Float32Array(rest);
     smooth(P, this.adj, this.nippleVerts, 15, 0.6);
     taubin(P, this.adj, this.surfaceVerts, 4);
-  }
-
-  /** 平滑為線性算子；只傳播兩曲面的局部差，避免再平滑整份胸壁。 */
-  finishPair(base: Float32Array, shaped: Float32Array, support: Uint32Array): void {
-    let affected = this.deltaSupports.get(support);
-    if (!affected) {
-      const reach = new Set(support);
-      const surface = new Set(this.surfaceVerts);
-      // 四輪 Taubin 各有正、負兩步；每步最多沿拓撲傳播一圈。
-      for (let pass = 0; pass < 8; pass++) {
-        for (const i of [...reach]) for (const j of this.adj[i]) if (surface.has(j)) reach.add(j);
-      }
-      affected = Uint32Array.from(reach).filter(i => surface.has(i));
-      this.deltaSupports.set(support, affected);
-    }
-    const delta = new Float32Array(shaped.length);
-    for (const i of support) for (let k = 0; k < 3; k++) delta[i * 3 + k] = shaped[i * 3 + k] - base[i * 3 + k];
-    this.finish(shaped);
-    smooth(delta, this.adj, this.nippleVerts, 15, 0.6);
-    taubin(delta, this.adj, affected, 4);
-    for (let i = 0; i < base.length; i++) base[i] = shaped[i] - delta[i];
-  }
-
-  display(rest: Float32Array, armAngle: number, polish = true): { P: Float32Array; armRotation: { L: ArmPose; R: ArmPose } } {
-    const P = new Float32Array(rest);
-    if (polish) this.finish(P);
     const rot = { L: this.poseArm(P, 'L', armAngle), R: this.poseArm(P, 'R', armAngle) };
     return { P, armRotation: rot };
   }

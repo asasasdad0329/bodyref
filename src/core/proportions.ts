@@ -41,10 +41,10 @@ export interface RatioDef {
 }
 
 export const RATIOS: readonly RatioDef[] = [
-  { id: 'legRatio', label: '身高：股下', hint: '1 : 右側比值；增加表示腿更長', scale: 100, unit: '%', min: 40, max: 52, step: 0.1, digits: 1 },
-  { id: 'thighCalf', label: '大腿：小腿', hint: '1 : 右側比值；增加表示小腿相對更長', scale: 1, unit: '', min: 0.5, max: 1, step: 0.01, digits: 2 },
-  { id: 'armRatio', label: '身高：手臂長', hint: '1 : 右側比值；手臂長為肩點到手腕，增加表示手臂更長', scale: 100, unit: '%', min: 28, max: 38, step: 0.1, digits: 1 },
-  { id: 'upperFore', label: '上臂：前臂', hint: '1 : 右側比值；增加表示前臂相對更長', scale: 1, unit: '', min: 1, max: 1.6, step: 0.01, digits: 2 },
+  { id: 'legRatio', label: '腿長比', hint: '股下（胯下到地面）÷ 身高', scale: 100, unit: '%', min: 40, max: 52, step: 0.1, digits: 1 },
+  { id: 'thighCalf', label: '大腿：小腿', hint: '大腿長 ÷ 小腿長', scale: 1, unit: '', min: 0.5, max: 1, step: 0.01, digits: 2 },
+  { id: 'armRatio', label: '手臂長比', hint: '上臂長 + 前臂長（肩點到手腕）÷ 身高', scale: 100, unit: '%', min: 28, max: 38, step: 0.1, digits: 1 },
+  { id: 'upperFore', label: '上臂：前臂', hint: '上臂長 ÷ 前臂長', scale: 1, unit: '', min: 1, max: 1.6, step: 0.01, digits: 2 },
 ];
 
 /** 由長度算出比例 */
@@ -84,14 +84,4 @@ export function applyRatios(inp: LinkageInput, ratios: Ratios): { locked: Linkag
     derived.push(g.upper, g.lower);
   }
   return { locked, derived };
-}
-
-/** UI 統一為左側 1，內部及舊分享碼仍保留原來的上段÷下段。 */
-export function ratioToDisplay(id: RatioId, value: number): number {
-  return id === 'thighCalf' || id === 'upperFore' ? 1 / value : value;
-}
-export const ratioFromDisplay = ratioToDisplay;
-export function ratioDisplayRange(d: RatioDef) {
-  const ends = [ratioToDisplay(d.id, d.min / d.scale), ratioToDisplay(d.id, d.max / d.scale)];
-  return { min: Math.min(...ends), max: Math.max(...ends), step: 0.001 };
 }

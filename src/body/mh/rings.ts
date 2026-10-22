@@ -1,9 +1,5 @@
 import type { Sex } from '../../core/measurements';
-import { REFERENCE, MUSCLE_OF_LEAN } from '../../core/reference';
-import { nhanesPreference } from '../../core/nhanes';
-import { SurfaceRig, defaultCondition, type ShapeCondition } from './controls';
-import { BreastRig } from './breast';
-import { BodyModel } from './model';
+import { REFERENCE } from '../../core/reference';
 import { type BodyAsset, addTarget } from './asset';
 import { type V3, adjacency, centroid, meshVolume, smoothField, vertexNormals } from './geometry';
 import { type MeasureContext, type MeasureKey, type Measured, measure, measureContext } from './measure';
@@ -24,7 +20,6 @@ export interface RingOptions {
   neutralize: boolean;
   /** 臀部支撐範圍（由目標臀圍／身高決定），校準與求解必須使用同一份。 */
   hipExpansion?: number;
-  condition?: ShapeCondition;
 }
 
 /** 四個方向的縮放：往外、往內（只用在四肢）、往前、往後 */
@@ -89,23 +84,22 @@ const plus = (...xs: Aniso[]): Aniso => ({
  * 量體類（cm）沿表面長出一團；四肢與脖子類是加在那一圈上的比例。
  */
 export const SOFT_KEYS = [
-  'general', 'belly', 'lowerAbdomen', 'thighCover', 'flank', 'lowerBack', 'upperBack', 'chest', 'buttock', 'hipSide',
-  'thighFat', 'calfFat', 'armFat', 'neckFat', 'trunkMuscle', 'thighMuscle', 'calfMuscle', 'armMuscle', 'otherLean',
+  'general', 'belly', 'flank', 'lowerBack', 'upperBack', 'chest', 'buttock', 'hipSide',
+  'thighFat', 'calfFat', 'armFat', 'neckFat', 'trunkMuscle', 'thighMuscle', 'calfMuscle', 'armMuscle',
 ] as const;
 export type SoftKey = (typeof SOFT_KEYS)[number];
 export type Soft = Record<SoftKey, number>;
-const RING_SOFT: SoftKey[] = ['thighCover', 'thighFat', 'calfFat', 'armFat', 'neckFat', 'thighMuscle', 'calfMuscle', 'armMuscle'];
+const RING_SOFT: SoftKey[] = ['thighFat', 'calfFat', 'armFat', 'neckFat', 'thighMuscle', 'calfMuscle', 'armMuscle'];
 const isMuscle = (k: SoftKey) => k.endsWith('Muscle');
-const isLean = (k: SoftKey) => isMuscle(k) || k === 'otherLean';
 export const zeroSoft = (): Soft => Object.fromEntries(SOFT_KEYS.map((k) => [k, 0])) as Soft;
 
 /** 增加的脂肪預設怎麼分到各區（依性別；只填身高體重時用） */
 const FAT_SHARE: Record<Sex, Partial<Record<SoftKey, number>>> = {
-  female: { general: 0.22, lowerAbdomen: 0.04, thighCover: 0.04, belly: 0.1, flank: 0.06, lowerBack: 0.04, upperBack: 0.03, buttock: 0.12, hipSide: 0.1, thighFat: 0.14, armFat: 0.06, calfFat: 0.03, neckFat: 0.02 },
-  male: { general: 0.22, lowerAbdomen: 0.06, thighCover: 0.03, belly: 0.24, flank: 0.11, lowerBack: 0.05, upperBack: 0.06, chest: 0.05, buttock: 0.02, hipSide: 0.01, thighFat: 0.05, armFat: 0.07, calfFat: 0.01, neckFat: 0.02 },
+  female: { general: 0.3, belly: 0.1, flank: 0.06, lowerBack: 0.04, upperBack: 0.03, buttock: 0.12, hipSide: 0.1, thighFat: 0.14, armFat: 0.06, calfFat: 0.03, neckFat: 0.02 },
+  male: { general: 0.25, belly: 0.3, flank: 0.11, lowerBack: 0.05, upperBack: 0.06, chest: 0.05, buttock: 0.02, hipSide: 0.01, thighFat: 0.05, armFat: 0.07, calfFat: 0.01, neckFat: 0.02 },
 };
 /** 增加的去脂體重（肌肉、骨骼、內臟）怎麼分 */
-
+const LEAN_SHARE: Partial<Record<SoftKey, number>> = { trunkMuscle: 0.4, thighMuscle: 0.3, calfMuscle: 0.12, armMuscle: 0.18 };
 /** 瘦了的時候：大多從全身那一層減 */
 const LOSS_SHARE: Partial<Record<SoftKey, number>> = { general: 0.6, belly: 0.1, flank: 0.05, buttock: 0.05, hipSide: 0.05, thighFat: 0.1, armFat: 0.05 };
 
@@ -125,8 +119,8 @@ const MUSCLE_OF: Partial<Record<SoftGoal, SoftKey>> = { thigh: 'thighMuscle', ca
 
 const FAT_DENSITY = 0.9;
 const LEAN_DENSITY = 1.06;
-/** 與後續體積帳使用同一組固定密度；不混用另一組成分假設的平均密度公式。 */
-const bodyDensity = (bf: number) => 1 / (bf / FAT_DENSITY + (1 - bf) / LEAN_DENSITY);
+/** Siri：體脂率 → 人體平均密度 */
+const bodyDensity = (bf: number) => 495 / (bf * 100 + 450);
 /** 素體本身的體脂率（換算素體的體重用） */
 const BASE_FAT: Record<Sex, number> = { female: 0.25, male: 0.15 };
 
@@ -142,11 +136,6 @@ export interface CompositionInput {
   locked: Partial<Record<SoftGoal, number>>;
   /** 未手動指定的圍度偏好；允許在硬條件限制下保留偏差。 */
   preferred?: GirthPreferences;
-  muscleMass?: number;
-  estimateReference?: boolean;
-  frameLocked?: MeasureKey[];
-  breastLocked?: boolean;
-  condition?: ShapeCondition;
 }
 
 export interface CompositionResult {
@@ -158,8 +147,6 @@ export interface CompositionResult {
   /** 各區的公斤數 */
   kg: Record<SoftKey, number>;
   iterations: number;
-  tissues: { fat: number; muscle: number; otherLean: number };
-  accounting: { otherLeanBase: number; otherLeanControl: number; breastOtherLean: number };
 }
 
 /** 四肢長度用 MakeHuman 的長度形變（骨架） */
@@ -201,7 +188,7 @@ const smoothstep = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** 每個關鍵圈的參數（1 = 素體原本的大小）；女性 breast 在原生小／中／大杯間插值，之後才擴展控制籠 */
+/** 每個關鍵圈的參數（1 = 素體原本的大小）；breast 是超出 MakeHuman 胸型的圓頂量 */
 const PARAM_KEYS = ['underbust', 'waist', 'hip', 'thigh', 'calf', 'ankle', 'upperArm', 'wrist', 'neck', 'shoulder', 'breast'] as const;
 type ParamKey = (typeof PARAM_KEYS)[number];
 type Params = Record<ParamKey, number>;
@@ -233,10 +220,7 @@ interface Prepared {
   wGen: Float32Array;
   /** 素體抹平過的法向量（軟組織量體沿這個方向長出來） */
   normals: Float32Array;
-  surfaceRig: SurfaceRig;
-  breastRig: BreastRig;
-  condition: ShapeCondition;
-  chestWall?: Float32Array;
+  breastSets: { rimL: Uint32Array; rimR: Uint32Array };
   /** 整隻手臂（上臂、前臂、手）：跟著肩膀平移 */
   armSets: { L: Uint32Array; R: Uint32Array };
 }
@@ -244,8 +228,7 @@ interface Prepared {
 export class RingBody {
   readonly ctx: MeasureContext;
   readonly adj: number[][];
-  private readonly surface: BodyModel;
-  private inspectionState: { p: Prepared; q: Params; soft: Soft } | null = null;
+  private readonly hipCalibrations = new Map<string, { kgPer: Soft; response: GirthResponse }>();
   private readonly setups = new Map<string, {
     sex: Sex;
     neutralize: boolean;
@@ -253,7 +236,6 @@ export class RingBody {
     frame: (number | undefined)[];
     p: Prepared & { lens: number[]; slopes: number[] };
     V0: number;
-    breastV0: number;
     M0: number;
     kgPer: Soft;
     response: GirthResponse;
@@ -262,53 +244,10 @@ export class RingBody {
   constructor(readonly asset: BodyAsset) {
     this.ctx = measureContext(asset);
     this.adj = adjacency(asset.quads, asset.nBody);
-    this.surface = new BodyModel(asset);
   }
 
   private region(name: string): number {
     return this.asset.regions.indexOf(name);
-  }
-
-  /** 維護入口：檢查骨性參照上的權重與單控制；正式尺寸仍走 fitComposition。 */
-  inspectControls(inp: CompositionInput) {
-    if (this.inspectionState) {
-      const p = this.inspectionState.p;
-      return { surface: p.surfaceRig.controls, breast: p.breastRig.bindings };
-    }
-    const ref = REFERENCE[inp.sex];
-    const hip = inp.locked.hip ?? inp.preferred?.hip?.target ?? ref.girths.hip;
-    const condition = { ...(inp.condition ?? defaultCondition()), bodyFat: inp.bodyFat, thighConstrained: inp.locked.thigh !== undefined };
-    const p = this.prepare(inp.sex, inp.frame, { neutralize: true, condition,
-      hipExpansion: smoothstep(1.02, 1.43, (hip / inp.frame.height) / (ref.girths.hip / ref.height)) });
-    return { surface: p.surfaceRig.controls, breast: p.breastRig.bindings };
-  }
-
-  /** 隔離最近一次的實際解，停用指定組織控制以定位故障；不改動求解快取。 */
-  inspectSolved(disabled: SoftKey[] = []): Float32Array {
-    if (!this.inspectionState) throw new Error('請先進行實際數值求解');
-    const { p, q, soft } = this.inspectionState;
-    const out = new Float32Array(p.B.length), reduced = { ...soft };
-    for (const key of disabled) reduced[key] = 0;
-    this.build(p, q, out, reduced);
-    return out;
-  }
-
-  /** 多起點候選之間保留被選中的診斷狀態，避免截面讀到被捨棄的候選。 */
-  preserveInspection(): () => void {
-    const state = this.inspectionState;
-    return () => { this.inspectionState = state; };
-  }
-
-  /** 單控制也走相同的交界約束、胸型與最終平滑，再獨立量測響應。 */
-  inspectControl(id: string, amount: number, disabled: SoftKey[] = []) {
-    if (!this.inspectionState) throw new Error('請先進行實際數值求解');
-    const { p, q, soft } = this.inspectionState, reduced = { ...soft };
-    for (const key of disabled) reduced[key] = 0;
-    const P = new Float32Array(p.B.length);
-    this.build(p, q, P, reduced, { id, amount });
-    const measured = measure(this.ctx, P, undefined, [], p.chestWall);
-    return { P, values: measured.values, sources: measured.sources,
-      volume: meshVolume(P.subarray(0, this.asset.nBody * 3), this.asset.quads) };
   }
 
   /** 素體 + 四肢長度，縮放到指定身高、腳底貼地 */
@@ -335,10 +274,19 @@ export class RingBody {
     const B0 = new Float32Array(a.base);
     addTarget(a, `asian-${sex}-young`, 1, B0);
     addTarget(a, 'nipple-size-decr', 1, B0);
-    // 女性以原生小杯曲面作確定基底；大小由同一組原生杯型控制與局部控制籠求解。
-    // 不先選一個偏大的底稿，再用負參數削平。
-    if (sex === 'female') addTarget(a, 'female-young-averagemuscle-averageweight-mincup-averagefirmness', 1, B0);
-    addTarget(a, 'nipple-point-decr', 1, B0);
+    // 胸部底稿：先用 MakeHuman 的自然胸型（罩杯越大越飽滿、稍微下垂），超出範圍的部分再由圓頂放大
+    if (sex === 'female' && t.bust !== undefined && t.underbust !== undefined) {
+      // 差值取整數公分：底稿只是起點，這樣拖動時可以沿用同一份骨架
+      const cup = Math.min(1, Math.max(0, (Math.round(t.bust - t.underbust) - 7.5) / 17.5));
+      const firm = Math.min(0.72, Math.max(0.5, 0.72 - 0.22 * cup));
+      const tri = (v: number): number[] => (v <= 0.5 ? [(0.5 - v) * 2, v * 2, 0] : [0, (1 - v) * 2, (v - 0.5) * 2]);
+      const lv = ['min', 'average', 'max'];
+      const c = tri(cup), f = tri(firm);
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+        if ((i === 1 && j === 1) || !(c[i] * f[j])) continue;
+        addTarget(a, `female-young-averagemuscle-averageweight-${lv[i]}cup-${lv[j]}firmness`, c[i] * f[j], B0);
+      }
+    }
 
     // 四肢長度：每一段各自用割線法調到目標（調完再縮放回身高，所以要反覆幾次）
     const lens = lensIn ? [...lensIn] : LENGTHS.map(() => 0);
@@ -432,22 +380,20 @@ export class RingBody {
       { S: J('r-shoulder'), E: J('r-elbow'), H: J('r-hand'), side: -1 },
     ];
 
+    const breastSet = regionSet('breastL', 'breastR');
+    const pick = (r: number) => Uint32Array.from({ length: n }, (_, i) => i).filter((i) => a.region[i] === r);
+    const rim = (set: Uint32Array) => set.filter((i) => this.adj[i].some((j) => !breastSet.has(a.region[j])));
     const pickSet = (set: Set<number>) => Uint32Array.from({ length: n }, (_, i) => i).filter((i) => set.has(a.region[i]));
     const normals = vertexNormals(B, a.quads, n);
     smoothVectors(normals, this.adj, 10);
-    const torsoZ = centerLine(regionSet('torso'), 2, 'mid');
-    const bodyWeight = Float32Array.from(w.torso, (v, i) => Math.min(1, v + w.legL[i] + w.legR[i]));
-    const condition = opts.condition ?? defaultCondition();
-    const surfaceRig = new SurfaceRig(a, B, this.adj, sex, m.marks, normals, bodyWeight, wGen, w.torso, torsoZ, opts.hipExpansion ?? 0, condition);
     return {
-      surfaceRig, breastRig: new BreastRig(a, B, this.adj), condition,
       sex,
       hipExpansion: opts.hipExpansion ?? 0,
       B,
       marks: m.marks,
       levels: m.levels,
       acromionY: (B[a.landmarks.acromionL * 3 + 1] + B[a.landmarks.acromionR * 3 + 1]) / 2,
-      torsoZ,
+      torsoZ: centerLine(regionSet('torso'), 2, 'mid'),
       neckZ: centerLine(regionSet('neck'), 2, 'mid'),
       legC: (y) => [legX(y), legZ(y)],
       arms,
@@ -455,6 +401,7 @@ export class RingBody {
       raw,
       wGen,
       normals,
+      breastSets: { rimL: rim(pick(R('breastL'))), rimR: rim(pick(R('breastR'))) },
       armSets: { L: pickSet(regionSet('upperarmL', 'forearmL', 'handL')), R: pickSet(regionSet('upperarmR', 'forearmR', 'handR')) },
       lens,
       slopes,
@@ -502,7 +449,7 @@ export class RingBody {
     }
   }
 
-  private build(p: Prepared, q: Params, out: Float32Array, soft?: Soft, single?: { id: string; amount: number }): void {
+  private build(p: Prepared, q: Params, out: Float32Array, soft?: Soft): void {
     const a = this.asset;
     const n = a.nBody;
     const mk = p.marks;
@@ -519,7 +466,7 @@ export class RingBody {
     const armK = 1 + 0.5 * d.underbust + (p.sex === 'male' ? 0.3 * d.breast : 0);
     const male = p.sex === 'male';
     // 男性：上胸圍是胸大肌那一圈（另一個關鍵圈）；女性：上胸圍由胸部部件決定
-    const chest = male ? aniso(d.breast, 0.55, 0.55, 1.15, 0.08) : U;
+    const chest = male ? uni(q.breast) : U;
     const chestY = male ? mk.bustY : (mk.underbustY + yA) / 2;
     const chestSide = male ? chest.side : (U.side + armK) / 2;
     // 骨盆：男性的臀圍主要在骨架（骨盆寬與後側），量體較小
@@ -560,7 +507,7 @@ export class RingBody {
       [ankleRingY, K],
       [calfY, C],
       [kneeY, knee],
-      [midY, plus(aniso(d.thigh, 0.55, 0.6, 0.5, 0.55), FAT.thigh(0.6 * sf.thighFat + sf.thighCover), MUSCLE.thigh(0.8 * sf.thighMuscle))],
+      [midY, plus(aniso(d.thigh, 0.55, 0.6, 0.5, 0.55), FAT.thigh(0.6 * sf.thighFat), MUSCLE.thigh(0.8 * sf.thighMuscle))],
       [thighY, T],
       // 大腿根部內側收回來，避免把恥骨三角區夾成凹陷
       [mk.crotchY + 0.05 * L, { ...T, inner: 1 + 0.75 * (T.inner - 1) }],
@@ -584,7 +531,7 @@ export class RingBody {
       [-0.1, uni(1 + 0.35 * dA)],
       // 三角肌：肌肉多的時候肩頭比較圓
       [0.15, plus(aniso(d.upperArm + sf.armFat, 0.7, 0.4, 0.6, 0.7), aniso(sf.armMuscle, 1.2, 0.5, 1.0, 1.0))],
-      [0.5, A],
+      [0.55, A],
       [1, uni(1 + 0.35 * dA + 0.15 * d.wrist)],
       [1.45, uni(1 + 0.25 * dA + 0.55 * d.wrist)],
       [1.93, Wr],
@@ -626,36 +573,22 @@ export class RingBody {
 
     for (let i = 0; i < n; i++) {
       const w = p.w;
+      const parts: [number, () => V3][] = [
+        [w.torso[i], () => torsoDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2])],
+        [w.legL[i], () => legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], 1)],
+        [w.legR[i], () => legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], -1)],
+        [w.armL[i], () => armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[0])],
+        [w.armR[i], () => armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[1])],
+        [w.neck[i], () => neckDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2])],
+      ];
       let sum = 0;
       const dsum: V3 = [0, 0, 0];
-      if (w.torso[i] >= 1e-4) {
-        const wk = w.torso[i], dv = torsoDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2]);
-        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
-        sum += wk;
-      }
-      if (w.legL[i] >= 1e-4) {
-        const wk = w.legL[i], dv = legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], 1);
-        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
-        sum += wk;
-      }
-      if (w.legR[i] >= 1e-4) {
-        const wk = w.legR[i], dv = legDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2], -1);
-        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
-        sum += wk;
-      }
-      if (w.armL[i] >= 1e-4) {
-        const wk = w.armL[i], dv = armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[0]);
-        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
-        sum += wk;
-      }
-      if (w.armR[i] >= 1e-4) {
-        const wk = w.armR[i], dv = armDisp([B[i * 3], B[i * 3 + 1], B[i * 3 + 2]], p.arms[1]);
-        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
-        sum += wk;
-      }
-      if (w.neck[i] >= 1e-4) {
-        const wk = w.neck[i], dv = neckDisp(B[i * 3], B[i * 3 + 1], B[i * 3 + 2]);
-        dsum[0] += dv[0] * wk; dsum[1] += dv[1] * wk; dsum[2] += dv[2] * wk;
+      for (const [wk, f] of parts) {
+        if (wk < 1e-4) continue;
+        const dv = f();
+        dsum[0] += dv[0] * wk;
+        dsum[1] += dv[1] * wk;
+        dsum[2] += dv[2] * wk;
         sum += wk;
       }
       if (!sum) continue;
@@ -675,21 +608,77 @@ export class RingBody {
       out[i] = B[i] + D[i] * (1 - r) + D0[i] * r;
     }
 
-    // 軟組織由共同控制帶合成；每份場已在骨架準備時完成拓撲綁定與邊界平滑。
-    const surfaceSoft = soft ?? { ...zeroSoft(), buttock: (male ? 14 : 26) * Math.max(-0.25, dH), hipSide: (male ? 4 : 9) * Math.max(-0.25, dH) };
-    p.surfaceRig.apply(out, surfaceSoft);
-    if (single) {
-      const control = p.surfaceRig.controls.find(c => c.id === single.id);
-      if (!control) throw new Error('未知的單控制');
-      for (let i = 0; i < n * 3; i++) out[i] += control.displacement[i] * single.amount;
-    }
-
-    // 內側軟組織可接近正中面，但左右表面不能交換位置。
-    // 指數壓縮保留連續斜率；體積與皮尺仍在此約束後重新量測。
+    // ── 軟組織量體：每一團都是有形狀的圓頂，沿表面法向量長出來，大的時候帶一點下墜
+    // 量體可以變大也可以變小（變小有下限，避免凹進去）
+    const g = Math.max(-0.25, dH);
+    const legacy = !soft;
+    const butt = male ? 14 : 26, side = male ? 4 : 9;
+    // 臀圍增加時擴展承托區，讓臀上、臀側與臀下共同承擔體積，避免只抬高固定的小圓頂。
+    const spread = legacy ? 0 : p.hipExpansion;
+    const rearUp = (0.55 + 0.25 * spread) * L;
+    const rearDown = (0.38 + 0.32 * spread) * L;
+    const rearWidth = 0.72 + 0.48 * spread;
+    const H = p.acromionY - mk.underbustY;
+    const belly: Mass = male
+      ? // 男性的肚子：從胸下一路到恥骨是一整個圓頂，最突出在肚臍上方
+        { key: 'belly', y: mk.crotchY + 0.6 * L, up: legacy ? 0.48 * L : 0.62 * L, down: 0.65 * L, angle: 0, width: legacy ? 1.5 : 1.65, amp: legacy ? 3 * Math.max(0, dH) + 30 * Math.max(0, d.waist) : sf.belly, sag: 0.2, taper: 0.3 }
+      : // 女性的下腹：肚臍到恥骨之間的一團，越往下越窄（下緣是 U 形，不是一條橫線或 V）
+        { key: 'belly', y: mk.crotchY + 0.3 * L, up: 0.32 * L, down: 0.38 * L, angle: 0, width: 1.25, amp: legacy ? 5 * Math.max(0, dH) + 18 * Math.max(0, d.waist) : sf.belly, sag: 0.12, taper: 0.55 };
+    // 腰側（游泳圈）：腰變粗時往兩側後方長，圓圓地接到背與臀
+    const flank = (sign: number): Mass => ({
+      key: 'flank', y: mk.waistY - 0.05 * L, up: legacy ? 0.32 * L : 0.45 * L, down: legacy ? 0.38 * L : 0.45 * L, angle: sign * (Math.PI / 2 + 0.35), width: legacy ? 0.95 : 1.05,
+      amp: legacy ? (male ? 16 : 9) * Math.max(0, d.waist) : sf.flank, sag: 0.1, taper: 0.2,
+    });
+    const masses: Mass[] = [
+      // 臀部（左右各一團）：上緣沿後腰緩緩接上來，最飽滿處偏下，下緣圓圓地收進臀下折線
+      { key: 'buttock', y: mk.hipY - 0.04 * L, up: rearUp, down: rearDown, angle: Math.PI - 0.6, width: rearWidth, amp: legacy ? butt * g : sf.buttock, sag: 0.12, taper: 0 },
+      { key: 'buttock', y: mk.hipY - 0.04 * L, up: rearUp, down: rearDown, angle: -(Math.PI - 0.6), width: rearWidth, amp: legacy ? butt * g : sf.buttock, sag: 0.12, taper: 0 },
+      // 臀側到大腿外側：讓骨盆到大腿是一條連續往外的弧線
+      { key: 'hipSide', y: legacy ? mk.crotchY - 0.03 * L : mk.crotchY + 0.05 * L, up: (legacy ? 0.45 : 0.6 + 0.13 * spread) * L, down: (legacy ? 0.5 : 0.48 + 0.18 * spread) * L, angle: Math.PI / 2 + 0.2, width: legacy ? 0.85 : 0.95 + 0.12 * spread, amp: legacy ? side * g : sf.hipSide, sag: 0.05, taper: 0 },
+      { key: 'hipSide', y: legacy ? mk.crotchY - 0.03 * L : mk.crotchY + 0.05 * L, up: (legacy ? 0.45 : 0.6 + 0.13 * spread) * L, down: (legacy ? 0.5 : 0.48 + 0.18 * spread) * L, angle: -(Math.PI / 2 + 0.2), width: legacy ? 0.85 : 0.95 + 0.12 * spread, amp: legacy ? side * g : sf.hipSide, sag: 0.05, taper: 0 },
+      belly,
+      flank(1),
+      flank(-1),
+      // 後腰與上背
+      // 後腰與上背：兩團上下重疊，中間不會出現一道橫溝
+      { key: 'lowerBack', y: mk.waistY, up: 0.7 * L, down: 0.4 * L, angle: Math.PI, width: 1.15, amp: sf.lowerBack, sag: 0.05, taper: 0 },
+      { key: 'upperBack', y: mk.underbustY + 0.2 * H, up: 0.6 * H, down: 0.9 * H, angle: Math.PI, width: 1.3, amp: sf.upperBack, sag: 0.05, taper: 0 },
+    ];
+    const M = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
-      const x = B[i * 3];
-      if (Math.abs(x) > 1e-5 && out[i * 3] / x < 0.2) out[i * 3] = 0.2 * x * Math.exp(out[i * 3] / (0.2 * x) - 1);
+      const wBody = Math.min(1, p.w.torso[i] + p.w.legL[i] + p.w.legR[i]);
+      const w = Math.max(wBody, p.wGen[i]);
+      if (w < 0.01) continue;
+      const x = B[i * 3], y = B[i * 3 + 1], z = B[i * 3 + 2];
+      const theta = Math.atan2(x, z - p.torsoZ(y));
+      // 全身那一層脂肪、軀幹的肌肉：均勻地沿表面往外
+      let push = sf.general * p.wGen[i] / Math.max(w, 1e-3) + sf.trunkMuscle * p.w.torso[i] / Math.max(w, 1e-3), drop = 0;
+      for (const m of masses) {
+        if (!m.amp) continue;
+        const uy = (y - m.y) / (y > m.y ? m.up : m.down);
+        let dt = Math.abs(theta - m.angle);
+        if (dt > Math.PI) dt = 2 * Math.PI - dt;
+        const width = m.width * (1 - m.taper * smoothstep(0, 1, -uy));
+        const u2 = uy * uy + (dt / width) ** 2;
+        const ut = dt / width;
+        if (Math.abs(uy) >= 1 || ut >= 1) continue;
+        // 邊緣衰減：大的量體用更緩的邊，不會在交界處出現台階
+        const radial = Math.pow(Math.max(0, 1 - u2), legacy ? 1.5 : 2);
+        // 臀部把上下與環向的衰減逐漸分開，交接處也有支撐；其餘部位保持原形狀。
+        const blend = m.key === 'buttock' || m.key === 'hipSide' ? spread : 0;
+        const envelope = (1 - uy * uy) ** 2 * (1 - ut * ut) ** 2;
+        const dome = (radial * (1 - blend) + envelope * blend) * (wBody / w);
+        push += m.amp * dome;
+        drop += m.amp * m.sag * dome * dome;
+      }
+      if (!push) continue;
+      if (push < 0) drop = 0;
+      M[i * 3] = w * push * p.normals[i * 3];
+      M[i * 3 + 1] = w * (push * p.normals[i * 3 + 1] - drop);
+      M[i * 3 + 2] = w * push * p.normals[i * 3 + 2];
     }
+    smoothVectors(M, this.adj, 8);
+    for (let i = 0; i < n * 3; i++) out[i] += M[i];
 
     // ── 整隻手臂跟著肩關節處的軀幹平移（肩寬、胸廓變寬時手臂往外移）
     for (const [ax, set] of [[p.arms[0], p.armSets.L], [p.arms[1], p.armSets.R]] as const) {
@@ -700,15 +689,46 @@ export class RingBody {
       }
     }
 
-    if (!male) {
-      p.chestWall ??= new Float32Array(out.length);
-      p.chestWall.set(out);
-      p.breastRig.apply(out, q.breast, p.condition.morphology.breast);
-      this.surface.finishPair(p.chestWall, out, p.breastRig.support);
-    } else {
-      this.surface.finish(out);
+    // ── 胸部：以乳頭為中心、底座為邊界，沿表面法向量長出一個圓頂；越大越往下墜
+    if ((!male && q.breast !== 0) || (male && sf.chest !== 0)) {
+      const N = vertexNormals(out, a.quads, n);
+      smoothVectors(N, this.adj, 8);
+      // 男性的胸前脂肪用同一套：以乳頭為中心，範圍更寬、更扁
+      const chestCm = male ? sf.chest : 0;
+      for (const side of male && !chestCm ? [] : (['L', 'R'] as const)) {
+        const rim = side === 'L' ? p.breastSets.rimL : p.breastSets.rimR;
+        const apex = a.landmarks[side === 'L' ? 'bustApexL' : 'bustApexR'];
+        const Ap = [out[apex * 3], out[apex * 3 + 1], out[apex * 3 + 2]];
+        let Rb = 0;
+        for (const i of rim) Rb += Math.hypot(out[i * 3] - Ap[0], out[i * 3 + 1] - Ap[1], out[i * 3 + 2] - Ap[2]) / rim.length;
+        // 底座隨大小稍微擴大
+        const Rr = male ? Rb * 2.3 : Rb * (1.1 + 0.15 * Math.min(2, q.breast));
+        const amp = male ? chestCm : q.breast * Rb;
+        if (!amp) continue;
+        const shrink = amp < 0;
+        for (let i = 0; i < n; i++) {
+          const dx = out[i * 3] - Ap[0], dy = out[i * 3 + 1] - Ap[1], dz = out[i * 3 + 2] - Ap[2];
+          if (dz < -Rr) continue;
+          const dd = Math.hypot(dx, dy, dz);
+          if (dd >= Rr) continue;
+          const u = dd / Rr;
+          let dome = Math.pow(1 - u * u, 1.6);
+          if (male) {
+            // 範圍大：越過正中線、靠近手臂、身體背面都平順淡出，不硬切
+            const nl0 = Math.hypot(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]) || 1;
+            dome *= smoothstep(-1, 4, out[i * 3] * Math.sign(Ap[0])) * (1 - Math.min(1, p.w.armL[i] + p.w.armR[i])) * smoothstep(-0.1, 0.4, N[i * 3 + 2] / nl0);
+          } else {
+            // 只長在身體正面這一側（避免影響手臂內側）
+            if (Math.sign(out[i * 3]) !== Math.sign(Ap[0]) && Math.abs(out[i * 3]) > 2) continue;
+            if (p.w.armL[i] + p.w.armR[i] > 0.5) continue;
+          }
+          const nl = Math.hypot(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]) || 1;
+          out[i * 3] += (amp * dome * N[i * 3]) / nl;
+          out[i * 3 + 1] += (amp * dome * N[i * 3 + 1]) / nl - (shrink ? 0 : (male ? 0.35 : 0.3) * amp * dome * dome);
+          out[i * 3 + 2] += (amp * dome * N[i * 3 + 2]) / nl;
+        }
+      }
     }
-    // 任何改變輪廓的平滑都在求解與量測前完成；姿勢階段不再修改曲面。
   }
 
   /** 每一圈各自調整（割線法），直到網格上量到的數值等於目標；四肢長度在圍度調好後再校正一次 */
@@ -716,7 +736,7 @@ export class RingBody {
     let p = this.prepare(sex, t, opts);
     const P = new Float32Array(p.B.length);
     const male = sex === 'male';
-    // 胸部：女性從原生小杯開始（0），男性胸廓的局部尺度從 1 開始
+    // 胸部：女性是超出 MakeHuman 胸型的圓頂量（從 0 開始），男性是胸圍那一圈（從 1 開始）
     const q = Object.fromEntries(PARAM_KEYS.map((k) => [k, k === 'breast' && !male ? 0 : 1])) as Params;
     const read = (v: Measured['values'], k: ParamKey) => (k === 'breast' ? (male ? v.bust : v.bust - v.underbust) : v[k]);
     const want = (k: ParamKey) =>
@@ -729,7 +749,7 @@ export class RingBody {
         this.build(p, q, P);
         // 量測高度固定在素體上找到的位置（腰在最細處、小腿在最粗處…），和關鍵圈的位置一致；
         // 否則胖的時候「最細處」會跑掉，調大那一圈反而量不到
-        m = measure(this.ctx, P, p.levels, [], p.chestWall);
+        m = measure(this.ctx, P, p.levels);
         let worst = 0;
         for (const k of PARAM_KEYS) {
           const target = want(k);
@@ -747,7 +767,7 @@ export class RingBody {
           }
           prev.set(k, [q[k], cur]);
           const lo = k === 'breast' && !male ? 0 : 0.4;
-          q[k] = Math.max(lo, Math.min(k === 'breast' && !male ? 6 : 3, q[k] + (0.9 * err) / slope));
+          q[k] = Math.max(lo, Math.min(k === 'breast' && !male ? 5 : 3, q[k] + (0.9 * err) / slope));
         }
         if (worst < 0.15) break;
       }
@@ -765,7 +785,7 @@ export class RingBody {
       p = this.prepare(sex, t, opts, lens, p.slopes);
     }
     this.build(p, q, P);
-    m = measure(this.ctx, P, p.levels, [], p.chestWall);
+    m = measure(this.ctx, P, p.levels);
     return { P, values: m.values, params: q, iterations: total };
   }
 
@@ -779,7 +799,7 @@ export class RingBody {
     const male = sex === 'male';
     const ref = REFERENCE[sex];
     const hip = inp.locked.hip ?? inp.preferred?.hip?.target ?? ref.girths.hip * inp.frame.height / ref.height;
-    opts = { ...opts, condition: { ...(inp.condition ?? defaultCondition()), bodyFat: inp.bodyFat, thighConstrained: inp.locked.thigh !== undefined, muscle: inp.muscleMass === undefined ? 0 : (inp.muscleMass / (inp.weight * (1 - inp.bodyFat)) - MUSCLE_OF_LEAN) * 4 }, hipExpansion: smoothstep(1.02, 1.43, (hip / inp.frame.height) / (ref.girths.hip / ref.height)) };
+    opts = { ...opts, hipExpansion: smoothstep(1.02, 1.43, (hip / inp.frame.height) / (ref.girths.hip / ref.height)) };
     const a = this.asset;
     const n = a.nBody;
     const P = new Float32Array(a.base.length);
@@ -797,86 +817,75 @@ export class RingBody {
       if (value !== undefined) setupFrame[k] = Math.round(value * 2) / 2;
     }
     const frameVec = [setupFrame.height, setupFrame.upperArmLen, setupFrame.forearmLen,
-      setupFrame.thighLen, setupFrame.calfLen];
-    const key = JSON.stringify([sex, opts.neutralize, opts.condition, opts.hipExpansion, ...frameVec]);
+      setupFrame.thighLen, setupFrame.calfLen, male ? 0 : Math.round((f.bust ?? 0) - (f.underbust ?? 0))];
+    const key = JSON.stringify([sex, opts.neutralize, ...frameVec]);
     let setup = this.setups.get(key);
     if (setup) {
       this.setups.delete(key); this.setups.set(key, setup);
     } else {
-      const pp = this.prepare(sex, setupFrame, opts);
+      const pp = this.prepare(sex, setupFrame, { ...opts, hipExpansion: 0 });
       // 素體的體重與每一區「一單位」有多重（體積 × 密度）
       this.build(pp, q, P, zeroSoft());
       const V0 = vol(P);
-      const breastV0 = pp.chestWall ? V0 - vol(pp.chestWall) : 0;
       const M0 = (V0 * bodyDensity(BASE_FAT[sex])) / 1000;
       const kgPer = zeroSoft();
       const response: GirthResponse = {};
       {
-        const baseValues = measure(this.ctx, P, pp.levels, [], pp.chestWall).values;
+        const baseValues = measure(this.ctx, P, pp.levels).values;
         for (const k of SOFT_KEYS) {
           if (k === 'chest' && !male) continue;
           const unit = RING_SOFT.includes(k) ? 0.05 : 1;
           const s1 = zeroSoft();
           s1[k] = unit;
           this.build(pp, q, P, s1);
-          kgPer[k] = ((vol(P) - V0) * (isLean(k) ? LEAN_DENSITY : FAT_DENSITY)) / 1000 / unit;
-          const values = measure(this.ctx, P, pp.levels, [], pp.chestWall).values;
+          kgPer[k] = ((vol(P) - V0) * (isMuscle(k) ? LEAN_DENSITY : FAT_DENSITY)) / 1000 / unit;
+          const values = measure(this.ctx, P, pp.levels).values;
           response[k] = Object.fromEntries((Object.keys(values) as MeasureKey[]).map((g) => [g, (values[g] - baseValues[g]) / (unit * kgPer[k])]));
         }
       }
-      setup = { sex, neutralize: opts.neutralize, frame: frameVec, p: pp, V0, breastV0, M0, kgPer, response };
+      setup = { sex, neutralize: opts.neutralize, frame: frameVec, p: pp, V0, M0, kgPer, response };
       if (this.setups.size > 6) this.setups.delete(this.setups.keys().next().value!);
       this.setups.set(key, setup);
     }
     let p = { ...setup.p, hipExpansion: opts.hipExpansion! };
-    const { M0 } = setup;
-    const { kgPer, response: calibratedResponse } = setup;
+    const { V0, M0 } = setup;
+    let { kgPer, response: calibratedResponse } = setup;
+    if (p.hipExpansion) {
+      const shapeKey = JSON.stringify([key, p.hipExpansion]);
+      let calibration = this.hipCalibrations.get(shapeKey);
+      if (!calibration) {
+        // 零量體的骨架不受承托範圍影響；只重新校準真的改形狀的臀後、臀側兩區。
+        const kg = { ...kgPer }, response = { ...calibratedResponse };
+        this.build(p, q, P, zeroSoft());
+        const baseline = measure(this.ctx, P, p.levels).values;
+        for (const k of ['buttock', 'hipSide'] as const) {
+          this.build(p, q, P, { ...zeroSoft(), [k]: 1 });
+          kg[k] = (vol(P) - V0) * FAT_DENSITY / 1000;
+          const values = measure(this.ctx, P, p.levels).values;
+          response[k] = Object.fromEntries((Object.keys(values) as MeasureKey[]).map((g) => [g, (values[g] - baseline[g]) / kg[k]]));
+        }
+        calibration = { kgPer: kg, response };
+        if (this.hipCalibrations.size >= 14) this.hipCalibrations.delete(this.hipCalibrations.keys().next().value!);
+        this.hipCalibrations.set(shapeKey, calibration);
+      }
+      kgPer = calibration.kgPer;
+      calibratedResponse = calibration.response;
+    }
     const baseFat = M0 * BASE_FAT[sex];
 
     // 預設分配：體重與體脂率換算出的脂肪、去脂體重，扣掉素體已有的，照比例分到各區
-    // 未鎖體重時，統計推估重量不是新的肌肉／器官量實測。
-    // 去脂先驗由框架與性別參照建立；局部加量直接反映在輸出重量。
-    const referenceWeight = ref.weight * (inp.frame.height / ref.height) ** 3;
-    const leanTarget = inp.weightLocked ? inp.weight * (1 - inp.bodyFat) : referenceWeight * (1 - ref.bodyFat);
-    const fatTarget = inp.weightLocked ? inp.weight * inp.bodyFat : leanTarget * inp.bodyFat / (1 - inp.bodyFat);
+    const fatTarget = inp.weight * inp.bodyFat;
     const dFat = fatTarget - baseFat;
-    const baseMuscle = (M0 - baseFat) * MUSCLE_OF_LEAN;
-    const dLean = leanTarget - (M0 - baseFat);
-    const muscleTarget = inp.muscleMass ?? leanTarget * MUSCLE_OF_LEAN;
-    const dMuscle = muscleTarget - baseMuscle;
-    const observed = nhanesPreference(sex, inp.frame.height, inp.weight, inp.bodyFat);
-    // DXA 的粗分區僅約束分布先驗；分到大腿／小腿及局部肌腹的比例是工程模型。
-    const leanShare: Partial<Record<SoftKey, number>> = {
-      trunkMuscle: observed.lean.trunk, armMuscle: observed.lean.arm,
-      thighMuscle: observed.lean.leg * 0.72, calfMuscle: observed.lean.leg * 0.28,
-    };
+    const dLean = inp.weight * (1 - inp.bodyFat) - (M0 - baseFat);
     const norm = (sh: Partial<Record<SoftKey, number>>, keys?: SoftKey[]) => {
       const ks = (Object.keys(sh) as SoftKey[]).filter((k) => (!keys || keys.includes(k)) && kgPer[k]);
       const tot = ks.reduce((t, k) => t + sh[k]!, 0) || 1;
       return Object.fromEntries(ks.map((k) => [k, sh[k]! / tot])) as Partial<Record<SoftKey, number>>;
     };
-    const regionalFat = { ...FAT_SHARE[sex] };
-    if (inp.locked.waist === undefined) {
-      regionalFat.belly = (regionalFat.belly ?? 0) + (regionalFat.lowerAbdomen ?? 0);
-      regionalFat.lowerAbdomen = 0;
-    }
-    const regionalKeys = { arm: ['armFat'], leg: ['thighFat', 'calfFat', 'thighCover'],
-      trunk: ['belly', 'lowerAbdomen', 'flank', 'lowerBack', 'upperBack', 'chest', 'buttock', 'hipSide', 'neckFat'] } as const;
-    const initial = norm(regionalFat);
-    // DXA 為整臂／整腿／軀幹先驗；全身覆蓋及局部細分仍是明示的表面模型映射。
-    const general = initial.general ?? 0;
-    for (const region of ['arm', 'leg', 'trunk'] as const) {
-      const keys = regionalKeys[region];
-      const total = keys.reduce((sum, k) => sum + (initial[k] ?? 0), 0);
-      const target = Math.max(0.01, observed.fat[region] - general * ({ arm: 0.1, leg: 0.35, trunk: 0.55 }[region]));
-      for (const k of keys) if (initial[k] !== undefined) regionalFat[k] = initial[k]! * target / Math.max(0.01, total);
-    }
-    regionalFat.general = general;
-    const fatShare = norm(dFat >= 0 ? regionalFat : LOSS_SHARE);
+    const fatShare = norm(dFat >= 0 ? FAT_SHARE[sex] : LOSS_SHARE);
     const kgDefault = zeroSoft();
     for (const [k, v] of Object.entries(fatShare) as [SoftKey, number][]) kgDefault[k] = dFat * v;
-    for (const [k, v] of Object.entries(norm(leanShare)) as [SoftKey, number][]) kgDefault[k] = dMuscle * v;
-    kgDefault.otherLean = dLean - dMuscle;
+    for (const [k, v] of Object.entries(norm(LEAN_SHARE)) as [SoftKey, number][]) kgDefault[k] = dLean * v;
 
     // 手動填的軟組織圍度：女性的上胸圍由胸部部件負責（在骨架那邊），其餘各有負責的區
     const goals = (Object.keys(inp.locked) as SoftGoal[]).filter((g) => inp.locked[g] !== undefined && !(g === 'bust' && !male));
@@ -891,20 +900,12 @@ export class RingBody {
     let restAdj = 0;
     /** 同時鎖定體重與體脂率時，去脂體重（肌肉）也要調整 */
     let leanAdj = 0;
-    let muscleAdj = 0;
     const extra = Object.fromEntries(goals.map((g) => [g, 0])) as Record<SoftGoal, number>;
     let bias = zeroSoft();
     // 骨架類：照連動建議（或手動值）對準
     const FRAME: ParamKey[] = ['underbust', 'shoulder', 'neck', 'wrist', 'ankle', ...(male ? [] : (['breast'] as ParamKey[]))];
-    const hardFrame = (k: ParamKey) => k === 'breast' ? inp.breastLocked !== false
-      : inp.frameLocked === undefined || inp.frameLocked.includes(k as MeasureKey);
     // 分配從同一個起點求解，避免接受步數受上一個體型影響；骨架與公斤校準仍使用快取。
     const shrinkKey: Record<SoftGoal, ParamKey> = { bust: 'breast', waist: 'waist', hip: 'hip', thigh: 'thigh', calf: 'calf', upperArm: 'upperArm' };
-    const upper: Partial<Record<SoftKey, number>> = { general: 2.2, upperBack: 2.5, lowerBack: 5,
-      chest: 0.8, neckFat: 0.25, trunkMuscle: 1.8, otherLean: 2.5, thighCover: 0.6, lowerAbdomen: 6,
-      armFat: inp.locked.upperArm === undefined ? 0.45 : 1.2,
-      calfFat: inp.locked.calf === undefined ? 0.12 : 1,
-      calfMuscle: inp.locked.calf === undefined ? 0.16 : 0.8 };
 
     const allocate = (): { soft: Soft; kg: Soft } => {
       const kg = { ...kgDefault };
@@ -915,54 +916,32 @@ export class RingBody {
         const fatTotal = fatBase + extra[g] * (mk ? fatFrac : 1);
         if (mk) kg[mk] = kgDefault[mk] + extra[g] * (1 - fatFrac);
         // 要比素體還小：脂肪歸零，改收那一圈
-        q[shrinkKey[g]] = fatTotal < 0 ? Math.max(0.5, 1 + fatTotal * 0.02) : g === 'bust' && male ? 1 + Math.max(0, fatTotal / kgPer.chest - 0.8) * 0.12 : 1;
+        q[shrinkKey[g]] = fatTotal < 0 ? Math.max(0.5, 1 + fatTotal * 0.02) : 1;
         for (const [k, r] of Object.entries(grp) as [SoftKey, number][]) kg[k] = Math.max(0, fatTotal) * r;
       }
-      if (inp.weightLocked || inp.estimateReference) {
+      if (inp.weightLocked) {
         // 總脂肪量固定：剩下的量分到沒填的部位
         let used = 0;
-        for (const k of owned) if (!isLean(k)) used += kg[k];
+        for (const k of owned) if (!isMuscle(k)) used += kg[k];
         const free = (Object.keys(fatShare) as SoftKey[]).filter((k) => !owned.has(k));
         const rest = dFat - used + restAdj;
-        const sh = norm(rest >= 0 ? regionalFat : LOSS_SHARE, free.length ? free : ['general']);
-        for (const k of SOFT_KEYS) if (!owned.has(k) && !isLean(k)) kg[k] = 0;
-        // 局部減量與總重修正優先由相鄰軀幹覆蓋吸收；未指定的臀腿不自動
-        // 成為縮上臂後的補償出口。軀幹同樣受上限約束，不能無限堆入。
-        const adjacent = free.filter(k => ['belly', 'lowerAbdomen', 'flank', 'lowerBack', 'chest'].includes(k));
-        const initialFree = free.reduce((sum, k) => sum + kgDefault[k], 0);
-        const replacement = goals.length && adjacent.length ? Math.max(0, rest - Math.max(0, initialFree)) : 0;
-        for (const [k, v] of Object.entries(sh) as [SoftKey, number][]) kg[k] = (rest - replacement) * v;
-        const addWithinCapacity = (amount: number, keys: SoftKey[]) => {
-          let remaining = amount;
-          const room = (k: SoftKey) => Math.max(0, (upper[k] ?? Infinity) * kgPer[k] - kg[k] - bias[k]);
-          let active = keys.filter(k => room(k) > 0.0001);
-          for (let pass = 0; pass < keys.length && remaining > 0.0001 && active.length; pass++) {
-            let used = 0;
-            for (const [k, v] of Object.entries(norm(regionalFat, active)) as [SoftKey, number][]) {
-              const delta = Math.min(remaining * v, room(k)); kg[k] += delta; used += delta;
-            }
-            if (used < 0.0001) break;
-            remaining -= used; active = active.filter(k => room(k) > 0.0001);
-          }
-          return remaining;
-        };
-        if (replacement) addWithinCapacity(addWithinCapacity(replacement, adjacent), free);
+        const sh = norm(rest >= 0 ? FAT_SHARE[sex] : LOSS_SHARE, free.length ? free : ['general']);
+        for (const k of SOFT_KEYS) if (!owned.has(k) && !isMuscle(k)) kg[k] = 0;
+        for (const [k, v] of Object.entries(sh) as [SoftKey, number][]) kg[k] = rest * v;
       } else if (restAdj) {
         // 只鎖定體脂率：沒填的部位多退少補，讓脂肪比例對上
         const free = (Object.keys(fatShare) as SoftKey[]).filter((k) => !owned.has(k));
-        const sh = norm(restAdj >= 0 ? regionalFat : LOSS_SHARE, free.length ? free : ['general']);
+        const sh = norm(restAdj >= 0 ? FAT_SHARE[sex] : LOSS_SHARE, free.length ? free : ['general']);
         for (const [k, v] of Object.entries(sh) as [SoftKey, number][]) kg[k] += restAdj * v;
       }
-      kg.otherLean += leanAdj;
-      if (muscleAdj) for (const [k, v] of Object.entries(norm(leanShare)) as [SoftKey, number][]) kg[k] += muscleAdj * v;
-      for (const k of SOFT_KEYS) kg[k] += bias[k];
+      if (leanAdj) for (const [k, v] of Object.entries(norm(LEAN_SHARE)) as [SoftKey, number][]) if (!owned.has(k)) kg[k] += leanAdj * v;
+      for (const k of SOFT_KEYS) if (!owned.has(k)) kg[k] += bias[k];
       const soft = zeroSoft();
       for (const k of SOFT_KEYS) {
         if (!kgPer[k]) continue;
         const u = kg[k] / kgPer[k];
         // 變薄有下限（量體不會凹進去、圈不會縮太多）
-        const lower = RING_SOFT.includes(k) ? -0.25 : k === 'general' ? -1.2 : k === 'trunkMuscle' ? -0.6 : isLean(k) ? -2 : 0;
-        soft[k] = Math.min(upper[k] ?? Infinity, Math.max(lower, u));
+        soft[k] = RING_SOFT.includes(k) ? Math.max(-0.25, u) : Math.max(k === 'general' ? -1.2 : -2, u);
       }
       return { soft, kg };
     };
@@ -974,32 +953,23 @@ export class RingBody {
     const GUESS: Record<SoftGoal, number> = { bust: 3, waist: 2.5, hip: 2, thigh: 4, calf: 6, upperArm: 8 };
 
     const weightOf = (sft: Soft) => {
-      // 肌肉與其餘去脂各有確定基準及受限增量，不能拿幾何殘差補成器官／水分。
-      const muscleKg = baseMuscle + SOFT_KEYS.reduce((sum, k) => sum + (isMuscle(k) ? sft[k] * kgPer[k] : 0), 0);
-      const otherLeanBase = (M0 - baseFat) * (1 - MUSCLE_OF_LEAN);
-      const otherLeanControl = sft.otherLean * kgPer.otherLean;
-      const breastOtherLean = p.chestWall ? (vol(P) - vol(p.chestWall) - setup!.breastV0)
-        * bodyDensity(inp.bodyFat) * (1 - inp.bodyFat) / 1000 : 0;
-      const otherKg = otherLeanBase + otherLeanControl + breastOtherLean;
-      // 剩餘皮下量體在固定密度下計為脂肪；局部脂肪公斤斜率只用於提出候選，
-      // 不把非線性膨脹差當成額外去脂。負剩餘量會保留並觸發未收斂診斷。
-      const fat = (vol(P) / 1000 - (muscleKg + otherKg) / LEAN_DENSITY) * FAT_DENSITY;
-      return { weight: fat + muscleKg + otherKg, fatKg: fat - baseFat, muscleKg,
-        accounting: { otherLeanBase, otherLeanControl, breastOtherLean } };
+      let fatKg = 0;
+      for (const k of SOFT_KEYS) if (!isMuscle(k)) fatKg += sft[k] * kgPer[k];
+      const dV = vol(P) - V0;
+      const leanKg = ((dV - (fatKg * 1000) / FAT_DENSITY) * LEAN_DENSITY) / 1000;
+      return { weight: M0 + fatKg + leanKg, fatKg };
     };
     let m = measure(this.ctx, p.B);
     let total = 0;
     let soft = zeroSoft();
     let prevW: [number, number] | null = null;
     for (let pass = 0; pass < 2; pass++) {
-      const preferred = { ...inp.preferred };
-      const preferenceValues = (measured: Measured) => preferred.waist?.source === 'navel'
-        ? { ...measured.values, minWaist: measured.values.waist, waist: measured.sources.navelWaist.value } : measured.values;
+      const preferred = inp.preferred ?? {};
       // 男性胸圍是軟偏好，不能讓未量測的上背代替胸前吸收補償；上背保留預設分配。
-      const free = SOFT_KEYS.filter((k) => k !== 'otherLean' && !(k === 'lowerAbdomen' && inp.locked.waist === undefined) && !(male && k === 'upperBack') && kgPer[k]);
-      type State = { q: Params; extra: Record<SoftGoal, number>; restAdj: number; leanAdj: number; muscleAdj: number; bias: Soft };
-      const save = (): State => ({ q: { ...q }, extra: { ...extra }, restAdj, leanAdj, muscleAdj, bias: { ...bias } });
-      const restore = (s: State) => { Object.assign(q, s.q); Object.assign(extra, s.extra); restAdj = s.restAdj; leanAdj = s.leanAdj; muscleAdj = s.muscleAdj; bias = { ...s.bias }; };
+      const free = SOFT_KEYS.filter((k) => !owned.has(k) && !(male && k === 'upperBack') && kgPer[k]);
+      type State = { q: Params; extra: Record<SoftGoal, number>; restAdj: number; leanAdj: number; bias: Soft };
+      const save = (): State => ({ q: { ...q }, extra: { ...extra }, restAdj, leanAdj, bias: { ...bias } });
+      const restore = (s: State) => { Object.assign(q, s.q); Object.assign(extra, s.extra); restAdj = s.restAdj; leanAdj = s.leanAdj; bias = { ...s.bias }; };
       let best: State | null = null, bestPenalty = Infinity, attempts = 0, stepScale = 0.8;
       let response: GirthResponse | null = null;
       const prevQ = new Map<ParamKey, [number, number]>();
@@ -1007,14 +977,14 @@ export class RingBody {
       for (let it = 0; it < 80; it++, total++) {
         soft = allocate().soft;
         this.build(p, q, P, soft);
-        m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+        m = measure(this.ctx, P, p.levels);
         let worst = 0;
         for (const k of FRAME) {
           const target = want(k);
           if (target === undefined) continue;
           const cur = read(m.values, k);
           const err = target - cur;
-          if (hardFrame(k)) worst = Math.max(worst, Math.abs(err));
+          worst = Math.max(worst, Math.abs(err));
           const guess = k === 'breast' ? 20 : cur / q[k];
           let slope = guess;
           const pr = prevQ.get(k);
@@ -1023,7 +993,7 @@ export class RingBody {
             if (Number.isFinite(sl) && sl > 0.2 * guess) slope = sl;
           }
           prevQ.set(k, [q[k], cur]);
-          q[k] = Math.max(k === 'breast' ? 0 : 0.4, Math.min(k === 'breast' ? 6 : 3, q[k] + (0.9 * err) / slope));
+          q[k] = Math.max(k === 'breast' ? -0.6 : 0.4, Math.min(k === 'breast' ? 5 : 3, q[k] + (0.9 * err) / slope));
         }
         for (const g of goals) {
           const cur = m.values[g];
@@ -1038,17 +1008,11 @@ export class RingBody {
           prevX.set(g, [extra[g], cur]);
           extra[g] += (0.9 * err) / slope;
         }
-        if (inp.muscleMass !== undefined) {
-          const muscle = weightOf(soft).muscleKg;
-          const err = inp.muscleMass - muscle;
-          if (Math.abs(err) > 0.12) worst = Math.max(worst, 1);
-          muscleAdj += 0.9 * err;
-        }
-        if (inp.bodyFatLocked || inp.estimateReference) {
+        if (inp.bodyFatLocked) {
           // 體脂率固定：直接算出脂肪與去脂體重各差多少，分別補到沒填的部位
           const { weight: w, fatKg } = weightOf(soft);
           const fat = baseFat + fatKg;
-          if (inp.weightLocked || inp.estimateReference) {
+          if (inp.weightLocked) {
             const eFat = inp.weight * inp.bodyFat - fat;
             const eLean = inp.weight * (1 - inp.bodyFat) - (w - fat);
             if (Math.abs(eFat) > 0.2 || Math.abs(eLean) > 0.2) worst = Math.max(worst, 1);
@@ -1060,7 +1024,7 @@ export class RingBody {
             if (Math.abs(x) > 0.2) worst = Math.max(worst, 1);
             restAdj += 0.9 * x;
           }
-        } else if (inp.weightLocked || inp.estimateReference) {
+        } else if (inp.weightLocked) {
           const w = weightOf(soft).weight;
           const err = inp.weight - w;
           if (Math.abs(err) > 0.2) worst = Math.max(worst, 1);
@@ -1075,60 +1039,41 @@ export class RingBody {
         // 若局部圈已收到下限，先釋放跨區基底的壓力；不能靠繼續累加無效的局部修正。
         const blockedGoals = goals.filter((g) => q[shrinkKey[g]] <= 0.5001 && m.values[g] > inp.locked[g]! + 0.15);
         const seekFeasible = blockedGoals.length > 0 && it >= 12 && it % 8 === 4;
-        if (worst < 0.15) {
-          // 固定切面只用於迭代加速；收斂前重新搜尋真正的最細／最粗位置。
-          const searched = measure(this.ctx, P, undefined, [], p.chestWall);
-          const displaced = goals.some(g => Math.abs(searched.values[g] - inp.locked[g]!) > 0.15);
-          if (displaced) {
-            p = { ...p, levels: searched.levels };
-            prevQ.clear(); prevX.clear();
-            continue;
-          }
-        }
         if (worst < 0.15 || seekFeasible) {
-          if (!inp.weightLocked && preferred.upperArm) {
-            // 未鎖體重的原統計建議仍是估計；用目前模型的較小質量更新軟偏好，
-            // 不將局部增胸後的輸出重量升格成新的全身肌肉／骨架實測。
-            const estimate = Math.min(inp.weight, weightOf(soft).weight);
-            preferred.upperArm = { ...preferred.upperArm, target: nhanesPreference(sex, inp.frame.height, estimate, inp.bodyFat).arm };
-          }
           const candidatePreferred = { ...preferred };
           for (const g of blockedGoals) candidatePreferred[g] = { target: inp.locked[g]!, scale: 0.015, confidence: 4 };
-          const penalty = distributionPenalty(preferenceValues(m), preferred) + 0.01 * SOFT_KEYS.reduce((s, k) => s + bias[k] ** 2, 0);
+          const penalty = distributionPenalty(m.values, preferred) + 0.01 * SOFT_KEYS.reduce((s, k) => s + bias[k] ** 2, 0);
           if (worst < 0.15 && penalty < bestPenalty - 1e-4) { best = save(); bestPenalty = penalty; }
           else if (best && !seekFeasible) { restore(best); stepScale *= 0.4; }
           if (!Object.keys(candidatePreferred).length || attempts++ >= 10 || it >= 56 || stepScale < 0.08 || bestPenalty < 0.03) break;
           if (best) {
             // 使用與保存狀態一致的量測提出候選，不能沿用剛被退回的身體。
-            soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+            soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, p.levels);
           }
           if (!response) {
             // 在目前體型量小步響應；瘦素體上的斜率無法代表大腹部與大臀的交互影響。
             response = { ...calibratedResponse };
             const probeP = new Float32Array(P.length);
-            // 共用控制帶會跨量測切面；在當前體型重新量測相鄰響應。
-            const coupled: SoftKey[] = SOFT_KEYS.filter(k => k !== 'otherLean');
+            // 軀幹圓頂會跨到臀圍切面，需在當前體型重新量測；肢體響應沿用骨架校準。
+            const coupled: SoftKey[] = ['general', 'trunkMuscle', 'belly', 'flank', 'lowerBack'];
             for (const k of free.filter((k) => coupled.includes(k))) {
               const probe = { ...soft, [k]: soft[k] + 0.15 / kgPer[k] };
               this.build(p, q, probeP, probe);
-              const probeMeasured = measure(this.ctx, probeP, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
-              const v = preferenceValues(probeMeasured);
-              response[k] = Object.fromEntries((Object.keys(v) as MeasureKey[]).map((g) => [g, (v[g] - preferenceValues(m)[g]) / 0.15]));
+              const v = measure(this.ctx, probeP, p.levels).values;
+              response[k] = Object.fromEntries((Object.keys(v) as MeasureKey[]).map((g) => [g, (v[g] - m.values[g]) / 0.15]));
             }
           }
           const capacity = zeroSoft();
-          const room = zeroSoft();
           for (const k of free) {
-            const floor = (RING_SOFT.includes(k) ? -0.25 : k === 'general' ? -1.2 : isLean(k) ? -2 : 0) * kgPer[k];
+            const floor = (RING_SOFT.includes(k) ? -0.25 : k === 'general' ? -1.2 : -2) * kgPer[k];
             capacity[k] = Math.max(0, soft[k] * kgPer[k] - floor);
-            room[k] = Math.max(0, ((upper[k] ?? Infinity) - soft[k]) * kgPer[k]);
           }
           let active = [...free];
           let step = zeroSoft();
           for (let activePass = 0; activePass < free.length; activePass++) {
-            step = redistributionStep(active, response, preferenceValues(m), candidatePreferred,
-              [...goals, ...FRAME.filter((k) => k !== 'breast' && hardFrame(k)) as MeasureKey[]], bias, capacity);
-            const blocked = active.filter((k) => (step[k] < 0 && capacity[k] < 0.01) || (step[k] > 0 && room[k] < 0.01));
+            step = redistributionStep(active, response, m.values, candidatePreferred,
+              [...goals, ...FRAME.filter((k) => k !== 'breast') as MeasureKey[]], bias, capacity);
+            const blocked = active.filter((k) => step[k] < 0 && capacity[k] < 0.01);
             if (!blocked.length) break;
             active = active.filter((k) => !blocked.includes(k));
           }
@@ -1136,7 +1081,6 @@ export class RingBody {
           let scale = Math.min(stepScale, Math.max(0.5, inp.weight * 0.02) / largest);
           for (const k of free) {
             if (step[k] < 0) scale = Math.min(scale, capacity[k] / -step[k]);
-            if (step[k] > 0) scale = Math.min(scale, room[k] / step[k]);
           }
           if (largest * scale < 0.015) break;
           for (const k of free) bias[k] += step[k] * scale;
@@ -1147,7 +1091,7 @@ export class RingBody {
         restore(best);
         soft = allocate().soft;
         this.build(p, q, P, soft);
-        m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+        m = measure(this.ctx, P, p.levels);
       }
       const lens = [...p.lens];
       let worstLen = 0;
@@ -1162,95 +1106,15 @@ export class RingBody {
       p = this.prepare(sex, t, opts, lens, p.slopes);
       // 本次圍度造成的長度修正只屬於這次解，不可寫回共用骨架而沿用舊公斤校準。
     }
-    // 最後只對尚未達標的局部責任區作小型聯立校正；不讓分配候選的最後一步
-    // 或量測位置更新留下未收斂的硬條件。每個參數仍只屬於自己的尺寸區。
-    const evaluate = () => {
-      soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, undefined, [], p.chestWall);
-    };
-    type Variable = { target: number; read: () => number; get: () => number; set: (v: number) => void; probe: number; maxStep: number };
-    const frameVariable = (k: ParamKey): Variable => ({ target: want(k)!, read: () => read(m.values, k),
-      get: () => q[k], set: v => { q[k] = Math.max(k === 'breast' ? 0 : 0.4, Math.min(k === 'breast' ? 6 : 3, v)); }, probe: 0.01, maxStep: 0.2 });
-    const softVariable = (g: SoftGoal): Variable => ({ target: inp.locked[g]!, read: () => m.values[g],
-      get: () => extra[g], set: v => { extra[g] = v; }, probe: 0.15, maxStep: 4 });
-    const frameVars = FRAME.filter(k => want(k) !== undefined && hardFrame(k));
-    const blocks: Variable[][] = [
-      frameVars.filter(k => k === 'underbust' || k === 'breast').map(frameVariable),
-      goals.filter(g => ['waist', 'hip', 'thigh'].includes(g)).map(softVariable),
-      ...goals.filter(g => !['waist', 'hip', 'thigh'].includes(g)).map(g => [softVariable(g)]),
-      ...frameVars.filter(k => k !== 'underbust' && k !== 'breast').map(k => [frameVariable(k)]),
-    ].filter(b => b.length);
-    evaluate();
-    for (let pass = 0; pass < 10; pass++) {
-      const tissue = weightOf(soft);
-      const dimensionError = Math.max(...blocks.flat().map(v => Math.abs(v.read() - v.target)));
-      const massError = Math.max(inp.weightLocked ? Math.abs(tissue.weight - inp.weight) : 0,
-        inp.bodyFatLocked ? Math.abs((baseFat + tissue.fatKg) / tissue.weight - inp.bodyFat) * 50 : 0,
-        inp.muscleMass === undefined ? 0 : Math.abs(tissue.muscleKg - inp.muscleMass));
-      if (dimensionError < 0.15 && massError < 0.12) break;
-      for (const block of blocks) {
-        const base = block.map(v => v.get()), error = block.map(v => v.target - v.read());
-        if (Math.max(...error.map(Math.abs)) < 0.12) continue;
-        const cost = error.reduce((s, e) => s + e * e, 0);
-        const current = block.map(v => v.read());
-        const columns = block.map((variable, column) => {
-          block.forEach((v, k) => v.set(base[k])); variable.set(base[column] + variable.probe); evaluate();
-          return block.map((v, row) => (v.read() - current[row]) / variable.probe);
-        });
-        const matrix = block.map((_, row) => columns.map(c => c[row]));
-        const delta = solveLocal(matrix, error);
-        let accepted = false;
-        if (delta) for (const damping of [0.9, 0.45, 0.2, 0.08]) {
-          block.forEach((v, k) => v.set(base[k] + damping * Math.max(-v.maxStep, Math.min(v.maxStep, delta[k])))); evaluate();
-          if (block.reduce((s, v) => s + (v.read() - v.target) ** 2, 0) < cost) { accepted = true; break; }
-        }
-        if (!accepted) { block.forEach((v, k) => v.set(base[k])); evaluate(); }
-      }
-      const current = weightOf(soft);
-      if (inp.muscleMass !== undefined) muscleAdj += inp.muscleMass - current.muscleKg;
-      if (inp.bodyFatLocked && inp.weightLocked) {
-        restAdj += inp.weight * inp.bodyFat - baseFat - current.fatKg;
-        leanAdj += inp.weight * (1 - inp.bodyFat) - (current.weight - baseFat - current.fatKg);
-      } else if (inp.bodyFatLocked) restAdj += (inp.bodyFat * current.weight - baseFat - current.fatKg) / (1 - inp.bodyFat);
-      else if (inp.weightLocked) {
-        const before = restAdj; restAdj += 0.15; evaluate();
-        const slope = (weightOf(soft).weight - current.weight) / 0.15;
-        restAdj = before + (inp.weight - current.weight) / Math.max(0.2, slope);
-      }
-      evaluate();
-    }
+    const { kg } = allocate();
     soft = allocate().soft;
     this.build(p, q, P, soft);
-    m = measure(this.ctx, P, undefined, [], p.chestWall);
+    m = measure(this.ctx, P, p.levels);
 
     // 體重：素體 + 各區脂肪（實際用到的量）+ 其餘增加的體積當作去脂組織
-    const { weight, fatKg, muscleKg, accounting } = weightOf(soft);
-    const tissues = { fat: baseFat + fatKg, muscle: muscleKg, otherLean: weight - baseFat - fatKg - muscleKg };
-    this.inspectionState = { p, q: { ...q }, soft: { ...soft } };
-    const kg = zeroSoft();
-    for (const k of SOFT_KEYS) kg[k] = soft[k] * kgPer[k];
-    return { P, measured: m, values: m.values, weight, bodyFat: tissues.fat / weight, kg, iterations: total, tissues, accounting };
+    const { weight, fatKg } = weightOf(soft);
+    return { P, measured: m, values: m.values, weight, bodyFat: (baseFat + fatKg) / weight, kg, iterations: total };
   }
-}
-
-/** 小型局部尺寸聯立；秩不足時保留原解，不放大無效步。 */
-function solveLocal(A: number[][], b: number[]): number[] | null {
-  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
-  for (let i = 0; i < n; i++) {
-    let pivot = i;
-    for (let j = i + 1; j < n; j++) if (Math.abs(M[j][i]) > Math.abs(M[pivot][i])) pivot = j;
-    if (Math.abs(M[pivot][i]) < 1e-7) return null;
-    [M[i], M[pivot]] = [M[pivot], M[i]];
-    for (let j = i + 1; j < n; j++) {
-      const scale = M[j][i] / M[i][i];
-      for (let k = i; k <= n; k++) M[j][k] -= scale * M[i][k];
-    }
-  }
-  const x = new Array<number>(n).fill(0);
-  for (let i = n - 1; i >= 0; i--) {
-    x[i] = (M[i][n] - M[i].slice(i + 1, n).reduce((s, v, k) => s + v * x[i + 1 + k], 0)) / M[i][i];
-    if (!Number.isFinite(x[i])) return null;
-  }
-  return x;
 }
 
 /** 把一串 (位置, 四方向縮放) 的控制點接成四條平滑曲線 */
@@ -1268,6 +1132,20 @@ const normalize = (p: V3): V3 => {
   const l = Math.hypot(p[0], p[1], p[2]) || 1;
   return [p[0] / l, p[1] / l, p[2] / l];
 };
+
+/** 一團軟組織：中心高度與角度（0 = 正前方，π = 正後方），上下與左右的範圍，厚度（cm）與下墜比例 */
+interface Mass {
+  key: SoftKey;
+  y: number;
+  up: number;
+  down: number;
+  angle: number;
+  width: number;
+  amp: number;
+  sag: number;
+  /** 往下緣變窄的比例 */
+  taper: number;
+}
 
 function smoothVectors(F: Float32Array, adj: number[][], iterations: number): void {
   const tmp = new Float32Array(F.length);

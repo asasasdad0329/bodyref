@@ -2,7 +2,6 @@ import type { VarId } from './linkage';
 import { VARS } from './linkage';
 import type { Sex } from './measurements';
 import { RATIOS, type Ratios } from './proportions';
-import { ABDOMEN_SHAPES, BREAST_SHAPES, DEFAULT_MORPHOLOGY, HIP_SHAPES, type Morphology } from './morphology';
 import { CUP_TABLE } from './reference';
 
 // 網站狀態：哪些數值是使用者鎖定（手動）的、罩杯、顯示設定。
@@ -35,16 +34,14 @@ export interface AppState {
   /** 指定的身體比例（和對應的長度互斥，見 proportions.ts） */
   ratios: Ratios;
   view: ViewSettings;
-  muscleMass: number | null;
-  morphology: Morphology;
 }
 
-export const DEFAULT_VIEW: ViewSettings = { armAngle: 16, lineStyle: 'none', showOutline: false, showMeasures: false };
+export const DEFAULT_VIEW: ViewSettings = { armAngle: 16, lineStyle: 'guide', showOutline: true, showMeasures: true };
 
 export interface Preset {
   id: string;
   label: string;
-  state: Omit<AppState, 'view' | 'muscleMass' | 'morphology'>;
+  state: Omit<AppState, 'view'>;
 }
 
 // 範例體型，用來快速比較；不是任何真人的數據。
@@ -66,7 +63,7 @@ export const PRESETS: readonly Preset[] = [
 ];
 
 export function presetState(p: Preset, view: ViewSettings = DEFAULT_VIEW): AppState {
-  return { sex: p.state.sex, locked: { ...p.state.locked }, cup: p.state.cup, ratios: { ...p.state.ratios }, view: { ...view }, muscleMass: null, morphology: { ...DEFAULT_MORPHOLOGY } };
+  return { sex: p.state.sex, locked: { ...p.state.locked }, cup: p.state.cup, ratios: { ...p.state.ratios }, view: { ...view } };
 }
 
 export const DEFAULT_STATE: AppState = presetState(PRESETS[0]);
@@ -92,19 +89,12 @@ function sanitize(raw: unknown): AppState | null {
     const v = num(srcRatios[d.id], d.min / d.scale, d.max / d.scale);
     if (v !== null) ratios[d.id] = v;
   }
-  const morph = (r.morphology ?? {}) as Record<string, unknown>;
   const view = (r.view ?? {}) as Record<string, unknown>;
   return {
     sex,
     locked: locked as AppState['locked'],
     cup: typeof r.cup === 'string' && CUP_TABLE.some((c) => c.cup === r.cup) ? r.cup : null,
     ratios,
-    muscleMass: num(r.muscleMass, 5, 100),
-    morphology: {
-      breast: BREAST_SHAPES.find(x => x.id === morph.breast)?.id ?? DEFAULT_MORPHOLOGY.breast,
-      hip: HIP_SHAPES.find(x => x.id === morph.hip)?.id ?? DEFAULT_MORPHOLOGY.hip,
-      abdomen: ABDOMEN_SHAPES.find(x => x.id === morph.abdomen)?.id ?? DEFAULT_MORPHOLOGY.abdomen,
-    },
     view: {
       armAngle: num(view.armAngle, 0, 60) ?? DEFAULT_VIEW.armAngle,
       lineStyle: LINE_STYLES.find((s) => s.id === view.lineStyle)?.id ?? DEFAULT_VIEW.lineStyle,

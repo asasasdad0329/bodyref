@@ -62,12 +62,6 @@ export function slice(P: Float32Array, quads: Uint16Array, faces: Uint32Array, p
   const hits: number[] = [];
   for (let f = 0; f < faces.length; f++) {
     const q = faces[f] * 4;
-    // 大多數皮尺是水平面；先以高度排除不相交的面，避免重複計算四次內積。
-    if (nx === 0 && nz === 0 && ny === 1) {
-      const s0 = P[quads[q] * 3 + 1] >= py, s1 = P[quads[q + 1] * 3 + 1] >= py;
-      const s2 = P[quads[q + 2] * 3 + 1] >= py, s3 = P[quads[q + 3] * 3 + 1] >= py;
-      if (s0 === s1 && s0 === s2 && s0 === s3) continue;
-    }
     let pos = 0, neg = 0;
     for (let k = 0; k < 4; k++) {
       vs[k] = quads[q + k];

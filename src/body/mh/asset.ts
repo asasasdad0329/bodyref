@@ -1,5 +1,4 @@
 import manifest from './manifest.json';
-import { adjacency } from './geometry';
 
 // 讀取由 tools/prepare_body.py 產生的人體資產（MakeHuman CC0 網格與形變目標）
 
@@ -30,39 +29,6 @@ export interface BodyAsset {
   /** 關節輔助點：[起始頂點, 頂點數] */
   joints: Record<string, [number, number]>;
   landmarks: Record<string, number>;
-}
-
-/** 原生杯型中向前展開或向下懸垂的自由表面；不把整份胸壁支撐目標排除。 */
-const freeBreastCache = new WeakMap<BodyAsset, Set<number>>();
-export function freeBreastVertices(a: BodyAsset): Set<number> {
-  const cached = freeBreastCache.get(a);
-  if (cached) return cached;
-  const out = new Set<number>();
-  const regions = new Set(['breastL', 'breastR'].map(r => a.regions.indexOf(r)));
-  for (let i = 0; i < a.nBody; i++) if (regions.has(a.region[i])) out.add(i);
-  const adjacent = adjacency(a.quads, a.nBody), distance = new Int16Array(a.nBody).fill(-1), queue = [...out];
-  for (const i of queue) distance[i] = 0;
-  for (let head = 0; head < queue.length; head++) {
-    const i = queue[head];
-    if (distance[i] >= 4) continue;
-    for (const j of adjacent[i]) if (distance[j] < 0) { distance[j] = distance[i] + 1; queue.push(j); }
-  }
-  const cup = a.targets.get('female-young-averagemuscle-averageweight-maxcup-averagefirmness');
-  const minimum = new Float32Array(a.nBody * 3);
-  const minCup = a.targets.get('female-young-averagemuscle-averageweight-mincup-averagefirmness');
-  if (minCup) for (let k = 0; k < minCup.indices.length; k++) {
-    const i = minCup.indices[k];
-    if (i < a.nBody) for (let d = 0; d < 3; d++) minimum[i * 3 + d] = minCup.deltas[k * 3 + d] * a.deltaStep;
-  }
-  if (cup) for (let k = 0; k < cup.indices.length; k++) {
-    const i = cup.indices[k];
-    if (i >= a.nBody) continue;
-    const down = cup.deltas[k * 3 + 1] * a.deltaStep - minimum[i * 3 + 1];
-    const forward = cup.deltas[k * 3 + 2] * a.deltaStep - minimum[i * 3 + 2];
-    if (distance[i] >= 0 && (forward > 0.3 || down < -0.6)) out.add(i);
-  }
-  freeBreastCache.set(a, out);
-  return out;
 }
 
 export function parseBodyAsset(buf: ArrayBuffer): BodyAsset {
