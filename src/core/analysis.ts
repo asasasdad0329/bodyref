@@ -146,7 +146,9 @@ export function summarize(state: AppState, sug: Suggestion, out: EngineOutput, b
     const high = r.percentile > 0.5;
     add(
       'rare',
-      `${VAR_LABEL[r.id]} ${shown(r.id, v[r.id])} ${unitOf(r.id)}：在同性別、同身高、其他已填數值也相同的人當中，比這更${direction(r.id, high)}的${share(p)}。`,
+      r.basis === 'nhanes'
+        ? `${VAR_LABEL[r.id]} ${shown(r.id, v[r.id])} ${unitOf(r.id)}：依 NHANES 同性別、身高、體重與體脂的條件模型，比這更${direction(r.id, high)}的估計比例${share(p)}。`
+        : `${VAR_LABEL[r.id]} ${shown(r.id, v[r.id])} ${unitOf(r.id)}：在目前參考模型中較少見；這是造型參考分數，不是相同量法的真人百分位。`,
     );
   }
   if (bmi < 16.5) add('rare', `BMI ${f1(bmi)} 屬於嚴重過輕。`);

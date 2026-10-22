@@ -2,6 +2,7 @@ import { freeBreastVertices, type BodyAsset } from './asset';
 import type { Morphology } from '../../core/morphology';
 import { ease } from './controls';
 import type { V3 } from './geometry';
+import { LocalControlRig, type BoundControl, type ControlFrame, type LocalTransform } from './localControls';
 
 interface BreastBinding {
   indices: Uint32Array;
@@ -21,11 +22,11 @@ export class BreastRig {
   private readonly maximum: Float32Array;
   private readonly firmAverage: Float32Array;
   private readonly firmMaximum: Float32Array;
+  private readonly reference: Float32Array;
   private readonly nativeIndices: Uint32Array;
-  private readonly adjacency: number[][];
 
   constructor(a: BodyAsset, B: Float32Array, adj: number[][]) {
-    this.adjacency = adj;
+    this.reference = B;
     const minimum = new Float32Array(a.nBody * 3);
     this.average = new Float32Array(a.nBody * 3);
     this.maximum = new Float32Array(a.nBody * 3);
@@ -109,72 +110,105 @@ export class BreastRig {
       this.bindings.push({ indices: Uint32Array.from(queue), weights, rim, cageRim: originalRim, root, depth, apexY });
     }
     this.support = Uint32Array.from(new Set([...this.nativeIndices, ...this.bindings.flatMap(b => [...b.indices])]));
+    // 對材料本身的下極離散折面作拓撲正則化，載入時只算一次。
+    // 後續尺寸與體積均量這個材料產生的表面，不在顯示階段補平。
+    const weight = new Float32Array(a.nBody);
+    for (const b of this.bindings) for (const i of b.indices) weight[i] = Math.max(weight[i], ease(0, 0.5, b.weights[i]));
+    const regularize = (field: Float32Array, includeBase: boolean) => {
+      const points = Float32Array.from(field, (v, i) => v + (includeBase ? B[i] : 0)), tmp = new Float32Array(points);
+      for (let pass = 0; pass < 10; pass++) for (const step of [0.45, -0.47]) {
+        for (const i of this.support) for (let k = 0; k < 3; k++) {
+          let mean = 0; for (const j of adj[i]) mean += points[j * 3 + k] / adj[i].length;
+          tmp[i * 3 + k] = points[i * 3 + k] + (mean - points[i * 3 + k]) * step * weight[i];
+        }
+        points.set(tmp);
+      }
+      for (let i = 0; i < field.length; i++) field[i] = points[i] - (includeBase ? B[i] : 0);
+    };
+    regularize(this.average, true); regularize(this.maximum, true);
+    regularize(this.firmAverage, false); regularize(this.firmMaximum, false);
+    this.nativeIndices = this.support;
   }
 
-  apply(out: Float32Array, amount: number, shape: Morphology['breast']): void {
+  /**
+   * 原生小／中／大杯提供連續的有號材料曲面；超出大杯後採根部局部仿射擴展。
+   * 寬、高、深、上極、下極、胸距及朝向各自有控制，不使用深度平方鼓包或
+   * 隨下極高度改變斜率的下垂公式。所有型態在同一套自由度上設定偏好。
+   */
+  apply(output: Float32Array, amount: number, shape: Morphology['breast'], transport?: (i: number, delta: V3) => V3): void {
+    if (amount <= 0) return;
+    // 材料先在同一骨性參照內形成，再由胸廓的實際變換傳遞整個位移。
+    // 根部上下的胸廓倍率不同，不能只用邊緣回歸出一個倍率相乘；
+    // 向下移動的下極也必須落在它移動後所在高度的胸壁上。
+    const out = new Float32Array(this.reference);
+    const shapeWeight = ease(0, 1, amount);
     const native = Math.max(0, Math.min(2, amount));
-    const firmness = shape === 'long' ? 0.25 : shape === 'round' ? 0.8 : 0.55;
-    // 原生小／中／大杯曲面沿共同控制插值。底座和上胸過渡來自完整原始目標。
+    const firm = shape === 'long' ? 0 : shape === 'round' ? 0.55 : 0.2;
+    const roots = this.bindings.map(b => {
+      const root: V3 = [0, 0, 0];
+      for (const i of b.rim) for (let k = 0; k < 3; k++) root[k] += output[i * 3 + k] / b.rim.length;
+      return root;
+    });
+    const scales = this.bindings.map((b, index) => {
+      const scale: V3 = [0, 0, 0], variance: V3 = [0, 0, 0];
+      for (const i of b.rim) for (let k = 0; k < 3; k++) {
+        const d = this.reference[i * 3 + k] - b.root[k];
+        scale[k] += d * (output[i * 3 + k] - roots[index][k]); variance[k] += d * d;
+      }
+      return scale.map((v, k) => Math.max(0.4, Math.min(2.5, v / Math.max(0.01, variance[k])))) as V3;
+    });
+    const chestWall = new Float32Array(out);
     for (const i of this.nativeIndices) for (let k = 0; k < 3; k++) {
       const d = i * 3 + k;
-      out[d] += native <= 1 ? this.average[d] * native : this.average[d] * (2 - native) + this.maximum[d] * (native - 1);
-      out[d] += firmness * (native <= 1 ? this.firmAverage[d] * native : this.firmAverage[d] * (2 - native) + this.firmMaximum[d] * (native - 1));
+      const shapeDelta = native <= 1 ? this.average[d] * native : this.average[d] * (2 - native) + this.maximum[d] * (native - 1);
+      const firmDelta = native <= 1 ? this.firmAverage[d] * native : this.firmAverage[d] * (2 - native) + this.firmMaximum[d] * (native - 1);
+      out[d] += shapeDelta + firm * firmDelta;
     }
     const extra = Math.max(0, amount - 2);
-    const scale = Math.exp(extra * 0.42);
-    const growth = scale - 1;
-    const breadth = Math.exp(extra * 0.27);
-    const height = Math.exp(extra * 0.14) * (shape === 'long' ? 1.16 : shape === 'round' ? 0.96 : 1);
-    for (const b of this.bindings) {
-      const root: V3 = [0, 0, 0];
-      for (const i of b.cageRim) for (let k = 0; k < 3; k++) root[k] += out[i * 3 + k] / b.cageRim.length;
-      const radius = Math.max(3, Math.abs(root[0]) * 0.72);
-      let maxDepth = 0;
-      for (const i of b.indices) maxDepth = Math.max(maxDepth, out[i * 3 + 2] - root[2]);
-      for (const i of b.indices) {
-        // 內部保留同一曲面的寬／高／深關係；附著限制集中在根部，不能越加越像尖錐。
-        const w = ease(0, 0.65, b.weights[i]);
-        if (!w) continue;
-        const dy = out[i * 3 + 1] - root[1];
-        const lower = 1 - ease(-radius * 0.7, radius * 0.4, dy);
-        const upper = 1 - lower;
-        // 三型共用自由度；下極移動與上部飽滿各自受根部漸變限制。
-        const width = shape === 'round' ? 0.12 : shape === 'long' ? -0.06 : 0;
-        const fullness = shape === 'round' ? 0.28 * upper - 0.06 * lower : shape === 'long' ? -0.22 * upper + 0.08 * lower : 0;
-        const drop = shape === 'long' ? 0.24 : shape === 'round' ? -0.045 : 0.07;
-        const depth = Math.max(0, out[i * 3 + 2] - root[2]);
-        const u = depth / Math.max(0.1, maxDepth);
-        const profile = depth * (2 - u);
-        const projection = profile * growth + depth * fullness * scale;
-        const side = Math.sign(root[0]);
-        const dx = out[i * 3] - root[0];
-        const widening = dx * (breadth - 1 + width);
-        // 內側靠胸骨的空間有限，主要展開在外側及下極；左右不互相穿越。
-        const medial = widening * side < 0 ? 0.08 : 1;
-        out[i * 3] += w * widening * medial;
-        // 大小擴展主要放在自由下極，上方附著不能隨倍率升到鎖骨。
-        const lowerExtension = 1 - ease(-radius * 0.5, radius * 0.35, dy);
-        out[i * 3 + 1] += w * ((dy - radius * 0.4) * (height - 1) * lowerExtension - depth * (drop + 0.055 * Math.max(0, growth)) * (0.35 + 0.65 * lower));
-        out[i * 3 + 2] += w * projection;
-      }
-      // 原始杯型在下極的少數拓撲面會在放大後形成曲率尖峰。
-      // 在同一控制支撐內做保體積傾向的曲率校正；根部權重逐漸歸零。
-      // 這是求解曲面的一部分，後續尺寸、體積與組成一律重新量測。
-      const correction = ease(0.8, 2, amount);
-      if (correction) {
-        const tmp = new Float32Array(b.indices.length * 3);
-        for (let pass = 0; pass < 8; pass++) for (const step of [0.45, -0.47]) {
-          for (let row = 0; row < b.indices.length; row++) {
-            const i = b.indices[row], neighbors = this.adjacency[i];
-            const weight = ease(0, 0.65, b.weights[i]) * correction;
-            for (let k = 0; k < 3; k++) {
-              let mean = 0;
-              for (const j of neighbors) mean += out[j * 3 + k] / neighbors.length;
-              tmp[row * 3 + k] = out[i * 3 + k] + (mean - out[i * 3 + k]) * step * weight;
-            }
-          }
-          for (let row = 0; row < b.indices.length; row++) for (let k = 0; k < 3; k++) out[b.indices[row] * 3 + k] = tmp[row * 3 + k];
-        }
+    const breadth = 1 + 0.19 * extra + (shape === 'round' ? 0.1 : shape === 'long' ? -0.025 : 0) * shapeWeight;
+    const height = (1 + 0.12 * Math.log1p(extra)) * (1 + (shape === 'long' ? 0.17 : shape === 'round' ? -0.15 : 0) * shapeWeight);
+    const depth = 1 + 0.5 * extra;
+    const controls: BoundControl[] = [], frames: Record<string, ControlFrame> = {}, state: Record<string, LocalTransform> = {};
+    this.bindings.forEach((b, sideIndex) => {
+      const parent = `breast${sideIndex}`, root = b.root, side = Math.sign(root[0]);
+      frames[parent] = { origin: root, axes: [[side, 0, 0], [0, 1, 0], [0, 0, side]], scale: [1, 1, 1] };
+      const weights = Float32Array.from(b.indices, i => ease(0, 0.4, b.weights[i]));
+      const base = { parent, origin: [0, 0, 0] as V3, vertices: b.indices };
+      const add = (name: string, w: Float32Array, t: LocalTransform, material?: Float32Array) => {
+        const id = `${parent}-${name}`; controls.push({ ...base, id, weights: w, material }); state[id] = t;
+      };
+      add('width', weights, { scale: [breadth, 1, 1] });
+      // 自由部分採正倍率仿射，保留表面內部次序；最終附著由胸壁／籠
+      // 的共同權重負責，不能把原生向下位移外插成非單調的下極。
+      add('height', weights, { scale: [1, height, 1] });
+      // 胸廓本身的前凸不是乳房厚度：深度只擴展相對同一胸壁的自由表面。
+      // 根部不是一片平面，不能用 z-root.z 把胸腹與乳房一起拉成多層凸緣。
+      const projection = new Float32Array(b.indices.length * 3);
+      b.indices.forEach((i, row) => { projection[row * 3 + 2] = (out[i * 3 + 2] - chestWall[i * 3 + 2]) * side; });
+      add('depth', new Float32Array(weights.length).fill(1), { material: depth - 1 }, projection);
+      // 寬度與胸距共同以胸骨正中作內側錨點；不能繞乳房中心放大後
+      // 只補回一半距離，讓大杯的內側表面越過附著線。
+      add('separation', weights, { translation: [(breadth - 1) * Math.abs(root[0]), 0, 0] });
+      const upper = Float32Array.from(b.indices, (i, row) => weights[row] * ease(-2, 4, out[i * 3 + 1] - root[1]));
+      const lower = Float32Array.from(weights, (w, row) => w - upper[row]);
+      add('upper-pole', upper, { material: (shape === 'round' ? 0.35 : shape === 'long' ? -0.13 : 0) * shapeWeight }, projection);
+      add('lower-pole', lower, { material: (shape === 'long' ? 0.05 : 0) * shapeWeight }, projection);
+      const gravity = new Float32Array(b.indices.length * 3);
+      b.indices.forEach((i, row) => { gravity[row * 3 + 1] = -Math.max(0, out[i * 3 + 2] - chestWall[i * 3 + 2]); });
+      add('sag', weights, { material: (shape === 'long' ? 0.13 : shape === 'round' ? 0 : 0.035) * shapeWeight }, gravity);
+      add('orientation', weights, { yaw: (shape === 'round' ? 0 : -0.025) * side * shapeWeight });
+    });
+    new LocalControlRig(controls).apply(out, frames, state, out);
+    for (const i of this.support) {
+      const delta: V3 = [out[i * 3] - this.reference[i * 3], out[i * 3 + 1] - this.reference[i * 3 + 1], out[i * 3 + 2] - this.reference[i * 3 + 2]];
+      const moved = transport ? transport(i, delta) : delta;
+      const side = this.reference[i * 3] > 0 ? 0 : 1, b = this.bindings[side];
+      const free = ease(0, 0.4, b.weights[i]) * shapeWeight;
+      // 自由乳房由根部籠承接胸廓與覆蓋的共同改變；附著帶沿實際胸壁
+      // 傳遞。不能在自由下極再直接疊一次胸壁局部的肌脂位移。
+      for (let k = 0; k < 3; k++) {
+        const cage = roots[side][k] + (out[i * 3 + k] - b.root[k]) * scales[side][k];
+        output[i * 3 + k] = (output[i * 3 + k] + moved[k]) * (1 - free) + cage * free;
       }
     }
   }

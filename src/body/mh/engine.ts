@@ -46,8 +46,9 @@ export interface EngineOutput {
   bodyFat: number;
   tissues: { fat: number; muscle: number; otherLean: number };
   accounting: { otherLeanBase: number; otherLeanControl: number; breastOtherLean: number };
-  diagnostics: { kind: 'input-conflict' | 'unconverged'; message: string }[];
-  measurement: { version: 2; chestWallUnderbust: number; standingBust: number; sources: Measured['sources'] };
+  diagnostics: { kind: 'input-conflict' | 'unconverged' | 'invalid-shape'; message: string }[];
+  quality: ReturnType<RingBody['fitComposition']>['quality'];
+  measurement: { version: 3; chestWallUnderbust: number; standingBust: number; sources: Measured['sources']; neutralPaths: Measured['tapes'] };
   /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
   residual: { goal: Goal; error: number }[];
   /** 各區脂肪與肌肉比素體多出的公斤數 */
@@ -87,26 +88,8 @@ export class BodyEngine {
       let result = this.rings.fitComposition(solveInput, { neutralize: true });
       let restoreInspection = this.rings.preserveInspection();
       let approximate = false;
-      const score = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
-        .reduce((sum, x) => sum + (x.error / (x.goal.kind === 'bodyFat' ? 0.01 : 0.5)) ** 2, 0)
-        + (input.muscleMass === undefined ? 0 : ((r.tissues.muscle - input.muscleMass) / 0.5) ** 2);
-      const valid = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
-        .every(x => Math.abs(x.error) < (x.goal.kind === 'bodyFat' ? 0.01 : 0.5))
-        && (input.muscleMass === undefined || Math.abs(r.tissues.muscle - input.muscleMass) < 0.5)
-        && Object.values(r.tissues).every(x => x >= 0);
-      if (!diagnostics.length && input.weightLocked && input.locked.hip !== undefined
-        && input.locked.thigh === undefined && input.preferred?.thigh && !valid(result)) {
-        // 以來源腿圍建立有界的另一個分配起點；只是候選導引，並非使用者硬輸入。
-        // 較粗自由腿卡住臀圈時，先限制腿量再分配，可找到原求解路徑漏掉的解。
-        for (const fraction of [1, 0.9]) {
-          const candidate = this.rings.fitComposition({ ...solveInput,
-            locked: { ...solveInput.locked, thigh: input.preferred.thigh.target * fraction } }, { neutralize: true });
-          if (valid(candidate) || score(candidate) < score(result)) {
-            result = candidate; restoreInspection = this.rings.preserveInspection();
-          }
-          if (valid(result)) break;
-        }
-      }
+      // 共同校正已在實際控制上處理固定圈與總量；不能在外層再把自由腿
+      // 變成兩個虛構的手動條件，重跑整個求解卻得到更差的尺寸／重量折衷。
       const sizeError = (r: typeof result) => residualOf(input, r.values, r.weight, r.bodyFat)
         .filter(x => x.goal.kind === 'measure' || x.goal.kind === 'diff').reduce((sum, x) => sum + x.error ** 2, 0);
       const missesSize = residualOf(input, result.values, result.weight, result.bodyFat)
@@ -115,7 +98,7 @@ export class BodyEngine {
         // 超約束時保留明確尺寸的近似解，不能為湊體重把指定臀腿推大。
         // 原輸入仍用於殘差與診斷，沒有把放寬的重量冒充成功。
         const candidate = this.rings.fitComposition({ ...solveInput, weightLocked: false, estimateReference: false }, { neutralize: true });
-        if (sizeError(candidate) < sizeError(result)) {
+        if (candidate.quality.valid && Object.values(candidate.tissues).every(x => x >= 0) && sizeError(candidate) < sizeError(result)) {
           result = candidate; approximate = true; restoreInspection = this.rings.preserveInspection();
         }
       }
@@ -129,6 +112,7 @@ export class BodyEngine {
         ? `目前控制未能同時符合鎖定尺寸與體重；顯示優先維持尺寸的近似解，實際體重 ${res.weight.toFixed(1)} kg。原體重目標仍保留，這不代表輸入在生理上不可能。`
         : '目前控制尚未找到同時符合全部尺寸與組成的解；這是模型求解未達標，不能據此判定這個體型不可能。' });
     }
+    if (!res.quality.valid) diagnostics.push({ kind: 'invalid-shape', message: `目前曲面有 ${res.quality.foldedFaces} 個新增折返面、${res.quality.collapsedFaces} 個塌縮面、${res.quality.intersectingPairs} 對穿插面；即使尺寸接近目標，也尚未形成有效體型。` });
     const { P, armRotation } = this.model.display(res.P, input.armAngle, false);
     const a = this.asset;
     const m = res.measured;
@@ -196,7 +180,8 @@ export class BodyEngine {
       bodyFat: res.bodyFat,
       tissues: res.tissues,
       accounting: res.accounting,
-      measurement: { version: 2, chestWallUnderbust: m.values.underbust, standingBust: m.values.bust, sources: m.sources },
+      quality: res.quality,
+      measurement: { version: 3, chestWallUnderbust: m.values.underbust, standingBust: m.values.bust, sources: m.sources, neutralPaths: m.tapes },
       diagnostics,
       residual,
       composition: res.kg,

@@ -1,40 +1,43 @@
 import type { BodyAsset } from './asset';
-import { type V3, adjacency, centroid, smooth, taubin } from './geometry';
+import { type V3, adjacency, centroid, smooth } from './geometry';
 
-// 把求解好的網格整理成畫面上的樣子：乳頭附近抹平、表面去掉細小凹凸、手臂轉到指定角度。
-// 形狀本身由 rings.ts 決定，這裡不改任何量測。
+// 中性曲面整理是求解與量測的一部分；姿勢只在完成後套用，不另修輪廓。
 
 export class BodyModel {
   readonly adj: number[][];
   readonly nippleVerts: Uint32Array;
   /** 顯示前要抹平的頂點（手、腳的細節保留） */
   private readonly surfaceVerts: Uint32Array;
+  private readonly contactVerts: Uint32Array;
+  private deltaScratch?: Float32Array;
   private readonly deltaSupports = new WeakMap<Uint32Array, Uint32Array>();
 
   constructor(readonly asset: BodyAsset) {
     this.adj = adjacency(asset.quads, asset.nBody);
-    const B = asset.base;
-    const near: number[] = [];
-    for (const name of ['bustApexL', 'bustApexR']) {
-      const c = [B[asset.landmarks[name] * 3], B[asset.landmarks[name] * 3 + 1], B[asset.landmarks[name] * 3 + 2]];
-      for (let i = 0; i < asset.nBody; i++) {
-        if (Math.hypot(B[i * 3] - c[0], B[i * 3 + 1] - c[1], B[i * 3 + 2] - c[2]) < 2.2) near.push(i);
-      }
-    }
-    this.nippleVerts = Uint32Array.from(near);
+    // 尖端標記跟隨 CC0 材料的實際支撐；素體上的固定半徑在大杯時會涵蓋整片下極。
+    this.nippleVerts = Uint32Array.from(asset.targets.get('nipple-point-decr')!.indices).filter(i => i < asset.nBody);
     const tips = new Set(['handL', 'handR', 'footL', 'footR'].map((r) => asset.regions.indexOf(r)));
     const surface: number[] = [];
     for (let i = 0; i < asset.nBody; i++) if (!tips.has(asset.region[i])) surface.push(i);
     this.surfaceVerts = Uint32Array.from(surface);
+    const bilateral = new Set(['torso', 'breastL', 'breastR', 'thighL', 'thighR'].map(r => asset.regions.indexOf(r)));
+    this.contactVerts = Uint32Array.from(surface.filter(i => bilateral.has(asset.region[i]) && Math.abs(asset.base[i * 3]) > 1e-5));
   }
 
-  /** 顯示用網格：乳頭附近抹平、整體表面去掉細小凹凸，手臂轉到指定的外展角度 */
+  /** 中性表面的受限平滑；內腿、臀溝和胸骨附著不因負步長穿過另一側。 */
   finish(P: Float32Array): void {
-    smooth(P, this.adj, this.nippleVerts, 15, 0.6);
-    taubin(P, this.adj, this.surfaceVerts, 4);
+    smooth(P, this.adj, this.nippleVerts, 2, 0.3);
+    for (let pass = 0; pass < 4; pass++) {
+      smooth(P, this.adj, this.surfaceVerts, 1, 0.5);
+      smooth(P, this.adj, this.surfaceVerts, 1, -0.53);
+      for (const i of this.contactVerts) {
+        const side = Math.sign(this.asset.base[i * 3]);
+        P[i * 3] = side * Math.max(Math.min(0.005, Math.abs(this.asset.base[i * 3]) * 0.1), side * P[i * 3]);
+      }
+    }
   }
 
-  /** 平滑為線性算子；只傳播兩曲面的局部差，避免再平滑整份胸壁。 */
+  /** 並行傳播局部差；接觸投影也同時作用於兩曲面，避免再平滑整份胸壁。 */
   finishPair(base: Float32Array, shaped: Float32Array, support: Uint32Array): void {
     let affected = this.deltaSupports.get(support);
     if (!affected) {
@@ -47,11 +50,23 @@ export class BodyModel {
       affected = Uint32Array.from(reach).filter(i => surface.has(i));
       this.deltaSupports.set(support, affected);
     }
-    const delta = new Float32Array(shaped.length);
+    if (this.deltaScratch?.length !== shaped.length) this.deltaScratch = new Float32Array(shaped.length);
+    const delta = this.deltaScratch; delta.fill(0);
     for (const i of support) for (let k = 0; k < 3; k++) delta[i * 3 + k] = shaped[i * 3 + k] - base[i * 3 + k];
-    this.finish(shaped);
-    smooth(delta, this.adj, this.nippleVerts, 15, 0.6);
-    taubin(delta, this.adj, affected, 4);
+    smooth(shaped, this.adj, this.nippleVerts, 2, 0.3);
+    smooth(delta, this.adj, this.nippleVerts, 2, 0.3);
+    for (let pass = 0; pass < 4; pass++) {
+      for (const factor of [0.5, -0.53]) {
+        smooth(shaped, this.adj, this.surfaceVerts, 1, factor);
+        smooth(delta, this.adj, affected, 1, factor);
+      }
+      for (const i of this.contactVerts) {
+        const side = Math.sign(this.asset.base[i * 3]), originalBase = shaped[i * 3] - delta[i * 3];
+        const margin = Math.min(0.005, Math.abs(this.asset.base[i * 3]) * 0.1);
+        shaped[i * 3] = side * Math.max(margin, side * shaped[i * 3]);
+        delta[i * 3] = shaped[i * 3] - side * Math.max(margin, side * originalBase);
+      }
+    }
     for (let i = 0; i < base.length; i++) base[i] = shaped[i] - delta[i];
   }
 

@@ -1,6 +1,6 @@
 # BodyRef 本輪完整交付計畫：形狀控制、實際數據與整體造型
 
-更新日期：2026-10-22（Asia/Taipei）。本版整合胸型、肌肉、腰腹臀腿參考與霧面輸出的討論，並補強接棒入口。狀態：本輪功能已整合實作，驗證、證據及模型界線見 [施工紀錄](SHAPE_CONTROL_IMPLEMENTATION.md) 和 PR 當前 head 的 CI；尚未發布。
+更新日期：2026-10-22（Asia/Taipei）。本版整合胸型、肌肉、腰腹臀腿參考與霧面輸出的討論，並補強接棒入口。狀態：計畫總整，尚未恢復模型實作。
 
 **本文件取代 `09e0694`、`7cef823` 的交付範圍與開工引導，以此版為單一施工規格。** 兩次失敗保留在 [HISTORY](HISTORY.md) 作為設計約束。內部研究、總表、分區原型都是施工成果；作者下一輪要驗收的是所有本輪功能整合完成的可用版本，不是逐步簽核總表或局部原型。
 
@@ -439,7 +439,7 @@ Seamscape 用於多視角連接參考，逐區說明採納的概念與未採用�
 - [乳下褶筋膜結構](https://pubmed.ncbi.nlm.nih.gov/34998682/)：用於根部、下極與過渡關係。
 - [胸大肌三維結構](https://pubmed.ncbi.nlm.nih.gov/19291757/)：用於胸肌分區及附著，不直接提供表面增長公式。
 - [腹部皮下組織](https://pubmed.ncbi.nlm.nih.gov/8838275/)：用於腹部覆蓋與結構分層研究。
-- [NHANES 身體量測](https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/BMX_J.htm) 與 [DXA](https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DXX_J.htm)：本輪已完成同期連接、品質／權重篩選及留出驗證，處理規格與誤差見施工紀錄；來源範圍不等於對個別真人的形態驗證。
+- [NHANES 身體量測](https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/BMX_J.htm) 與 [DXA](https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DXX_J.htm)：已確認公開來源，尚未完成下載、擬合與專案校準；需核對對應調查期手冊、品質和權重。
 - [Seamscape BodyDouble](https://seamscape.com/bodydbl)：外觀參考；不複製其內容或作唯一標準。
 - [ABMX 原始碼](https://github.com/ManlyMarco/KKABMX/tree/c7598cdcec6e60b320f8c6c3ec794849232a61b7)：已核對局部變換、多骨效果及 AI/HS2 控制清單；不能僅憑名稱推定權重與精確骨鏈。只借鑑架構，不複製遊戲資產或係數。
 - [作者提供的 Patreon 公開說明](https://www.patreon.com/posts/85774262)：已核對是角色模組使用與 ABMX 需求說明，並非胸型／胸圍公式教程。
@@ -447,11 +447,11 @@ Seamscape 用於多視角連接參考，逐區說明採納的概念與未採用�
 
 作者的照片、創作、裁切、縮圖以及外站比較材料一律不進倉庫。持久文件只保留抽象造型要求、合法來源連結與研究結論；不從圖片猜個人健康、體脂或施作經歷。
 
-研究支持結構原則；B 的分區、連動、控制與數值映射須以可檢查的施工成果落實。對應實作記錄於施工文件，不以文獻數量代替控制設計。
+現有研究可支持結構原則，但 B 所需的完整分區、連動及控制規格仍是實作前的明確工作。研究應產出上述設計成果，不以再列更多論文代替控制設計。
 
 ## 14. 接棒狀態與完整交付
 
-- 本文件原為計畫總整；現已依作者指示進入完整實作，成果、驗證及界線見 [施工紀錄](SHAPE_CONTROL_IMPLEMENTATION.md)。`09e0694`／`7cef823` 舊版中「先交總表」「胸型及肌肉 UI 留後續」等文字已被本版取代；接獲實作指示後依本版連續完成全輪。
+- 本次是計畫總整，未恢復模型實作。`09e0694`／`7cef823` 舊版中「先交總表」「胸型及肌肉 UI 留後續」等文字已被本版取代；接獲實作指示後依本版連續完成全輪。
 - 新實作開始時讀最新版 AGENTS、README、HANDOFF、HISTORY 及本文件；建立乾淨分支，保留與本工作無關的合法更新。
 - 不整批帶入已否決的 `8a737e8`、PR #7 補救或 `codex/coupled-shape-controls` 的 `81abd7a`／未提交試驗。既有工作保留作證據，不自行 reset 或刪除。
 - 分支提交、PR、合併與發布按倉庫規則；沒有通過完整驗證的模型不發布，穩定版標籤仍由作者建立。

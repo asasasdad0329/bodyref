@@ -1,4 +1,5 @@
 import { freeBreastVertices, type BodyAsset } from './asset';
+import type { Sex } from '../../core/measurements';
 import {
   type Plane,
   type Tape,
@@ -7,6 +8,7 @@ import {
   cross,
   dist,
   horizontal,
+  horizontalPoints,
   lerp3,
   norm,
   pickLoop,
@@ -46,7 +48,7 @@ const SEARCH: Record<SearchKey, { from: number; to: number; steps: number; mode:
 };
 
 /** 搜尋到的相對位置；固定下來後可以快速重量（求解時用） */
-export type Levels = Record<SearchKey, number>;
+export type Levels = Record<SearchKey, number> & { bust?: number };
 
 export interface Measured {
   values: Record<MeasureKey, number>;
@@ -124,6 +126,7 @@ export function buttockCandidates(a: BodyAsset): Uint32Array {
 }
 
 export interface MeasureContext {
+  sex?: Sex;
   asset: BodyAsset;
   faces: FaceSets;
   crotch: Uint32Array;
@@ -132,12 +135,29 @@ export interface MeasureContext {
   torsoReference?: Float32Array;
 }
 
-export function measureContext(a: BodyAsset): MeasureContext {
-  return { asset: a, faces: buildFaceSets(a), crotch: crotchCandidates(a), buttock: buttockCandidates(a),
+export function measureContext(a: BodyAsset, sex?: Sex): MeasureContext {
+  return { asset: a, sex, faces: buildFaceSets(a), crotch: crotchCandidates(a), buttock: buttockCandidates(a),
     freeBreast: Uint32Array.from(freeBreastVertices(a)) };
 }
 
-export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, search: readonly SearchKey[] = [], chestWall?: Float32Array): Measured {
+/** 骨架長度校準只需標記點；不必在每次長度探測建立全部皮尺與截面。 */
+export function measureSkeleton(ctx: MeasureContext, P: Float32Array) {
+  const a = ctx.asset;
+  let soleY = Infinity, topY = -Infinity, crotchY = Infinity;
+  for (let i = 0; i < a.nBody; i++) {
+    soleY = Math.min(soleY, P[i * 3 + 1]); topY = Math.max(topY, P[i * 3 + 1]);
+  }
+  for (const i of ctx.crotch) crotchY = Math.min(crotchY, P[i * 3 + 1]);
+  const elbow = centroid(P, ...a.joints['l-elbow']), wrist = centroid(P, ...a.joints['l-hand']);
+  const knee = centroid(P, ...a.joints['l-knee']), ankle = centroid(P, ...a.joints['l-ankle']);
+  return { values: { height: topY - soleY, upperArmLen: dist(vert(P, a.landmarks.acromionL), elbow),
+    forearmLen: dist(elbow, wrist), thighLen: crotchY - knee[1], calfLen: knee[1] - ankle[1] },
+    marks: { soleY, topY, crotchY } };
+}
+
+export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, search: readonly SearchKey[] = [], chestWall?: Float32Array, selected?: readonly MeasureKey[]): Measured {
+  // 局部聯立探測只讀指定皮尺；未要求的圈回傳 NaN，不能冒充完整量測。
+  const needs = (key: MeasureKey) => !selected || selected.includes(key);
   const a = ctx.asset;
   // 自由乳房遮住腰腹時，只把該片自由表面投回同一解的胸壁參照。
   // 其餘皮膚保留最終座標；用完整閉合圈量測，不能刪面後以缺口捷徑虛減腰圍。
@@ -162,8 +182,10 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
   const knee = J('l-knee'), ankle = J('l-ankle'), hipJ = J('l-upper-leg');
   const shoulderJ = J('l-shoulder'), elbow = J('l-elbow'), wristJ = J('l-hand');
   const neckJ = J('neck'), headJ = J('head');
-  const bustY = (L('bustApexL')[1] + L('bustApexR')[1]) / 2;
-  const underbustY = chestWall ? (chestWall[a.landmarks.underbustL * 3 + 1] + chestWall[a.landmarks.underbustR * 3 + 1]) / 2
+  let bustY = (L('bustApexL')[1] + L('bustApexR')[1]) / 2;
+  // 男性不能沿用女性最大乳房骨權重的最低點：該頂點在男性變成距胸峰僅約 2.6 cm。
+  // 下胸採胸廓下段的骨性參照，與胸峰分開；來源及版本保留供比較。
+  const underbustY = ctx.sex === 'male' ? J('spine-2')[1] * 0.6 + J('spine-1')[1] * 0.4 : chestWall ? (chestWall[a.landmarks.underbustL * 3 + 1] + chestWall[a.landmarks.underbustR * 3 + 1]) / 2
     : (L('underbustL')[1] + L('underbustR')[1]) / 2;
 
   const values = {} as Record<MeasureKey, number>;
@@ -174,10 +196,32 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
     const loop = pickLoop(slice(P, a.quads, faces, plane), plane, ref);
     return loop && loop.length > 2 ? tape(loop, plane) : null;
   };
+  // 一次量測會在同一表面搜尋多個軀幹高度。以兩曲面的聯合高度範圍
+  // 分桶，只減少不相交面的掃描；保留原始順序與完全相同的截面算法。
+  let trunkBins: Map<number, Uint32Array> | undefined;
+  const trunkCandidates = (y: number): Uint32Array => {
+    if (!trunkBins) {
+      const bins = new Map<number, number[]>();
+      for (const f of ctx.faces.trunk) {
+        let low = Infinity, high = -Infinity;
+        for (let k = 0; k < 4; k++) {
+          const i = a.quads[f * 4 + k] * 3 + 1;
+          const v = P[i], wall = chestWall?.[i] ?? v;
+          low = Math.min(low, v, wall); high = Math.max(high, v, wall);
+        }
+        if (!Number.isFinite(low) || !Number.isFinite(high)) continue;
+        for (let bin = Math.floor(low / 4); bin <= Math.floor(high / 4); bin++) {
+          const row = bins.get(bin) ?? []; row.push(f); bins.set(bin, row);
+        }
+      }
+      trunkBins = new Map([...bins].map(([bin, row]) => [bin, Uint32Array.from(row)]));
+    }
+    return trunkBins.get(Math.floor(y / 4)) ?? new Uint32Array();
+  };
   // 軀幹：面集合已排除手臂，把所有截面段合在一起取凸包（排除胸部時，布尺會從胸下直接跨過）
   const trunkGirth = (faces: Uint32Array, y: number, surface = P): Tape | null => {
     const plane = horizontal(y);
-    const pts = slice(surface, a.quads, faces, plane).flat();
+    const pts = horizontalPoints(surface, a.quads, faces === ctx.faces.trunk ? trunkCandidates(y) : faces, y);
     return pts.length > 2 ? tape(pts, plane) : null;
   };
 
@@ -196,7 +240,10 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
       return { faces: ctx.faces.trunk, plane: horizontal(y), ref: [0, y, 0], union: true };
     },
     upperArm: (t) => {
-      const p = lerp3(shoulderJ, elbow, t);
+      // 放鬆上臂依肩峰—鷹嘴中點定位，而非內部肩關節—肘關節中點。
+      // 10042 是 CC0 原拓撲的左肘後方鷹嘴表面標記；肩峰沿用既有標記。
+      // 切面仍垂直肱骨軸，避免表面端點偏離骨軸而把皮尺傾斜。
+      const p = lerp3(L('acromionL'), vert(P, 10042), t);
       return { faces: ctx.faces.armL, plane: { p, n: norm(sub(elbow, shoulderJ)) }, ref: p };
     },
     wrist: (t) => {
@@ -220,6 +267,7 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
 
   for (const key of Object.keys(SEARCH) as SearchKey[]) {
     const s = SEARCH[key];
+    if (!needs(key)) { values[key] = NaN; levels[key] = fixed?.[key] ?? s.from; continue; }
     const searchKey = !fixed || search.includes(key);
     const ts = !searchKey ? [fixed![key]] : Array.from({ length: s.steps }, (_, i) => s.from + ((s.to - s.from) * i) / Math.max(1, s.steps - 1));
     let best: Tape | null = null;
@@ -255,19 +303,51 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
   // 否則兩個相近臀峰交換前後順序時，量測會突然跳幾公分。
   const hipY = crotchY + (underbustY - crotchY) * levels.hip;
 
-  const bust = trunkGirth(ctx.faces.trunk, bustY);
+  let bust = needs('bust') ? trunkGirth(ctx.faces.trunk, bustY) : null;
+  if (needs('bust') && ctx.sex === 'female' && chestWall) {
+    // 站姿皮尺搜尋自由乳房相對胸壁最飽滿的高度，不由單一胸峰頂點決定。
+    // 直接取整個胸部區間的最大周長會誤選腋下／上胸廓，令小杯永遠達不到。
+    // 迭代可暫存相對位置；接受前及最終輸出必須重新搜尋，保留實際皮尺路徑。
+    let low = underbustY, high = bustY;
+    for (const i of ctx.freeBreast) {
+      low = Math.min(low, P[i * 3 + 1]); high = Math.max(high, P[i * 3 + 1]);
+    }
+    const span = Math.max(1, high - low);
+    let position = Math.max(0, Math.min(1, (bustY - low) / span));
+    if (fixed?.bust !== undefined) {
+      position = fixed.bust; bustY = low + position * span;
+      bust = trunkGirth(ctx.faces.trunk, bustY);
+    } else {
+      let fullness = Math.max(0, (bust?.length ?? 0) - (trunkGirth(ctx.faces.trunk, bustY, chestWall)?.length ?? 0));
+      const sample = (t: number) => {
+        const y = low + Math.max(0, Math.min(1, t)) * span;
+        const candidate = trunkGirth(ctx.faces.trunk, y);
+        const wall = trunkGirth(ctx.faces.trunk, y, chestWall);
+        const projection = candidate && wall ? candidate.length - wall.length : -Infinity;
+        if (candidate && projection > fullness + 1e-4) {
+          bust = candidate; bustY = y; position = (y - low) / span;
+          fullness = projection;
+        }
+      };
+      for (let k = 0; k <= 8; k++) sample(k / 8);
+      for (const step of [1 / 16, 1 / 32, 1 / 64]) {
+        const center = position; sample(center - step); sample(center + step);
+      }
+    }
+    levels.bust = position;
+  }
   values.bust = bust?.length ?? NaN;
   if (bust) tapes.bust = bust.path;
   // 垂墜乳房遮住胸壁時，皮尺走同一框架的胸壁參照；不拿自由下極湊下胸。
   // 參照也經相同中性平滑，讀值獨立計算，並非回傳目標。
-  const ub = trunkGirth(ctx.faces.trunk, underbustY, chestWall);
+  const ub = needs('underbust') ? trunkGirth(ctx.faces.trunk, underbustY, chestWall) : null;
   values.underbust = ub?.length ?? NaN;
   if (ub) tapes.underbust = ub.path;
 
   // 肩寬：經過兩側肩點與後頸點的平面，沿背部的布尺長度
   const aL = L('acromionL'), aR = L('acromionR'), nape = L('nape');
   const sPlane: Plane = { p: nape, n: norm(cross(sub(aL, nape), sub(aR, nape))) };
-  const arc = shoulderArc(pickLoop(slice(P, a.quads, ctx.faces.shoulders, sPlane), sPlane, nape), sPlane, aL, aR, nape);
+  const arc = needs('shoulder') ? shoulderArc(pickLoop(slice(P, a.quads, ctx.faces.shoulders, sPlane), sPlane, nape), sPlane, aL, aR, nape) : { length: NaN, path: [] };
   values.shoulder = arc.length;
   tapes.shoulder = arc.path;
 
@@ -283,16 +363,16 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
   };
   const waistY = crotchY + (underbustY - crotchY) * levels.waist;
   // 自有拓撲標記：4121 位於原 CC0 網格的肚臍凹點，不依身高乘固定比例猜高度。
-  const navel = trunkGirth(ctx.faces.trunk, P[4121 * 3 + 1], bodySurface);
+  const navel = selected && !selected.includes('waist') ? null : trunkGirth(ctx.faces.trunk, P[4121 * 3 + 1], bodySurface);
   return {
     values,
     tapes,
     segments,
     levels,
     sources: { navelWaist: { value: navel?.length ?? NaN, path: navel?.path ?? [] }, shoulderBone: dist(aL, aR), relaxedArmMid: values.upperArm,
-      surfaceUnderbust: trunkGirth(ctx.faces.trunk, underbustY)?.length ?? NaN,
-      surfaceWaistAtBodyLevel: trunkGirth(ctx.faces.trunk, waistY)?.length ?? NaN,
-      surfaceHipAtBodyLevel: trunkGirth(ctx.faces.trunk, hipY)?.length ?? NaN },
+      surfaceUnderbust: selected ? NaN : trunkGirth(ctx.faces.trunk, underbustY)?.length ?? NaN,
+      surfaceWaistAtBodyLevel: selected ? NaN : trunkGirth(ctx.faces.trunk, waistY)?.length ?? NaN,
+      surfaceHipAtBodyLevel: selected ? NaN : trunkGirth(ctx.faces.trunk, hipY)?.length ?? NaN },
     marks: { soleY, topY, crotchY, waistY, hipY, underbustY, bustY, kneeY: knee[1], ankleY: ankle[1] },
   };
 }

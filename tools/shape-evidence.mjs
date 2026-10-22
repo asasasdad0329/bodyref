@@ -4,8 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { createServer } from 'vite';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { build } from 'esbuild';
 import { chromium } from 'playwright';
 
 const [output, ...selected] = process.argv.slice(2);
@@ -13,51 +14,49 @@ if (!output) throw new Error('請指定倉庫外輸出目錄及可選的案例 I
 const root = process.cwd(), dest = path.resolve(output), rendererRoot = process.env.BODYREF_RENDERER_ROOT ?? root;
 const relative = path.relative(root, dest);
 if (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)) throw new Error('產物必須在倉庫外');
-const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+const git = async (...args) => (await promisify(execFile)('git', args, { cwd: root, encoding: 'utf8' })).stdout.trim();
+const files = (await git('ls-files', '--cached', '--others', '--exclude-standard', '-z')).split('\0').filter(Boolean).sort();
 const fingerprint = (modelOnly = false) => {
   const hash = crypto.createHash('sha256');
-  const files = git('ls-files', '--cached', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean).sort();
   for (const file of files) {
     if (modelOnly && !file.startsWith('src/body/') && !file.startsWith('src/core/') && file !== 'public/body.bin') continue;
     if (!fs.existsSync(file)) continue; hash.update(file); hash.update(fs.readFileSync(file));
   }
   return hash.digest('hex');
 };
-const snapshot = { commit: git('rev-parse', 'HEAD'), treeSha256: fingerprint(), modelSha256: fingerprint(true),
+const snapshot = { commit: await git('rev-parse', 'HEAD'), treeSha256: fingerprint(), modelSha256: fingerprint(true),
   assetSha256: crypto.createHash('sha256').update(fs.readFileSync('public/body.bin')).digest('hex'), rendererRoot,
-  measurement: '中性最終曲面、放鬆上臂中點、胸壁下胸參照 v2；基準使用其原量法' };
-const server = await createServer({ root, server: { port: 0, host: '127.0.0.1', hmr: false, fs: { allow: [root, rendererRoot] } },
-  plugins: [{ name: 'evidence-frame', configureServer(s) {
-    s.middlewares.use('/__shape_evidence', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="evidence-stage" style="position:fixed;inset:0"></div></body></html>'); });
-  } }],
-});
+  measurement: '量法以本次引擎輸出為準；基準保留其原量法，不能混稱同量法達標' };
+// 靜態離線驗證頁：不啟動監聽埠、不連外，截圖不需要額外網路權限。
+fs.mkdirSync(dest, { recursive: true });
+const bundle = await build({ stdin: { contents: `
+  import { Viewer } from ${JSON.stringify(path.join(rendererRoot, 'src/view/viewer.ts'))};
+  import { parseBodyAsset } from ${JSON.stringify(path.join(root, 'src/body/mh/asset.ts'))};
+  import { BodyEngine } from ${JSON.stringify(path.join(root, 'src/body/mh/engine.ts'))};
+  import { bodyInputFor } from ${JSON.stringify(path.join(root, 'src/body/goals.ts'))};
+  import { suggest } from ${JSON.stringify(path.join(root, 'src/core/linkage.ts'))};
+  import { cupDiff } from ${JSON.stringify(path.join(root, 'src/core/reference.ts'))};
+  import { measureContext } from ${JSON.stringify(path.join(root, 'src/body/mh/measure.ts'))};
+  import * as geometry from ${JSON.stringify(path.join(root, 'src/body/mh/geometry.ts'))};
+  import { BODY_CASES } from ${JSON.stringify(path.join(root, 'tests/fixtures/bodyCases.ts'))};
+  const raw = Uint8Array.from(atob(${JSON.stringify(fs.readFileSync('public/body.bin').toString('base64'))}), c => c.charCodeAt(0));
+  const asset = parseBodyAsset(raw.buffer);
+  document.documentElement.dataset.theme = 'light';
+  const viewer = new Viewer(document.getElementById('evidence-stage'));
+  viewer.setTopology(asset); viewer.setDisplay({ lineStyle: 'none', outline: false, measures: false });
+  window.__shapeEvidence = { viewer, engine: new BodyEngine(asset), bodyInputFor, suggest, cupDiff, geometry, ctx: measureContext(asset), asset, cases: BODY_CASES };
+`, resolveDir: root, loader: 'ts' }, bundle: true, format: 'iife', platform: 'browser', write: false });
+const harness = path.join(dest, '__harness.html');
+fs.writeFileSync(harness, '<!doctype html><html><head><meta charset="utf-8"><style>' + fs.readFileSync(path.join(rendererRoot, 'src/styles.css'), 'utf8') + '</style></head><body><div id="evidence-stage" style="position:fixed;inset:0"></div><script>' + bundle.outputFiles[0].text.replaceAll('</script', '<\/script') + '</script></body></html>');
 let browser;
 try {
-  const { BODY_CASES } = await server.ssrLoadModule('/tests/fixtures/bodyCases.ts');
-  const cases = BODY_CASES.filter(c => !selected.length || selected.includes(c.id));
-  if (selected.some(id => !cases.some(c => c.id === id))) throw new Error('有未知的案例 ID');
-  await server.listen();
-  const address = server.httpServer.address();
-  browser = await chromium.launch({ executablePath: process.env.BODYREF_CHROMIUM || undefined, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
+  browser = await chromium.launch({ executablePath: process.env.BODYREF_CHROMIUM || (fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined), args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 900, height: 1100 }, deviceScaleFactor: 1 });
   page.on('pageerror', error => { throw error; });
-  await page.goto(`http://127.0.0.1:${address.port}/__shape_evidence`);
-  await page.evaluate(async ({ rendererRoot }) => {
-    await import(`/@fs${rendererRoot}/src/styles.css`);
-    const { Viewer } = await import(`/@fs${rendererRoot}/src/view/viewer.ts`);
-    const { loadBodyAsset } = await import('/src/body/mh/asset.ts');
-    const { BodyEngine } = await import('/src/body/mh/engine.ts');
-    const { bodyInputFor } = await import('/src/body/goals.ts');
-    const { suggest } = await import('/src/core/linkage.ts');
-    const { cupDiff } = await import('/src/core/reference.ts');
-    const { measureContext } = await import('/src/body/mh/measure.ts');
-    const geometry = await import('/src/body/mh/geometry.ts');
-    document.documentElement.dataset.theme = 'light';
-    const viewer = new Viewer(document.getElementById('evidence-stage'));
-    const asset = await loadBodyAsset('/body.bin');
-    viewer.setTopology(asset); viewer.setDisplay({ lineStyle: 'none', outline: false, measures: false });
-    window.__shapeEvidence = { viewer, engine: new BodyEngine(asset), bodyInputFor, suggest, cupDiff, geometry, ctx: measureContext(asset), asset };
-  }, { rendererRoot });
+  await page.setContent(fs.readFileSync(harness, 'utf8'));
+  const allCases = await page.evaluate(() => window.__shapeEvidence.cases);
+  const cases = allCases.filter(c => !selected.length || selected.includes(c.id));
+  if (selected.some(id => !cases.some(c => c.id === id))) throw new Error('有未知的案例 ID');
   const results = [];
   fs.mkdirSync(dest, { recursive: true });
   for (const c of cases) {
@@ -79,7 +78,7 @@ try {
       }
       return { modelInput: { frame: input.frame, weight: input.weight, bodyFat: input.bodyFat,
         weightLocked: input.weightLocked, bodyFatLocked: input.bodyFatLocked, preferred: input.preferred },
-        values: out.values, residual: out.residual, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
+        values: out.values, residual: out.residual, tissues: out.tissues, accounting: out.accounting, quality: out.quality, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
     }, c);
     for (const view of ['front', 'quarter', 'side', 'rearQuarter', 'back']) {
       const png = await page.evaluate(view => {
@@ -109,9 +108,9 @@ try {
     }
     results.push({ ...c, ...result });
     fs.writeFileSync(path.join(dest, 'report.json'), JSON.stringify({ snapshot, results }, null, 2));
-    console.log(`${c.id}: ${result.ms.toFixed(0)} ms; ${result.diagnostics?.length ?? 0} 診斷`);
+    console.log(`${c.id}: ${result.ms.toFixed(0)} ms; ${result.diagnostics?.length ?? '未提供'} 診斷`);
   }
   const views = ['front', 'quarter', 'side', 'rearQuarter', 'back', 'quarter-light', 'rearQuarter-light', 'chest-detail', 'hip-detail'];
-  fs.writeFileSync(path.join(dest, 'index.html'), `<!doctype html><meta charset="utf-8"><title>BodyRef 形狀證據</title><style>body{font-family:system-ui;margin:24px;background:#eee}img{width:220px;max-width:100%}figure{margin:0}section{margin:30px 0}.views{display:flex;flex-wrap:wrap;gap:8px}pre{white-space:pre-wrap}</style><h1>BodyRef 形狀證據</h1><pre>${JSON.stringify(snapshot, null, 2)}</pre>${results.map(r => `<section><h2>${r.id}</h2><p>${r.weight.toFixed(2)} kg・${(r.bodyFat * 100).toFixed(1)}%・診斷 ${r.diagnostics?.length ?? 0}</p><div class="views">${views.map(v => `<figure><a href="${r.id}-${v}.png"><img loading="lazy" src="${r.id}-${v}.png"></a><figcaption>${v}</figcaption></figure>`).join('')}</div></section>`).join('')}<p>完整殘差、組成與每 2 cm 中性截面見 report.json。</p>`);
+  fs.writeFileSync(path.join(dest, 'index.html'), `<!doctype html><meta charset="utf-8"><title>BodyRef 形狀證據</title><style>body{font-family:system-ui;margin:24px;background:#eee}img{width:220px;max-width:100%}figure{margin:0}section{margin:30px 0}.views{display:flex;flex-wrap:wrap;gap:8px}pre{white-space:pre-wrap}</style><h1>BodyRef 形狀證據</h1><pre>${JSON.stringify(snapshot, null, 2)}</pre>${results.map(r => `<section><h2>${r.id}</h2><p>${r.weight.toFixed(2)} kg・${(r.bodyFat * 100).toFixed(1)}%・診斷 ${r.diagnostics?.length ?? '未提供'}</p><div class="views">${views.map(v => `<figure><a href="${r.id}-${v}.png"><img loading="lazy" src="${r.id}-${v}.png"></a><figcaption>${v}</figcaption></figure>`).join('')}</div></section>`).join('')}<p>完整殘差、組成與每 2 cm 中性截面見 report.json。</p>`);
   if (snapshot.treeSha256 !== fingerprint()) throw new Error('產出途中來源有變動；這份證據不可作同版本驗收');
-} finally { await browser?.close(); await server.close(); }
+} finally { await browser?.close(); fs.rmSync(harness, { force: true }); }

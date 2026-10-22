@@ -42,7 +42,7 @@ export const MEASURES: readonly MeasureDef[] = [
   { id: 'underbust', label: '下胸圍', hint: '胸部下緣貼著肋骨水平一圈', kind: 'girth', group: 'girth', min: 58, max: 125, step: 0.5 },
   { id: 'waist', label: '腰圍', hint: '肋骨與骨盆之間最細處', kind: 'girth', group: 'girth', min: 48, max: 140, step: 0.5 },
   { id: 'hip', label: '臀圍', hint: '臀部最翹處水平一圈', kind: 'girth', group: 'girth', min: 70, max: 150, step: 0.5 },
-  { id: 'upperArm', label: '臂圍', hint: '上臂中段（肩到手肘的中間），手臂放鬆', kind: 'girth', group: 'girth', min: 18, max: 50, step: 0.5 },
+  { id: 'upperArm', label: '臂圍', hint: '肩峰到手肘尖端的中點，手臂放鬆量一圈', kind: 'girth', group: 'girth', min: 18, max: 50, step: 0.5 },
   { id: 'wrist', label: '手腕圍', hint: '手腕骨上方一圈', kind: 'girth', group: 'girth', min: 12, max: 22, step: 0.5 },
   { id: 'thigh', label: '大腿圍', hint: '臀下大腿根部一圈', kind: 'girth', group: 'girth', min: 36, max: 85, step: 0.5 },
   { id: 'calf', label: '小腿圍', hint: '小腿肚最粗處', kind: 'girth', group: 'girth', min: 24, max: 52, step: 0.5 },

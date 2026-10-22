@@ -44,6 +44,26 @@ export function planeBasis(n: V3): [V3, V3] {
 
 export const horizontal = (y: number): Plane => ({ p: [0, y, 0], n: [0, 1, 0] });
 
+/** 軀幹皮尺需要所有截點的凸包，不需先連成折線。保留逐邊交點與共邊去重。 */
+export function horizontalPoints(P: Float32Array, quads: Uint16Array, faces: Uint32Array, y: number): V3[] {
+  const points = new Map<number, V3>();
+  for (let f = 0; f < faces.length; f++) {
+    const q = faces[f] * 4;
+    for (let k = 0; k < 4; k++) {
+      const a = quads[q + k], b = quads[q + ((k + 1) & 3)];
+      const da = P[a * 3 + 1] - y, db = P[b * 3 + 1] - y;
+      if ((da >= 0) === (db >= 0)) continue;
+      const key = Math.min(a, b) * 65536 + Math.max(a, b);
+      if (points.has(key)) continue;
+      const t = da / (da - db);
+      points.set(key, [P[a * 3] + (P[b * 3] - P[a * 3]) * t,
+        P[a * 3 + 1] + (P[b * 3 + 1] - P[a * 3 + 1]) * t,
+        P[a * 3 + 2] + (P[b * 3 + 2] - P[a * 3 + 2]) * t]);
+    }
+  }
+  return [...points.values()];
+}
+
 /**
  * 用平面切一組四邊形面，回傳截面的各個封閉（或因面集合邊界而斷開的）折線。
  */
@@ -226,18 +246,25 @@ export function adjacency(quads: Uint16Array, nVerts: number): number[][] {
   return adj.map((s) => [...s]);
 }
 
-/** 拉普拉斯平滑，只移動 verts 裡的頂點 */
+const smoothingScratch = new WeakMap<Uint32Array, Float32Array>();
+
+/** 拉普拉斯平滑，只移動 verts 裡的頂點；同步運算可重用同一支撐的暫存區。 */
 export function smooth(P: Float32Array, adj: number[][], verts: Uint32Array, iterations: number, factor = 0.5): void {
-  const tmp = new Float32Array(verts.length * 3);
+  let tmp = smoothingScratch.get(verts);
+  if (!tmp) { tmp = new Float32Array(verts.length * 3); smoothingScratch.set(verts, tmp); }
   for (let it = 0; it < iterations; it++) {
     for (let k = 0; k < verts.length; k++) {
       const i = verts[k];
       const nb = adj[i];
       let x = 0, y = 0, z = 0;
-      for (const j of nb) {
-        x += P[j * 3];
-        y += P[j * 3 + 1];
-        z += P[j * 3 + 2];
+      if (nb.length === 4) {
+        const a = nb[0] * 3, b = nb[1] * 3, c = nb[2] * 3, d = nb[3] * 3;
+        x = P[a] + P[b] + P[c] + P[d];
+        y = P[a + 1] + P[b + 1] + P[c + 1] + P[d + 1];
+        z = P[a + 2] + P[b + 2] + P[c + 2] + P[d + 2];
+      } else for (let row = 0; row < nb.length; row++) {
+        const j = nb[row] * 3;
+        x += P[j]; y += P[j + 1]; z += P[j + 2];
       }
       const m = 1 / nb.length;
       tmp[k * 3] = P[i * 3] + (x * m - P[i * 3]) * factor;

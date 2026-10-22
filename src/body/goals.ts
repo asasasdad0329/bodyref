@@ -76,7 +76,7 @@ export function bodyInputFor({ sex, sug, bustDiff, muscleMass, morphology }: Goa
   return {
     estimateReference: !Object.keys(L).some(k => k !== 'height' && L[k as keyof typeof L]) && bustDiff === null && muscleMass == null,
     muscleMass: muscleMass ?? undefined,
-    condition: { morphology: morphology ?? { ...DEFAULT_MORPHOLOGY }, bodyFat: v.bodyFat, muscle: 0 },
+    condition: { morphology: morphology ?? { ...DEFAULT_MORPHOLOGY }, bodyFat: v.bodyFat },
     sex,
     frame,
     frameLocked: FRAME.filter(k => L[k]),
