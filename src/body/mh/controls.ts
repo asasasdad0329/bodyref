@@ -71,7 +71,10 @@ export class SurfaceRig {
       up: 0.85 * H, down: 1.35 * (marks.bustY - marks.underbustY), angle: 0, width: 2.65 });
     const regions = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR', 'upperarmL', 'upperarmR', 'breastL', 'breastR'].map(r => a.regions.indexOf(r)));
     const bind = (id: string, key: SoftKey, parent: string, weights: Float32Array, material?: Float32Array): ShapeControl => {
-      const vertices = Uint32Array.from({ length: n }, (_, i) => i).filter(i => weights[i] > 0.00001);
+      const active: number[] = [];
+      for (let i = 0; i < n; i++) if (weights[i] > 0.00001
+        && (!material || material[i * 3] || material[i * 3 + 1] || material[i * 3 + 2])) active.push(i);
+      const vertices = Uint32Array.from(active);
       const frame = this.reference[parent];
       const control: ShapeControl = { id, parent, origin: [0, 0, 0], vertices,
         weights: Float32Array.from(vertices, i => Math.min(1, weights[i])), tissue: key,
@@ -80,7 +83,8 @@ export class SurfaceRig {
       if (material) {
         control.material = new Float32Array(vertices.length * 3);
         vertices.forEach((i, row) => {
-          for (let k = 0; k < 3; k++) control.material![row * 3 + k] = frame.axes[k].reduce((s, v, d) => s + v * material[i * 3 + d], 0);
+          const x = material[i * 3], y = material[i * 3 + 1], z = material[i * 3 + 2];
+          for (let k = 0; k < 3; k++) control.material![row * 3 + k] = frame.axes[k][0] * x + frame.axes[k][1] * y + frame.axes[k][2] * z;
         });
       }
       this.controls.push(control); return control;

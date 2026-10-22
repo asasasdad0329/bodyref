@@ -166,7 +166,7 @@ export class BreastRig {
     }
     const extra = Math.max(0, amount - 2);
     const breadth = 1 + 0.19 * extra + (shape === 'round' ? 0.1 : shape === 'long' ? -0.025 : 0) * shapeWeight;
-    const height = (1 + 0.12 * extra) * (1 + (shape === 'long' ? 0.17 : shape === 'round' ? -0.15 : 0) * shapeWeight);
+    const height = (1 + 0.12 * Math.log1p(extra)) * (1 + (shape === 'long' ? 0.17 : shape === 'round' ? -0.15 : 0) * shapeWeight);
     const depth = 1 + 0.5 * extra;
     const controls: BoundControl[] = [], frames: Record<string, ControlFrame> = {}, state: Record<string, LocalTransform> = {};
     this.bindings.forEach((b, sideIndex) => {
@@ -178,11 +178,9 @@ export class BreastRig {
         const id = `${parent}-${name}`; controls.push({ ...base, id, weights: w, material }); state[id] = t;
       };
       add('width', weights, { scale: [breadth, 1, 1] });
-      // 高度也只擴展乳房相對胸壁的自由位移。繞單一根部中心放大整片
-      // 胸腹皮膚，會把下方附著拉過尚未移動的鄰面，形成壓扁或折返。
-      const vertical = new Float32Array(b.indices.length * 3);
-      b.indices.forEach((i, row) => { vertical[row * 3 + 1] = out[i * 3 + 1] - chestWall[i * 3 + 1]; });
-      add('height', new Float32Array(weights.length).fill(1), { material: height - 1 }, vertical);
+      // 自由部分採正倍率仿射，保留表面內部次序；最終附著由胸壁／籠
+      // 的共同權重負責，不能把原生向下位移外插成非單調的下極。
+      add('height', weights, { scale: [1, height, 1] });
       // 胸廓本身的前凸不是乳房厚度：深度只擴展相對同一胸壁的自由表面。
       // 根部不是一片平面，不能用 z-root.z 把胸腹與乳房一起拉成多層凸緣。
       const projection = new Float32Array(b.indices.length * 3);

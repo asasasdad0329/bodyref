@@ -130,7 +130,7 @@ export class BodyEngine {
         ? `目前控制未能同時符合鎖定尺寸與體重；顯示優先維持尺寸的近似解，實際體重 ${res.weight.toFixed(1)} kg。原體重目標仍保留，這不代表輸入在生理上不可能。`
         : '目前控制尚未找到同時符合全部尺寸與組成的解；這是模型求解未達標，不能據此判定這個體型不可能。' });
     }
-    if (!res.quality.valid) diagnostics.push({ kind: 'invalid-shape', message: `目前曲面有 ${res.quality.foldedFaces} 個新增折返面、${res.quality.collapsedFaces} 個塌縮面；即使尺寸接近目標，也尚未形成有效體型。` });
+    if (!res.quality.valid) diagnostics.push({ kind: 'invalid-shape', message: `目前曲面有 ${res.quality.foldedFaces} 個新增折返面、${res.quality.collapsedFaces} 個塌縮面、${res.quality.intersectingPairs} 對穿插面；即使尺寸接近目標，也尚未形成有效體型。` });
     const { P, armRotation } = this.model.display(res.P, input.armAngle, false);
     const a = this.asset;
     const m = res.measured;

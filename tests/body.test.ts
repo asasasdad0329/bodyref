@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { bodyInputFor } from '../src/body/goals';
 import { parseBodyAsset } from '../src/body/mh/asset';
-import { redistributionStep } from '../src/body/mh/distribution';
+import { distributionPenalty, redistributionStep } from '../src/body/mh/distribution';
 import { zeroSoft } from '../src/body/mh/rings';
 import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
@@ -24,6 +24,12 @@ function run(sex: Sex, locked: Record<string, number>, cup: string | null = null
 }
 
 describe('人體網格', () => {
+  it('自由腰的下限偏好不會反過來懲罰較飽滿的腰，把補償強推到臀腿', () => {
+    const preferences = { waist: { target: 100, scale: 0.1, confidence: 0.65, minimumTarget: 90 } };
+    const values = { waist: 100, minWaist: 90 } as Parameters<typeof distributionPenalty>[0];
+    expect(distributionPenalty({ ...values, minWaist: 95 }, preferences)).toBe(distributionPenalty(values, preferences));
+    expect(distributionPenalty({ ...values, minWaist: 85 }, preferences)).toBeGreaterThan(distributionPenalty(values, preferences));
+  });
   const cases: [string, Sex, Record<string, number>, string | null][] = [
     ['女性參考', 'female', { height: 160, weight: 52 }, null],
     ['男性參考', 'male', { height: 172, weight: 68 }, null],
@@ -213,7 +219,7 @@ describe('形狀控制計畫的必要尺寸與幾何', () => {
     const sug = suggest({ sex: c.sex, locked: c.locked, bustDiff });
     const out = engine.run({ ...bodyInputFor({ sex: c.sex, sug, bustDiff, morphology: c.morphology, muscleMass: c.muscleMass }), armAngle: 16 });
     for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
-    expect(out.quality, c.id).toEqual({ valid: true, collapsedFaces: 0, foldedFaces: 0, nonFinite: 0 });
+    expect(out.quality, c.id).toEqual({ valid: true, collapsedFaces: 0, foldedFaces: 0, nonFinite: 0, intersectingPairs: 0 });
     expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
     // 從輸出的真實皮尺路徑獨立重算周長，不能以目標值冒充幾何結果。
     const path = out.measurement.neutralPaths.bust!;

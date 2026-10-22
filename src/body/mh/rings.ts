@@ -240,6 +240,8 @@ interface Prepared {
   breastRig: BreastRig;
   condition: ShapeCondition;
   chestWall?: Float32Array;
+  /** 相同框架與四肢參數的共同底面；軀幹材料響應探測不需重算拓撲平滑。 */
+  frameCache?: Map<string, Float32Array>;
   /** 整隻手臂（上臂、前臂、手）：跟著肩膀平移 */
   armSets: { L: Uint32Array; R: Uint32Array };
 }
@@ -642,6 +644,11 @@ export class RingBody {
       return [x * (Nk.side - 1), 0, dz * (sz - 1)];
     };
 
+    const frameKey = [...PARAM_KEYS.filter(k => male || k !== 'breast').map(k => q[k]), ...RING_SOFT.map(k => sf[k]), male ? sf.chest : 0, p.levels.calf, p.levels.ankle].join(',');
+    p.frameCache ??= new Map();
+    const cachedFrame = p.frameCache.get(frameKey);
+    if (cachedFrame) out.set(cachedFrame);
+    else {
     for (let i = 0; i < n; i++) {
       const w = p.w;
       let sum = 0;
@@ -691,6 +698,9 @@ export class RingBody {
     for (let i = 0; i < n * 3; i++) {
       const r = p.raw[(i / 3) | 0];
       out[i] = B[i] + D[i] * (1 - r) + D0[i] * r;
+    }
+    if (p.frameCache.size >= 8) p.frameCache.delete(p.frameCache.keys().next().value!);
+    p.frameCache.set(frameKey, out.slice(0, n * 3));
     }
 
     // 軟組織由共同控制帶合成；每份場已在骨架準備時完成拓撲綁定與邊界平滑。
@@ -1044,17 +1054,21 @@ export class RingBody {
         ? { ...measured.values, minWaist: measured.values.waist, waist: measured.sources.navelWaist.value } : measured.values;
       // 男性胸圍是軟偏好，不能讓未量測的上背代替胸前吸收補償；上背保留預設分配。
       const free = SOFT_KEYS.filter((k) => (inp.weightLocked || inp.muscleMass !== undefined || !isMuscle(k)) && k !== 'otherLean' && !(k === 'lowerAbdomen' && inp.locked.waist === undefined) && !(male && k === 'upperBack') && kgPer[k]);
-      type State = { q: Params; extra: Record<SoftGoal, number>; restAdj: number; leanAdj: number; muscleAdj: number; bias: Soft };
-      const save = (): State => ({ q: { ...q }, extra: { ...extra }, restAdj, leanAdj, muscleAdj, bias: { ...bias } });
-      const restore = (s: State) => { Object.assign(q, s.q); Object.assign(extra, s.extra); restAdj = s.restAdj; leanAdj = s.leanAdj; muscleAdj = s.muscleAdj; bias = { ...s.bias }; };
+      const regionalCost = Object.fromEntries(SOFT_KEYS.map(k => [k, (isMuscle(k) ? 10 : 1) / Math.max(0.1, Math.abs(kgPer[k])) ** 2])) as Soft;
+      type State = { q: Params; extra: Record<SoftGoal, number>; restAdj: number; leanAdj: number; muscleAdj: number; bias: Soft; levels: Prepared['levels'] };
+      const save = (): State => ({ q: { ...q }, extra: { ...extra }, restAdj, leanAdj, muscleAdj, bias: { ...bias }, levels: { ...p.levels } });
+      const restore = (s: State) => { Object.assign(q, s.q); Object.assign(extra, s.extra); restAdj = s.restAdj; leanAdj = s.leanAdj; muscleAdj = s.muscleAdj; bias = { ...s.bias }; p = { ...p, levels: { ...s.levels } }; };
       let best: State | null = null, bestPenalty = Infinity, attempts = 0, stepScale = 0.8;
       let response: GirthResponse | null = null;
+      let responseState: { soft: Soft; q: Params } | null = null;
       const prevQ = new Map<ParamKey, [number, number]>();
       const prevX = new Map<SoftGoal, [number, number]>();
       for (let it = 0; it < 80; it++, total++) {
         soft = allocate().soft;
         this.build(p, q, P, soft);
         m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
+        // 候選必須保存真正產生本次量測的參數，不能保存下方尚未驗證的修正量。
+        const evaluatedState = save();
         let worst = 0;
         for (const k of FRAME) {
           const target = want(k);
@@ -1145,17 +1159,23 @@ export class RingBody {
           }
           const candidatePreferred = { ...preferred };
           for (const g of blockedGoals) candidatePreferred[g] = { target: inp.locked[g]!, scale: 0.015, confidence: 4 };
-          const penalty = distributionPenalty(preferenceValues(m), preferred) + 0.035 * SOFT_KEYS.reduce((s, k) => s + (bias[k] / Math.max(0.1, Math.abs(kgPer[k]))) ** 2, 0);
-          if (worst < 0.15 && p.quality.evaluate(P).valid && penalty < bestPenalty - 1e-4) { best = save(); bestPenalty = penalty; }
+          const penalty = distributionPenalty(preferenceValues(m), preferred) + 0.035 * SOFT_KEYS.reduce((s, k) => s + bias[k] ** 2 * regionalCost[k], 0);
+          if (worst < 0.15 && p.quality.evaluate(P).valid && penalty < bestPenalty - 1e-4) { best = evaluatedState; bestPenalty = penalty; }
           else if (best && !seekFeasible) { restore(best); stepScale *= 0.4; }
           if (!Object.keys(candidatePreferred).length || attempts++ >= 10 || it >= 56 || stepScale < 0.08 || bestPenalty < 0.03) break;
           if (best) {
             // 使用與保存狀態一致的量測提出候選，不能沿用剛被退回的身體。
+            restore(best);
             soft = allocate().soft; this.build(p, q, P, soft); m = measure(this.ctx, P, p.levels, inp.locked.waist === undefined ? [] : ['waist'], p.chestWall);
           }
+          // 跨區轉移超過一公斤或框架明顯改變後，舊斜率不再代表目前的形態。
+          // 更新相鄰響應，不能一直沿初次候選的斜率累加後再縮小步長。
+          if (responseState && (free.some(k => Math.abs((soft[k] - responseState!.soft[k]) * kgPer[k]) > 1)
+            || PARAM_KEYS.some(k => k !== 'breast' && Math.abs(q[k] - responseState!.q[k]) > 0.06))) response = null;
           if (!response) {
             // 在目前體型量小步響應；瘦素體上的斜率無法代表大腹部與大臀的交互影響。
             response = { ...calibratedResponse };
+            responseState = { soft: { ...soft }, q: { ...q } };
             const probeP = new Float32Array(P.length);
             // 共用控制帶會跨量測切面；在當前體型重新量測相鄰響應。
             const coupled: SoftKey[] = SOFT_KEYS.filter(k => k !== 'otherLean');
@@ -1179,7 +1199,7 @@ export class RingBody {
           for (let activePass = 0; activePass < free.length; activePass++) {
             step = redistributionStep(active, response, preferenceValues(m), candidatePreferred,
               [...goals, ...FRAME.filter((k) => k !== 'breast' && hardFrame(k)) as MeasureKey[]], bias, capacity,
-              Object.fromEntries(SOFT_KEYS.map(k => [k, (isMuscle(k) ? 10 : 1) / Math.max(0.1, Math.abs(kgPer[k])) ** 2])));
+              regionalCost);
             const blocked = active.filter((k) => (step[k] < 0 && capacity[k] < 0.01) || (step[k] > 0 && room[k] < 0.01));
             if (!blocked.length) break;
             active = active.filter((k) => !blocked.includes(k));
@@ -1321,15 +1341,23 @@ const normalize = (p: V3): V3 => {
   return [p[0] / l, p[1] / l, p[2] / l];
 };
 
+const vectorScratch = new WeakMap<number[][], Float32Array>();
 function smoothVectors(F: Float32Array, adj: number[][], iterations: number): void {
-  const tmp = new Float32Array(F.length);
+  let tmp = vectorScratch.get(adj);
+  if (!tmp || tmp.length !== F.length) { tmp = new Float32Array(F.length); vectorScratch.set(adj, tmp); }
+  tmp.fill(0, adj.length * 3);
   for (let it = 0; it < iterations; it++) {
     for (let i = 0; i < adj.length; i++) {
       let x = F[i * 3], y = F[i * 3 + 1], z = F[i * 3 + 2];
-      for (const j of adj[i]) {
-        x += F[j * 3];
-        y += F[j * 3 + 1];
-        z += F[j * 3 + 2];
+      const nb = adj[i];
+      if (nb.length === 4) {
+        const a = nb[0] * 3, b = nb[1] * 3, c = nb[2] * 3, d = nb[3] * 3;
+        x = x + F[a] + F[b] + F[c] + F[d];
+        y = y + F[a + 1] + F[b + 1] + F[c + 1] + F[d + 1];
+        z = z + F[a + 2] + F[b + 2] + F[c + 2] + F[d + 2];
+      } else for (let row = 0; row < nb.length; row++) {
+        const j = nb[row] * 3;
+        x += F[j]; y += F[j + 1]; z += F[j + 2];
       }
       const k = 1 / (adj[i].length + 1);
       tmp[i * 3] = x * k;

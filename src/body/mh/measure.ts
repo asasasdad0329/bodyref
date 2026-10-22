@@ -178,10 +178,32 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
     const loop = pickLoop(slice(P, a.quads, faces, plane), plane, ref);
     return loop && loop.length > 2 ? tape(loop, plane) : null;
   };
+  // 一次量測會在同一表面搜尋多個軀幹高度。以兩曲面的聯合高度範圍
+  // 分桶，只減少不相交面的掃描；保留原始順序與完全相同的截面算法。
+  let trunkBins: Map<number, Uint32Array> | undefined;
+  const trunkCandidates = (y: number): Uint32Array => {
+    if (!trunkBins) {
+      const bins = new Map<number, number[]>();
+      for (const f of ctx.faces.trunk) {
+        let low = Infinity, high = -Infinity;
+        for (let k = 0; k < 4; k++) {
+          const i = a.quads[f * 4 + k] * 3 + 1;
+          const v = P[i], wall = chestWall?.[i] ?? v;
+          low = Math.min(low, v, wall); high = Math.max(high, v, wall);
+        }
+        if (!Number.isFinite(low) || !Number.isFinite(high)) continue;
+        for (let bin = Math.floor(low / 4); bin <= Math.floor(high / 4); bin++) {
+          const row = bins.get(bin) ?? []; row.push(f); bins.set(bin, row);
+        }
+      }
+      trunkBins = new Map([...bins].map(([bin, row]) => [bin, Uint32Array.from(row)]));
+    }
+    return trunkBins.get(Math.floor(y / 4)) ?? new Uint32Array();
+  };
   // 軀幹：面集合已排除手臂，把所有截面段合在一起取凸包（排除胸部時，布尺會從胸下直接跨過）
   const trunkGirth = (faces: Uint32Array, y: number, surface = P): Tape | null => {
     const plane = horizontal(y);
-    const pts = slice(surface, a.quads, faces, plane).flat();
+    const pts = slice(surface, a.quads, faces === ctx.faces.trunk ? trunkCandidates(y) : faces, plane).flat();
     return pts.length > 2 ? tape(pts, plane) : null;
   };
 
@@ -200,7 +222,10 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
       return { faces: ctx.faces.trunk, plane: horizontal(y), ref: [0, y, 0], union: true };
     },
     upperArm: (t) => {
-      const p = lerp3(shoulderJ, elbow, t);
+      // 放鬆上臂依肩峰—鷹嘴中點定位，而非內部肩關節—肘關節中點。
+      // 10042 是 CC0 原拓撲的左肘後方鷹嘴表面標記；肩峰沿用既有標記。
+      // 切面仍垂直肱骨軸，避免表面端點偏離骨軸而把皮尺傾斜。
+      const p = lerp3(L('acromionL'), vert(P, 10042), t);
       return { faces: ctx.faces.armL, plane: { p, n: norm(sub(elbow, shoulderJ)) }, ref: p };
     },
     wrist: (t) => {

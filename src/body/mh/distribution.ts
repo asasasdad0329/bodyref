@@ -20,7 +20,9 @@ export function distributionPenalty(values: DistributionValues, preferences: Gir
   for (const [key, p] of Object.entries(preferences) as [SoftGoal, GirthPreference][]) {
     const z = Math.log(values[key] / p.target) / p.scale;
     sum += p.confidence * z * z;
-    if (p.minimumTarget && values.minWaist) sum += MIN_WAIST_PRIORITY * (Math.log(values.minWaist / p.minimumTarget) / p.scale) ** 2;
+    // 這是避免自由腰腹過細的下限偏好，不是第二條精確腰圍。
+    // 超過下限後仍由來源肚臍腰評價，不能為守住推估最細腰把重量推去臀腿。
+    if (p.minimumTarget && values.minWaist && values.minWaist < p.minimumTarget) sum += MIN_WAIST_PRIORITY * (Math.log(values.minWaist / p.minimumTarget) / p.scale) ** 2;
   }
   return sum;
 }
@@ -50,7 +52,7 @@ export function redistributionStep(
     const w = Math.sqrt(p.confidence) / p.scale;
     A.push(columns.map(({ key, anchor }) => (slope(key, g) - slope(anchor, g)) * w / values[g]));
     b.push(Math.log(p.target / values[g]) * w);
-    if (p.minimumTarget && values.minWaist) {
+    if (p.minimumTarget && values.minWaist && values.minWaist < p.minimumTarget) {
       const weight = Math.sqrt(MIN_WAIST_PRIORITY) / p.scale;
       A.push(columns.map(({ key, anchor }) => (slope(key, 'minWaist') - slope(anchor, 'minWaist')) * weight / values.minWaist!));
       b.push(Math.log(p.minimumTarget / values.minWaist) * weight);

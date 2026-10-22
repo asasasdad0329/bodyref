@@ -60,5 +60,19 @@ export const PLAN_CASES: BodyCase[] = [
     { height: 165, weight, bust: 94, underbust: 74, waist: 68, hip: 104, ...(thigh ? { thigh: 56 } : {}) }))),
   ...(['teardrop', 'long', 'round'] as const).flatMap(breast => ['A', 'B', 'D', 'F', 'G', 'S'].map(cup => ({
     ...female(`SHAPE-${breast}-${cup}`, { height: 160, underbust: 70 }), cup, morphology: { breast, hip: 'balanced' as const, abdomen: 'soft' as const } }))),
+  ...(['teardrop', 'long', 'round'] as const).map(breast => ({
+    ...female(`SMALL-E-${breast}`, { height: 160, bust: 85, underbust: 65, waist: 64, hip: 104 }),
+    morphology: { breast, hip: 'balanced' as const, abdomen: 'soft' as const } })),
+  ...(['female', 'male'] as const).flatMap(sex => [false, true].flatMap(fixed => (sex === 'female' ? [20, 26] : [30, 36]).map(muscleMass => ({
+    id: `MUSCLE-${sex}-${fixed ? 'fixed' : 'free'}-${muscleMass}`, sex, muscleMass,
+    locked: sex === 'female' ? { height: 165, bodyFat: 0.18, ...(fixed ? { weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104, thigh: 56 } : {}) }
+      : { height: 175, bodyFat: 0.18, ...(fixed ? { weight: 80, bust: 105, waist: 85, hip: 100 } : {}) },
+  })))),
+  ...(['female', 'male'] as const).flatMap(sex => [false, true].flatMap(thigh => (['balanced', 'projected'] as const).flatMap(hip => (['soft', 'smooth'] as const).map(abdomen => ({
+    id: `MORPH-${sex}-${hip}-${abdomen}${thigh ? '-thigh' : ''}`, sex,
+    morphology: { breast: 'teardrop' as const, hip, abdomen },
+    locked: sex === 'female' ? { height: 165, weight: 60, bodyFat: 0.25, bust: 94, underbust: 74, waist: 68, hip: 104, ...(thigh ? { thigh: 56 } : {}) }
+      : { height: 175, weight: 80, bodyFat: 0.25, bust: 105, waist: 85, hip: 100, ...(thigh ? { thigh: 60 } : {}) },
+  }))))),
 ];
 BODY_CASES.push(...PLAN_CASES);

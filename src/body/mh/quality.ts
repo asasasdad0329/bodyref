@@ -1,10 +1,12 @@
 import type { BodyAsset } from './asset';
+import { intersectionPairs } from './intersections';
 
 export interface ShapeQuality {
   valid: boolean;
   collapsedFaces: number;
   foldedFaces: number;
   nonFinite: number;
+  intersectingPairs: number;
 }
 
 /**
@@ -15,12 +17,14 @@ export interface ShapeQuality {
 export class SurfaceQuality {
   private readonly faces: Uint32Array;
   private readonly reference: Float64Array;
+  private readonly referenceIntersections: Set<number>;
   constructor(private readonly asset: BodyAsset, base: Float32Array) {
     const regions = new Set(['torso', 'breastL', 'breastR', 'thighL', 'thighR', 'shoulderL', 'shoulderR', 'upperarmL', 'upperarmR'].map(r => asset.regions.indexOf(r)));
     this.faces = Uint32Array.from({ length: asset.quads.length / 4 }, (_, i) => i)
       .filter(f => [0, 1, 2, 3].every(k => regions.has(asset.region[asset.quads[f * 4 + k]])));
     this.reference = new Float64Array(this.faces.length * 2);
     this.faces.forEach((f, row) => this.reference.set(this.metric(base, f), row * 2));
+    this.referenceIntersections = intersectionPairs(base, asset.quads, this.faces);
   }
   private metric(P: Float32Array, f: number): [number, number] {
     const q = this.asset.quads, a = q[f * 4] * 3, b = q[f * 4 + 1] * 3, c = q[f * 4 + 2] * 3, d = q[f * 4 + 3] * 3;
@@ -40,6 +44,7 @@ export class SurfaceQuality {
       if (baseArea > 1e-6 && area < baseArea * 0.02) collapsedFaces++;
       if (baseAlignment > 0.3 && alignment < -0.25) foldedFaces++;
     });
-    return { valid: !collapsedFaces && !foldedFaces && !nonFinite, collapsedFaces, foldedFaces, nonFinite };
+    const intersectingPairs = nonFinite ? 0 : [...intersectionPairs(P, this.asset.quads, this.faces)].filter(pair => !this.referenceIntersections.has(pair)).length;
+    return { valid: !collapsedFaces && !foldedFaces && !nonFinite && !intersectingPairs, collapsedFaces, foldedFaces, nonFinite, intersectingPairs };
   }
 }

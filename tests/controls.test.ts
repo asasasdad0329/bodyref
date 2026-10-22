@@ -36,4 +36,13 @@ describe('局部形狀控制的幾何不變量', () => {
     expect(() => rig.apply(surface, {}, { chest: {} })).toThrow('缺少父參照');
     expect(() => rig.apply(surface, { ribcage: frame }, { chest: { scale: [-1, 1, 1] } })).toThrow('無效控制變換');
   });
+
+  it('純材料的快速路徑保留父軸方向與公分意義，與通用變換一致', () => {
+    const rig = new LocalControlRig([{ id: 'cover', parent: 'pelvis', origin: [0, 0, 0], vertices: new Uint32Array([0]), weights: new Float32Array([0.5]), material: new Float32Array([-2, 3, 4]) }]);
+    const surface = new Float32Array([5, 24, -6]);
+    const fast = rig.apply(surface, { pelvis: frame }, { cover: { material: 2 } });
+    const general = rig.apply(surface, { pelvis: frame }, { cover: { material: 2, scale: [1, 1, 1] } });
+    expect([...fast]).toEqual([9, 27, -4]);
+    expect(fast).toEqual(general);
+  });
 });

@@ -226,18 +226,25 @@ export function adjacency(quads: Uint16Array, nVerts: number): number[][] {
   return adj.map((s) => [...s]);
 }
 
-/** 拉普拉斯平滑，只移動 verts 裡的頂點 */
+const smoothingScratch = new WeakMap<Uint32Array, Float32Array>();
+
+/** 拉普拉斯平滑，只移動 verts 裡的頂點；同步運算可重用同一支撐的暫存區。 */
 export function smooth(P: Float32Array, adj: number[][], verts: Uint32Array, iterations: number, factor = 0.5): void {
-  const tmp = new Float32Array(verts.length * 3);
+  let tmp = smoothingScratch.get(verts);
+  if (!tmp) { tmp = new Float32Array(verts.length * 3); smoothingScratch.set(verts, tmp); }
   for (let it = 0; it < iterations; it++) {
     for (let k = 0; k < verts.length; k++) {
       const i = verts[k];
       const nb = adj[i];
       let x = 0, y = 0, z = 0;
-      for (const j of nb) {
-        x += P[j * 3];
-        y += P[j * 3 + 1];
-        z += P[j * 3 + 2];
+      if (nb.length === 4) {
+        const a = nb[0] * 3, b = nb[1] * 3, c = nb[2] * 3, d = nb[3] * 3;
+        x = P[a] + P[b] + P[c] + P[d];
+        y = P[a + 1] + P[b + 1] + P[c + 1] + P[d + 1];
+        z = P[a + 2] + P[b + 2] + P[c + 2] + P[d + 2];
+      } else for (let row = 0; row < nb.length; row++) {
+        const j = nb[row] * 3;
+        x += P[j]; y += P[j + 1]; z += P[j + 2];
       }
       const m = 1 / nb.length;
       tmp[k * 3] = P[i * 3] + (x * m - P[i * 3]) * factor;
