@@ -1,3 +1,4 @@
+import type { Morphology } from '../../src/core/morphology';
 import type { Sex } from '../../src/core/measurements';
 import type { VarId } from '../../src/core/linkage';
 
@@ -7,6 +8,8 @@ export interface BodyCase {
   sex: Sex;
   locked: Partial<Record<VarId, number>>;
   cup?: string;
+  morphology?: Morphology;
+  muscleMass?: number;
 }
 
 const female = (id: string, locked: BodyCase['locked']): BodyCase => ({ id, sex: 'female', locked });
@@ -44,3 +47,18 @@ export const BODY_CASES: BodyCase[] = [
   { id: 'AUDIT-M-CHEST20', sex: 'male', locked: { height: 175, bust: 110, underbust: 90 } },
   { id: 'AUDIT-M-H114-W68', sex: 'male', locked: { height: 175, hip: 114, waist: 68 } },
 ];
+
+/** f4e2aff 同應用程式的 5c8a6f9，H104 中性解只取一次，禁止由候選重算。 */
+export const BASELINE_H104_THIGH = 61.210495016745476;
+export const PLAN_CASES: BodyCase[] = [
+  ...[94, 104, 114, 124, 130].map(hip => female(`HF${hip}`, { ...pear, hip, thigh: BASELINE_H104_THIGH })),
+  ...[85, 90, 95, 100].flatMap(bust => [56, 64].flatMap(waist => [104, 114].map(hip =>
+    female(`E${bust}-W${waist}-H${hip}`, { height: 160, bust, underbust: bust - 20, waist, hip })))),
+  ...[18, 35].map(bf => female(`COMP-F${bf}`, { height: 165, weight: 60, bust: 94, underbust: 74, waist: 68, hip: 104, thigh: 56, bodyFat: bf / 100 })),
+  ...[18, 35].map(bf => ({ id: `COMP-M${bf}`, sex: 'male' as const, locked: { height: 175, weight: 80, bust: 105, waist: 85, hip: 100, bodyFat: bf / 100 } })),
+  ...[60, 75, 90].flatMap(weight => [false, true].map(thigh => female(`FIXED-${weight}${thigh ? '-T56' : ''}`,
+    { height: 165, weight, bust: 94, underbust: 74, waist: 68, hip: 104, ...(thigh ? { thigh: 56 } : {}) }))),
+  ...(['teardrop', 'long', 'round'] as const).flatMap(breast => ['A', 'B', 'D', 'F', 'G', 'S'].map(cup => ({
+    ...female(`SHAPE-${breast}-${cup}`, { height: 160, underbust: 70 }), cup, morphology: { breast, hip: 'balanced' as const, abdomen: 'soft' as const } }))),
+];
+BODY_CASES.push(...PLAN_CASES);

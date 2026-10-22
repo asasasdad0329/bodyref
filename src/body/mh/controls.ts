@@ -4,7 +4,7 @@ import { type BodyAsset, addTarget } from './asset';
 import type { Measured } from './measure';
 import type { Soft, SoftKey } from './rings';
 import { type V3, centroid, norm, sub, cross } from './geometry';
-import { LocalControlRig, toLocal, type BoundControl, type ControlFrame, type LocalTransform } from './localControls';
+import { LocalControlRig, type BoundControl, type ControlFrame, type LocalTransform } from './localControls';
 
 export const CONTROL_VERSION = 2;
 export const ease = (a: number, b: number, x: number) => {
@@ -17,6 +17,7 @@ export interface ShapeControl extends BoundControl {
   tissue: SoftKey;
   range: [number, number];
   boundary: string;
+  driver?: 'positive-muscle' | 'negative-muscle';
 }
 interface Band {
   id: string; key: SoftKey; y: number; up: number; down: number; angle: number; width: number;
@@ -31,7 +32,6 @@ export class SurfaceRig {
   readonly controls: ShapeControl[] = [];
   private readonly rig: LocalControlRig;
   private readonly reference: Record<string, ControlFrame>;
-  private readonly kinds = new Map<string, { radial: number; drop: number }>();
   private readonly asset: BodyAsset;
 
   constructor(a: BodyAsset, B: Float32Array, adj: number[][], sex: Sex, marks: Measured['marks'],
@@ -68,8 +68,8 @@ export class SurfaceRig {
     bands.push({ id: 'thoracic-back', key: 'upperBack', y: marks.underbustY + 0.2 * H,
       up: 0.85 * H, down: 1.35 * H, angle: Math.PI, width: 1.6 });
     if (!female) bands.push({ id: 'pectoral-cover', key: 'chest', y: marks.bustY,
-      up: 0.9 * H, down: 1.3 * H, angle: 0, width: 1.65 });
-    const regions = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR', ...(!female ? ['breastL', 'breastR'] : [])].map(r => a.regions.indexOf(r)));
+      up: 0.85 * H, down: 1.35 * (marks.bustY - marks.underbustY), angle: 0, width: 2.65 });
+    const regions = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR', 'upperarmL', 'upperarmR', ...(!female ? ['breastL', 'breastR'] : [])].map(r => a.regions.indexOf(r)));
     const bind = (id: string, key: SoftKey, parent: string, weights: Float32Array, material?: Float32Array): ShapeControl => {
       const vertices = Uint32Array.from({ length: n }, (_, i) => i).filter(i => weights[i] > 0.00001);
       const frame = this.reference[parent];
@@ -115,28 +115,51 @@ export class SurfaceRig {
         w.set(tmp);
       }
       const parent = b.key === 'upperBack' || b.key === 'chest' ? 'ribcage' : 'pelvis';
-      const c = bind(b.id, b.key, parent, w);
-      c.origin = toLocal(this.reference[parent], [0, b.y, torsoZ(b.y)]);
-      this.kinds.set(c.id, { radial: (b.gain ?? 1) / (L * 0.31), drop: b.key === 'belly' && softBelly ? -0.025 * fat : 0 });
+      if (!female && b.key === 'chest') {
+        // 男性胸脂是胸廓前方的連續覆蓋，不把素體胸肌的折線依半徑一起放大。
+        const material = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          material[i * 3] = 1.6 * Math.tanh(B[i * 3] / 3);
+          material[i * 3 + 1] = -0.025 * fat;
+          material[i * 3 + 2] = 0.6 * ease(-2, 5, B[i * 3 + 2] - torsoZ(B[i * 3 + 1])) - 0.1;
+        }
+        bind(b.id, b.key, parent, w, material);
+      } else {
+        const material = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const x = B[i * 3], z = B[i * 3 + 2] - torsoZ(B[i * 3 + 1]);
+          const r = Math.hypot(x, z) || 1;
+          material[i * 3] = x / r * (b.gain ?? 1);
+          material[i * 3 + 1] = b.key === 'belly' && softBelly ? -0.025 * fat : 0;
+          material[i * 3 + 2] = z / r * (b.gain ?? 1);
+        }
+        bind(b.id, b.key, parent, w, material);
+      }
     }
+    const nativeFat = new Float32Array(B.length);
+    addTarget(a, `universal-${sex}-young-averagemuscle-maxweight`, 1, nativeFat);
+    const fatScale = (marks.topY - marks.soleY) / 170 * 0.5;
     const general = new Float32Array(n * 3), other = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       const x = B[i * 3], z = B[i * 3 + 2] - torsoZ(B[i * 3 + 1]), radius = Math.hypot(x, z) || 1;
+      // 恥骨正中附著保留；共同覆蓋不能把兩腿間的細小面片擠成折返。
+      const attachment = 1 - (1 - ease(0, 3, Math.abs(x))) * (1 - ease(marks.crotchY - 3, marks.crotchY + 6, B[i * 3 + 1]));
       for (let k = 0; k < 3; k++) {
         const direction = normals[i * 3 + k] * (1 - torsoWeight[i]) + (k === 0 ? x / radius : k === 2 ? z / radius : 0) * torsoWeight[i];
-        general[i * 3 + k] = direction * generalWeight[i];
-        other[i * 3 + k] = direction * (0.65 * torsoWeight[i] + 0.35 * generalWeight[i]);
+        general[i * 3 + k] = (nativeFat[i * 3 + k] * fatScale + direction * 0.2) * generalWeight[i] * attachment;
+        other[i * 3 + k] = direction * (0.65 * torsoWeight[i] + 0.35 * generalWeight[i]) * attachment;
       }
     }
     bind('general-cover', 'general', 'pelvis', new Float32Array(n).fill(1), general);
     bind('other-lean-envelope', 'otherLean', 'pelvis', new Float32Array(n).fill(1), other);
-    const native = new Float32Array(B.length);
+    const native = new Float32Array(B.length), nativeMinimum = new Float32Array(B.length);
     addTarget(a, `universal-${sex}-young-maxmuscle-averageweight`, 1, native);
+    addTarget(a, `universal-${sex}-young-minmuscle-averageweight`, 1, nativeMinimum);
     let rawLo = Infinity, rawHi = -Infinity;
     for (let i = 0; i < n; i++) { rawLo = Math.min(rawLo, a.base[i * 3 + 1]); rawHi = Math.max(rawHi, a.base[i * 3 + 1]); }
     const scale = (marks.topY - marks.soleY) / (rawHi - rawLo);
     for (const [zone, key] of [['pectoral-muscle', 'chestMuscle'], ['back-muscle', 'trunkMuscle'], ['glute-muscle', 'gluteMuscle']] as const) {
-      const w = new Float32Array(n), material = new Float32Array(n * 3);
+      const w = new Float32Array(n), material = new Float32Array(n * 3), minimum = new Float32Array(n * 3), envelope = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) {
         const y = B[i * 3 + 1], z = B[i * 3 + 2] - torsoZ(y);
         const pelvis = 1 - ease(marks.hipY, marks.waistY + 0.12 * L, y), front = ease(-3, 4, z);
@@ -146,13 +169,17 @@ export class SurfaceRig {
         w[i] = partition * bodyWeight[i] * attachment * (regions.has(a.region[i]) ? 1 : 0);
         const x = B[i * 3], radius = Math.hypot(x, z) || 1;
         for (let k = 0; k < 3; k++) {
-          // 完整有號原生形態 + 平順體量包絡：兩項分開，絕不將內收截成外推。
-          // 原生目標含脂肪收束，不能直接把它的淨體積當一公斤骨骼肌。
-          const envelope = k === 0 ? x / radius : k === 2 ? z / radius : 0;
-          material[i * 3 + k] = native[i * 3 + k] * scale + envelope * (female ? 0.7 : 0.9);
+          // 原生小／大肌肉各自插值，不以負的大肌肉材料假裝減肌，亦不外插刻線。
+          // 超出原生材料後，額外體量由平順包絡負責，完整有號形態仍保留。
+          material[i * 3 + k] = native[i * 3 + k] * scale;
+          minimum[i * 3 + k] = nativeMinimum[i * 3 + k] * scale;
+          envelope[i * 3 + k] = (k === 0 ? x / radius : k === 2 ? z / radius : 0) * (female ? 0.7 : 0.9);
         }
       }
-      bind(zone, key, zone === 'glute-muscle' ? 'pelvis' : 'ribcage', w, material);
+      const parent = zone === 'glute-muscle' ? 'pelvis' : 'ribcage';
+      bind(zone + '-maximum', key, parent, w, material).driver = 'positive-muscle';
+      bind(zone + '-minimum', key, parent, w, minimum).driver = 'negative-muscle';
+      bind(zone + '-volume', key, parent, w, envelope);
     }
     this.rig = new LocalControlRig(this.controls);
   }
@@ -171,11 +198,11 @@ export class SurfaceRig {
     const state: Record<string, LocalTransform> = {};
     if (single && !this.controls.some(c => c.id === single.id)) throw new Error(`未知的單控制：${single.id}`);
     for (const c of this.controls) {
-      const amount = (soft[c.tissue] ?? 0) + (single?.id === c.id ? single.amount : 0);
+      let amount = (soft[c.tissue] ?? 0) + (single?.id === c.id ? single.amount : 0);
+      if (c.driver === 'positive-muscle') amount = Math.max(0, Math.min(1, amount));
+      if (c.driver === 'negative-muscle') amount = Math.max(0, Math.min(1, -amount));
       if (!amount) continue;
-      const kind = this.kinds.get(c.id);
-      state[c.id] = kind ? { scale: [Math.max(0.1, 1 + amount * kind.radial), 1, Math.max(0.1, 1 + amount * kind.radial)],
-        translation: [0, amount * kind.drop, 0] } : { material: amount };
+      state[c.id] = { material: amount };
     }
     this.rig.apply(out, this.frames(out), state, out);
   }

@@ -8,7 +8,7 @@ import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
-import { BODY_CASES } from './fixtures/bodyCases';
+import { BODY_CASES, PLAN_CASES } from './fixtures/bodyCases';
 
 let engine: BodyEngine;
 
@@ -202,4 +202,26 @@ describe('人體網格', () => {
     expect(Math.abs(out.weight - 97)).toBeLessThan(0.5);
   });
 
+});
+
+// 主計畫的固定輸入逐例驗證；保留既有 timeout 和誤差，不把截圖成功當作合格。
+describe('形狀控制計畫的必要尺寸與幾何', () => {
+  const required = [...BODY_CASES.filter(c => c.id.startsWith('AUDIT-')),
+    ...PLAN_CASES.filter(c => !c.id.startsWith('FIXED-'))];
+  for (const c of required) it(`${c.id}：同一表面達標且無新增折返`, () => {
+    const bustDiff = c.cup ? cupDiff(c.cup)! : null;
+    const sug = suggest({ sex: c.sex, locked: c.locked, bustDiff });
+    const out = engine.run({ ...bodyInputFor({ sex: c.sex, sug, bustDiff, morphology: c.morphology, muscleMass: c.muscleMass }), armAngle: 16 });
+    for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
+    expect(out.quality, c.id).toEqual({ valid: true, collapsedFaces: 0, foldedFaces: 0, nonFinite: 0 });
+    expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
+    // 從輸出的真實皮尺路徑獨立重算周長，不能以目標值冒充幾何結果。
+    const path = out.measurement.neutralPaths.bust!;
+    let perimeter = 0;
+    for (let i = 0; i < path.length; i++) {
+      const next = (i + 1) % path.length;
+      perimeter += Math.hypot(path[i][0] - path[next][0], path[i][1] - path[next][1], path[i][2] - path[next][2]);
+    }
+    expect(Math.abs(perimeter - out.values.bust)).toBeLessThan(0.001);
+  });
 });

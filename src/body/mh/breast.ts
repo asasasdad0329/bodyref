@@ -136,8 +136,10 @@ export class BreastRig {
    * 隨下極高度改變斜率的下垂公式。所有型態在同一套自由度上設定偏好。
    */
   apply(out: Float32Array, amount: number, shape: Morphology['breast']): void {
-    const native = Math.max(0, Math.min(1, amount));
-    const firm = shape === 'long' ? 0.6 : shape === 'round' ? 0.95 : 0.8;
+    if (amount <= 0) return;
+    const shapeWeight = ease(0, 1, amount);
+    const native = Math.max(0, Math.min(2, amount));
+    const firm = shape === 'long' ? 0 : shape === 'round' ? 0.55 : 0.2;
     const roots = this.bindings.map(b => {
       const root: V3 = [0, 0, 0];
       for (const i of b.rim) for (let k = 0; k < 3; k++) root[k] += out[i * 3 + k] / b.rim.length;
@@ -158,10 +160,10 @@ export class BreastRig {
       const firmDelta = native <= 1 ? this.firmAverage[d] * native : this.firmAverage[d] * (2 - native) + this.firmMaximum[d] * (native - 1);
       out[d] += (shapeDelta + firm * firmDelta) * scale;
     }
-    const extra = Math.max(0, amount - 1);
-    const breadth = 1 + 0.19 * extra + (shape === 'round' ? 0.07 : shape === 'long' ? -0.025 : 0);
-    const height = (1 + 0.18 * extra) * (shape === 'long' ? 1.17 : shape === 'round' ? 0.96 : 1);
-    const depth = 1 + 0.9 * extra;
+    const extra = Math.max(0, amount - 2);
+    const breadth = 1 + 0.19 * extra + (shape === 'round' ? 0.1 : shape === 'long' ? -0.025 : 0) * shapeWeight;
+    const height = (1 + 0.12 * extra) * (1 + (shape === 'long' ? 0.17 : shape === 'round' ? -0.15 : 0) * shapeWeight);
+    const depth = 1 + 0.5 * extra;
     const controls: BoundControl[] = [], frames: Record<string, ControlFrame> = {}, state: Record<string, LocalTransform> = {};
     this.bindings.forEach((b, sideIndex) => {
       const parent = `breast${sideIndex}`, root = roots[sideIndex], side = Math.sign(root[0]);
@@ -182,12 +184,12 @@ export class BreastRig {
       add('separation', weights, { translation: [Math.max(0, breadth - 1) * Math.abs(root[0]) * 0.5, 0, 0] });
       const upper = Float32Array.from(b.indices, (i, row) => weights[row] * ease(-2, 4, out[i * 3 + 1] - root[1]));
       const lower = Float32Array.from(weights, (w, row) => w - upper[row]);
-      add('upper-pole', upper, { material: shape === 'round' ? 0.12 : shape === 'long' ? -0.13 : 0 }, projection);
-      add('lower-pole', lower, { material: shape === 'long' ? 0.05 : 0 }, projection);
+      add('upper-pole', upper, { material: (shape === 'round' ? 0.35 : shape === 'long' ? -0.13 : 0) * shapeWeight }, projection);
+      add('lower-pole', lower, { material: (shape === 'long' ? 0.05 : 0) * shapeWeight }, projection);
       const gravity = new Float32Array(b.indices.length * 3);
       b.indices.forEach((i, row) => { gravity[row * 3 + 1] = -Math.max(0, out[i * 3 + 2] - chestWall[i * 3 + 2]); });
-      add('sag', weights, { material: shape === 'long' ? 0.13 : shape === 'round' ? 0 : 0.035 }, gravity);
-      add('orientation', weights, { yaw: (shape === 'round' ? 0 : -0.025) * side });
+      add('sag', weights, { material: (shape === 'long' ? 0.13 : shape === 'round' ? 0 : 0.035) * shapeWeight }, gravity);
+      add('orientation', weights, { yaw: (shape === 'round' ? 0 : -0.025) * side * shapeWeight });
     });
     new LocalControlRig(controls).apply(out, frames, state, out);
   }

@@ -1,4 +1,5 @@
 import { freeBreastVertices, type BodyAsset } from './asset';
+import type { Sex } from '../../core/measurements';
 import {
   type Plane,
   type Tape,
@@ -46,7 +47,7 @@ const SEARCH: Record<SearchKey, { from: number; to: number; steps: number; mode:
 };
 
 /** 搜尋到的相對位置；固定下來後可以快速重量（求解時用） */
-export type Levels = Record<SearchKey, number>;
+export type Levels = Record<SearchKey, number> & { bust?: number };
 
 export interface Measured {
   values: Record<MeasureKey, number>;
@@ -124,6 +125,7 @@ export function buttockCandidates(a: BodyAsset): Uint32Array {
 }
 
 export interface MeasureContext {
+  sex?: Sex;
   asset: BodyAsset;
   faces: FaceSets;
   crotch: Uint32Array;
@@ -132,8 +134,8 @@ export interface MeasureContext {
   torsoReference?: Float32Array;
 }
 
-export function measureContext(a: BodyAsset): MeasureContext {
-  return { asset: a, faces: buildFaceSets(a), crotch: crotchCandidates(a), buttock: buttockCandidates(a),
+export function measureContext(a: BodyAsset, sex?: Sex): MeasureContext {
+  return { asset: a, sex, faces: buildFaceSets(a), crotch: crotchCandidates(a), buttock: buttockCandidates(a),
     freeBreast: Uint32Array.from(freeBreastVertices(a)) };
 }
 
@@ -162,8 +164,10 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
   const knee = J('l-knee'), ankle = J('l-ankle'), hipJ = J('l-upper-leg');
   const shoulderJ = J('l-shoulder'), elbow = J('l-elbow'), wristJ = J('l-hand');
   const neckJ = J('neck'), headJ = J('head');
-  const bustY = (L('bustApexL')[1] + L('bustApexR')[1]) / 2;
-  const underbustY = chestWall ? (chestWall[a.landmarks.underbustL * 3 + 1] + chestWall[a.landmarks.underbustR * 3 + 1]) / 2
+  let bustY = (L('bustApexL')[1] + L('bustApexR')[1]) / 2;
+  // 男性不能沿用女性最大乳房骨權重的最低點：該頂點在男性變成距胸峰僅約 2.6 cm。
+  // 下胸採胸廓下段的骨性參照，與胸峰分開；來源及版本保留供比較。
+  const underbustY = ctx.sex === 'male' ? J('spine-2')[1] * 0.6 + J('spine-1')[1] * 0.4 : chestWall ? (chestWall[a.landmarks.underbustL * 3 + 1] + chestWall[a.landmarks.underbustR * 3 + 1]) / 2
     : (L('underbustL')[1] + L('underbustR')[1]) / 2;
 
   const values = {} as Record<MeasureKey, number>;
@@ -255,7 +259,39 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
   // 否則兩個相近臀峰交換前後順序時，量測會突然跳幾公分。
   const hipY = crotchY + (underbustY - crotchY) * levels.hip;
 
-  const bust = trunkGirth(ctx.faces.trunk, bustY);
+  let bust = trunkGirth(ctx.faces.trunk, bustY);
+  if (ctx.sex === 'female' && chestWall) {
+    // 站姿皮尺搜尋自由乳房相對胸壁最飽滿的高度，不由單一胸峰頂點決定。
+    // 直接取整個胸部區間的最大周長會誤選腋下／上胸廓，令小杯永遠達不到。
+    // 迭代可暫存相對位置；接受前及最終輸出必須重新搜尋，保留實際皮尺路徑。
+    let low = underbustY, high = bustY;
+    for (const i of ctx.freeBreast) {
+      low = Math.min(low, P[i * 3 + 1]); high = Math.max(high, P[i * 3 + 1]);
+    }
+    const span = Math.max(1, high - low);
+    let position = Math.max(0, Math.min(1, (bustY - low) / span));
+    if (fixed?.bust !== undefined) {
+      position = fixed.bust; bustY = low + position * span;
+      bust = trunkGirth(ctx.faces.trunk, bustY);
+    } else {
+      let fullness = Math.max(0, (bust?.length ?? 0) - (trunkGirth(ctx.faces.trunk, bustY, chestWall)?.length ?? 0));
+      const sample = (t: number) => {
+        const y = low + Math.max(0, Math.min(1, t)) * span;
+        const candidate = trunkGirth(ctx.faces.trunk, y);
+        const wall = trunkGirth(ctx.faces.trunk, y, chestWall);
+        const projection = candidate && wall ? candidate.length - wall.length : -Infinity;
+        if (candidate && projection > fullness + 1e-4) {
+          bust = candidate; bustY = y; position = (y - low) / span;
+          fullness = projection;
+        }
+      };
+      for (let k = 0; k <= 8; k++) sample(k / 8);
+      for (const step of [1 / 16, 1 / 32, 1 / 64]) {
+        const center = position; sample(center - step); sample(center + step);
+      }
+    }
+    levels.bust = position;
+  }
   values.bust = bust?.length ?? NaN;
   if (bust) tapes.bust = bust.path;
   // 垂墜乳房遮住胸壁時，皮尺走同一框架的胸壁參照；不拿自由下極湊下胸。

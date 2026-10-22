@@ -48,7 +48,7 @@ export interface EngineOutput {
   accounting: { otherLeanBase: number; otherLeanControl: number; breastOtherLean: number };
   diagnostics: { kind: 'input-conflict' | 'unconverged' | 'invalid-shape'; message: string }[];
   quality: ReturnType<RingBody['fitComposition']>['quality'];
-  measurement: { version: 2; chestWallUnderbust: number; standingBust: number; sources: Measured['sources'] };
+  measurement: { version: 3; chestWallUnderbust: number; standingBust: number; sources: Measured['sources']; neutralPaths: Measured['tapes'] };
   /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
   residual: { goal: Goal; error: number }[];
   /** 各區脂肪與肌肉比素體多出的公斤數 */
@@ -199,7 +199,7 @@ export class BodyEngine {
       tissues: res.tissues,
       accounting: res.accounting,
       quality: res.quality,
-      measurement: { version: 2, chestWallUnderbust: m.values.underbust, standingBust: m.values.bust, sources: m.sources },
+      measurement: { version: 3, chestWallUnderbust: m.values.underbust, standingBust: m.values.bust, sources: m.sources, neutralPaths: m.tapes },
       diagnostics,
       residual,
       composition: res.kg,

@@ -165,6 +165,8 @@ export interface Rarity {
   id: VarId;
   /** 在其他已鎖定數值的條件下，這個數值的百分位（0–1） */
   percentile: number;
+  /** 最細腰等參考模型分數不可冒充相同量法的實測百分位。 */
+  basis: 'reference' | 'nhanes';
 }
 
 /** 標準常態累積分佈 */
@@ -184,18 +186,18 @@ export function rarity(inp: LinkageInput): Rarity[] {
   const S = covariance(inp.sex);
   const ids = VARS.filter((id) => inp.locked[id] !== undefined);
   return ids
-    .filter((id) => !['height', 'waist', 'shoulder', 'bodyFat'].includes(id))
+    .filter((id) => !['height', 'shoulder', 'bodyFat'].includes(id))
     .map((id) => {
       if (id === 'upperArm') {
         const otherLocked = { ...inp.locked }; delete otherLocked.upperArm;
         const v = suggest({ ...inp, locked: otherLocked }).values;
         const arm = nhanesPreference(inp.sex, v.height, v.weight, v.bodyFat);
-        return { id, percentile: phi(Math.log(inp.locked.upperArm! / arm.arm) / arm.scale) };
+        return { id, percentile: phi(Math.log(inp.locked.upperArm! / arm.arm) / arm.scale), basis: 'nhanes' as const };
       }
       const others: Observation[] = ids.filter((o) => o !== id && o !== 'waist' && o !== 'upperArm' && !(inp.sex === 'female' && o === 'bust')).map((o) => ({ h: unit(IDX[o]), y: toZ(IDX[o], inp.locked[o]!) }));
       const post = condition(mu, S, others);
       const i = IDX[id];
       const z = (toZ(i, inp.locked[id]!) - post.mean[i]) / Math.sqrt(post.variance[i] || 1e-12);
-      return { id, percentile: phi(z) };
+      return { id, percentile: phi(z), basis: 'reference' as const };
     });
 }

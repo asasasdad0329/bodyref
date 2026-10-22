@@ -13,15 +13,8 @@ export class BodyModel {
 
   constructor(readonly asset: BodyAsset) {
     this.adj = adjacency(asset.quads, asset.nBody);
-    const B = asset.base;
-    const near: number[] = [];
-    for (const name of ['bustApexL', 'bustApexR']) {
-      const c = [B[asset.landmarks[name] * 3], B[asset.landmarks[name] * 3 + 1], B[asset.landmarks[name] * 3 + 2]];
-      for (let i = 0; i < asset.nBody; i++) {
-        if (Math.hypot(B[i * 3] - c[0], B[i * 3 + 1] - c[1], B[i * 3 + 2] - c[2]) < 2.2) near.push(i);
-      }
-    }
-    this.nippleVerts = Uint32Array.from(near);
+    // 尖端標記跟隨 CC0 材料的實際支撐；素體上的固定半徑在大杯時會涵蓋整片下極。
+    this.nippleVerts = Uint32Array.from(asset.targets.get('nipple-point-decr')!.indices).filter(i => i < asset.nBody);
     const tips = new Set(['handL', 'handR', 'footL', 'footR'].map((r) => asset.regions.indexOf(r)));
     const surface: number[] = [];
     for (let i = 0; i < asset.nBody; i++) if (!tips.has(asset.region[i])) surface.push(i);
@@ -30,7 +23,7 @@ export class BodyModel {
 
   /** 顯示用網格：乳頭附近抹平、整體表面去掉細小凹凸，手臂轉到指定的外展角度 */
   finish(P: Float32Array): void {
-    smooth(P, this.adj, this.nippleVerts, 15, 0.6);
+    smooth(P, this.adj, this.nippleVerts, 2, 0.3);
     taubin(P, this.adj, this.surfaceVerts, 4);
   }
 
@@ -50,7 +43,7 @@ export class BodyModel {
     const delta = new Float32Array(shaped.length);
     for (const i of support) for (let k = 0; k < 3; k++) delta[i * 3 + k] = shaped[i * 3 + k] - base[i * 3 + k];
     this.finish(shaped);
-    smooth(delta, this.adj, this.nippleVerts, 15, 0.6);
+    smooth(delta, this.adj, this.nippleVerts, 2, 0.3);
     taubin(delta, this.adj, affected, 4);
     for (let i = 0; i < base.length; i++) base[i] = shaped[i] - delta[i];
   }

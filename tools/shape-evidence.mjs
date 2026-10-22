@@ -6,7 +6,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
 
@@ -54,7 +53,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env.BODYREF_CHROMIUM || (fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined), args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 900, height: 1100 }, deviceScaleFactor: 1 });
   page.on('pageerror', error => { throw error; });
-  await page.goto(pathToFileURL(harness).href);
+  await page.setContent(fs.readFileSync(harness, 'utf8'));
   const allCases = await page.evaluate(() => window.__shapeEvidence.cases);
   const cases = allCases.filter(c => !selected.length || selected.includes(c.id));
   if (selected.some(id => !cases.some(c => c.id === id))) throw new Error('有未知的案例 ID');
@@ -79,7 +78,7 @@ try {
       }
       return { modelInput: { frame: input.frame, weight: input.weight, bodyFat: input.bodyFat,
         weightLocked: input.weightLocked, bodyFatLocked: input.bodyFatLocked, preferred: input.preferred },
-        values: out.values, residual: out.residual, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
+        values: out.values, residual: out.residual, tissues: out.tissues, accounting: out.accounting, quality: out.quality, measurement: out.measurement, weight: out.weight, bodyFat: out.bodyFat, volume: out.volume, ms, diagnostics: out.diagnostics, sections };
     }, c);
     for (const view of ['front', 'quarter', 'side', 'rearQuarter', 'back']) {
       const png = await page.evaluate(view => {
