@@ -35,6 +35,7 @@ export class SurfaceRig {
   private readonly profiles: Record<string, LocalTransform> = {};
   private readonly profileModes: Record<string, V3> = {};
   private readonly reference: Record<string, ControlFrame>;
+  private appliedFrames?: Record<string, ControlFrame>;
   private readonly asset: BodyAsset;
 
   constructor(a: BodyAsset, B: Float32Array, adj: number[][], sex: Sex, marks: Measured['marks'],
@@ -244,6 +245,11 @@ export class SurfaceRig {
       ribcage: { origin: ribcage, axes: [side, up, forward], scale: [1, 1, 1] } };
   }
 
+  /** 最近一次控制合成真正使用的父參照；維護頁不能用世界軸冒充局部軸。 */
+  inspectFrames(): Readonly<Record<string, ControlFrame>> {
+    return this.appliedFrames ?? this.reference;
+  }
+
   apply(out: Float32Array, soft: Soft, single?: { id: string; amount: number }): void {
     const state: Record<string, LocalTransform> = {};
     if (single && !this.controls.some(c => c.id === single.id)) throw new Error(`未知的單控制：${single.id}`);
@@ -258,6 +264,7 @@ export class SurfaceRig {
       state[c.id] = { material: amount };
     }
     const frames = this.frames(out);
+    this.appliedFrames = frames;
     this.rig.apply(out, frames, state, out);
     const profiles = { ...this.profiles };
     if (single && this.controls.some(c => c.id === single.id && c.driver === 'profile')) {

@@ -285,14 +285,14 @@ export class RingBody {
   inspectControls(inp: CompositionInput) {
     if (this.inspectionState) {
       const p = this.inspectionState.p;
-      return { surface: p.surfaceRig.controls, breast: p.breastRig.bindings };
+      return { surface: p.surfaceRig.controls, breast: p.breastRig.bindings, frames: p.surfaceRig.inspectFrames() };
     }
     const ref = REFERENCE[inp.sex];
     const hip = inp.locked.hip ?? inp.preferred?.hip?.target ?? ref.girths.hip;
     const condition = { ...(inp.condition ?? defaultCondition()), bodyFat: inp.bodyFat };
     const p = this.prepare(inp.sex, inp.frame, { neutralize: true, condition,
       hipExpansion: smoothstep(1.02, 1.43, (hip / inp.frame.height) / (ref.girths.hip / ref.height)) });
-    return { surface: p.surfaceRig.controls, breast: p.breastRig.bindings };
+    return { surface: p.surfaceRig.controls, breast: p.breastRig.bindings, frames: p.surfaceRig.inspectFrames() };
   }
 
   /** 隔離最近一次的實際解，停用指定組織控制以定位故障；不改動求解快取。 */
