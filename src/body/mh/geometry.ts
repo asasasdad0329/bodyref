@@ -44,6 +44,26 @@ export function planeBasis(n: V3): [V3, V3] {
 
 export const horizontal = (y: number): Plane => ({ p: [0, y, 0], n: [0, 1, 0] });
 
+/** 軀幹皮尺需要所有截點的凸包，不需先連成折線。保留逐邊交點與共邊去重。 */
+export function horizontalPoints(P: Float32Array, quads: Uint16Array, faces: Uint32Array, y: number): V3[] {
+  const points = new Map<number, V3>();
+  for (let f = 0; f < faces.length; f++) {
+    const q = faces[f] * 4;
+    for (let k = 0; k < 4; k++) {
+      const a = quads[q + k], b = quads[q + ((k + 1) & 3)];
+      const da = P[a * 3 + 1] - y, db = P[b * 3 + 1] - y;
+      if ((da >= 0) === (db >= 0)) continue;
+      const key = Math.min(a, b) * 65536 + Math.max(a, b);
+      if (points.has(key)) continue;
+      const t = da / (da - db);
+      points.set(key, [P[a * 3] + (P[b * 3] - P[a * 3]) * t,
+        P[a * 3 + 1] + (P[b * 3 + 1] - P[a * 3 + 1]) * t,
+        P[a * 3 + 2] + (P[b * 3 + 2] - P[a * 3 + 2]) * t]);
+    }
+  }
+  return [...points.values()];
+}
+
 /**
  * 用平面切一組四邊形面，回傳截面的各個封閉（或因面集合邊界而斷開的）折線。
  */

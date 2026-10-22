@@ -4,9 +4,9 @@ import { type BodyAsset, addTarget } from './asset';
 import type { Measured } from './measure';
 import type { Soft, SoftKey } from './rings';
 import { type V3, centroid, norm, sub, cross } from './geometry';
-import { LocalControlRig, type BoundControl, type ControlFrame, type LocalTransform } from './localControls';
+import { LocalControlRig, toLocal, type BoundControl, type ControlFrame, type LocalTransform } from './localControls';
 
-export const CONTROL_VERSION = 2;
+export const CONTROL_VERSION = 3;
 export const ease = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -17,7 +17,7 @@ export interface ShapeControl extends BoundControl {
   tissue: SoftKey;
   range: [number, number];
   boundary: string;
-  driver?: 'positive-muscle' | 'negative-muscle' | 'fat-positive-muscle' | 'fat-negative-muscle';
+  driver?: 'positive-muscle' | 'negative-muscle' | 'fat-positive-muscle' | 'fat-negative-muscle' | 'profile';
 }
 interface Band {
   id: string; key: SoftKey; y: number; up: number; down: number; angle: number; width: number;
@@ -31,6 +31,9 @@ interface Band {
 export class SurfaceRig {
   readonly controls: ShapeControl[] = [];
   private readonly rig: LocalControlRig;
+  private readonly profileRig: LocalControlRig;
+  private readonly profiles: Record<string, LocalTransform> = {};
+  private readonly profileModes: Record<string, V3> = {};
   private readonly reference: Record<string, ControlFrame>;
   private readonly asset: BodyAsset;
 
@@ -58,10 +61,16 @@ export class SurfaceRig {
       width: female ? 1.1 : 1, gain: projected ? 0.75 : 1 });
     pair({ id: 'lateral-root', key: 'hipRoot', y: marks.crotchY + 0.05 * L,
       up: 0.55 * L, down: 0.3 * L, angle: Math.PI / 2 + 0.12, width: female ? 1.1 : 0.9 });
-    bands.push({ id: 'abdomen-front', key: 'belly', y: marks.crotchY + (female ? (softBelly ? 0.48 : 0.57) : 0.62) * L,
-      up: (female ? 0.64 : 0.75) * L, down: 0.64 * L, angle: 0, width: female ? 1.65 : 1.85 });
-    bands.push({ id: 'lower-abdominal-cover', key: 'lowerAbdomen', y: marks.crotchY + 0.27 * L,
-      up: 0.5 * L, down: 0.48 * L, angle: 0, width: 1.65 });
+    // 男性前腹連到較寬的肋緣與腰側；代表型改變飽滿高度和上下支撐，
+    // 不能只把女性腹型放大，或用幾乎不可見的垂直位移作型態開關。
+    bands.push({ id: 'abdomen-front', key: 'belly', y: marks.crotchY + (female ? (softBelly ? 0.48 : 0.57) : softBelly ? 0.58 - 0.04 * fat : 0.66) * L,
+      up: (female ? 0.64 : 0.9) * L, down: (female ? 0.64 : softBelly ? 0.66 : 0.78) * L,
+      angle: 0, width: female ? 1.65 : softBelly ? 2.2 : 2.25 });
+    bands.push({ id: 'lower-abdominal-cover', key: 'lowerAbdomen',
+      y: marks.crotchY + (female ? softBelly ? 0.27 : 0.36 : softBelly ? 0.3 : 0.4) * L,
+      up: (female ? softBelly ? 0.5 : 0.6 : softBelly ? 0.6 : 0.7) * L,
+      down: (female ? softBelly ? 0.48 : 0.55 : softBelly ? 0.5 : 0.6) * L,
+      angle: 0, width: female ? softBelly ? 1.65 : 1.9 : softBelly ? 2.1 : 2.3 });
     pair({ id: 'waist-side', key: 'flank', y: marks.waistY, up: 0.65 * L, down: 0.68 * L,
       angle: Math.PI / 2 + (female ? 0.16 : 0.3), width: 1.35 });
     bands.push({ id: 'lumbar', key: 'lowerBack', y: marks.waistY, up: 0.9 * L, down: 0.72 * L, angle: Math.PI, width: 1.5 });
@@ -197,7 +206,32 @@ export class SurfaceRig {
       bind(zone + '-fat-minimum', key, parent, w, coupled[1]).driver = 'fat-negative-muscle';
       bind(zone + '-volume', key, parent, w, envelope);
     }
-    this.rig = new LocalControlRig(this.controls);
+    this.rig = new LocalControlRig([...this.controls]);
+    // 代表型作用於整個區域，包含素體及已分配組織；局部增量為零時仍可
+    // 改變寬深分布。先合成組織，再在相同骨性參照中改型，尺寸及體積照常重算。
+    const profile = (id: string, key: SoftKey, center: number, up: number, down: number,
+      front: boolean, scale: V3, active: boolean) => {
+      const weights = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const region = a.regions[a.region[i]];
+        if (region !== 'torso' && !region.startsWith('thigh')) continue;
+        const y = B[i * 3 + 1], z = B[i * 3 + 2] - torsoZ(y);
+        const u = (y - center) / (y > center ? up : down);
+        if (Math.abs(u) >= 1) continue;
+        const angular = front ? ease(-2, 6, z) : 1 - ease(-2, 6, z);
+        weights[i] = (1 - u * u) ** 2 * angular * bodyWeight[i];
+      }
+      const control = bind(id, key, 'pelvis', weights);
+      control.driver = 'profile'; control.range = [0, 1];
+      control.origin = toLocal(this.reference.pelvis, [0, center, torsoZ(center)]);
+      this.profileModes[id] = scale;
+      if (active) this.profiles[id] = { scale };
+    };
+    profile('hip-profile', 'hipSide', rearY, (female ? 0.68 : 0.7) * L, (female ? 0.45 : 0.35) * L,
+      false, [0.92, 1, female ? 1.14 : 1.12], projected);
+    profile('abdomen-profile', 'belly', marks.crotchY + (female ? 0.36 : 0.46) * L, 0.64 * L, 0.5 * L,
+      true, [female ? 1.08 : 1.1, 1, female ? 0.9 : 0.88], !softBelly);
+    this.profileRig = new LocalControlRig(this.controls.filter(c => c.driver === 'profile'));
   }
 
   private frames(surface: Float32Array): Record<string, ControlFrame> {
@@ -214,6 +248,7 @@ export class SurfaceRig {
     const state: Record<string, LocalTransform> = {};
     if (single && !this.controls.some(c => c.id === single.id)) throw new Error(`未知的單控制：${single.id}`);
     for (const c of this.controls) {
+      if (c.driver === 'profile') continue;
       let amount = (soft[c.tissue] ?? 0) + (single?.id === c.id ? single.amount : 0);
       if (c.driver === 'positive-muscle') amount = Math.max(0, Math.min(1, amount));
       if (c.driver === 'negative-muscle') amount = Math.max(0, Math.min(1, -amount));
@@ -222,6 +257,13 @@ export class SurfaceRig {
       if (!amount) continue;
       state[c.id] = { material: amount };
     }
-    this.rig.apply(out, this.frames(out), state, out);
+    const frames = this.frames(out);
+    this.rig.apply(out, frames, state, out);
+    const profiles = { ...this.profiles };
+    if (single && this.controls.some(c => c.id === single.id && c.driver === 'profile')) {
+      const strength = (profiles[single.id] ? 1 : 0) + single.amount;
+      profiles[single.id] = { scale: this.profileModes[single.id].map(v => 1 + (v - 1) * strength) as V3 };
+    }
+    if (Object.keys(profiles).length) this.profileRig.apply(out, frames, profiles, out);
   }
 }

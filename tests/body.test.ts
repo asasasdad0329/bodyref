@@ -8,6 +8,7 @@ import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
+import { meshVolume } from '../src/body/mh/geometry';
 import { BODY_CASES, PLAN_CASES } from './fixtures/bodyCases';
 
 let engine: BodyEngine;
@@ -210,17 +211,32 @@ describe('人體網格', () => {
 
 });
 
+type CaseResult = { out: EngineOutput; neutral: Float32Array };
+const planResults = new Map<string, CaseResult>();
+function planResult(id: string): CaseResult {
+  const cached = planResults.get(id);
+  if (cached) return cached;
+  const c = BODY_CASES.find(c => c.id === id)!;
+  const bustDiff = c.cup ? cupDiff(c.cup)! : null;
+  const sug = suggest({ sex: c.sex, locked: c.locked, bustDiff });
+  const out = engine.run({ ...bodyInputFor({ sex: c.sex, sug, bustDiff, morphology: c.morphology, muscleMass: c.muscleMass }), armAngle: 16 });
+  const result = { out, neutral: engine.rings.inspectSolved() };
+  planResults.set(id, result); return result;
+}
+
 // 主計畫的固定輸入逐例驗證；保留既有 timeout 和誤差，不把截圖成功當作合格。
 describe('形狀控制計畫的必要尺寸與幾何', () => {
   const required = [...BODY_CASES.filter(c => c.id.startsWith('AUDIT-')),
     ...PLAN_CASES.filter(c => !c.id.startsWith('FIXED-'))];
   for (const c of required) it(`${c.id}：同一表面達標且無新增折返`, () => {
-    const bustDiff = c.cup ? cupDiff(c.cup)! : null;
-    const sug = suggest({ sex: c.sex, locked: c.locked, bustDiff });
-    const out = engine.run({ ...bodyInputFor({ sex: c.sex, sug, bustDiff, morphology: c.morphology, muscleMass: c.muscleMass }), armAngle: 16 });
+    const { out, neutral } = planResult(c.id);
     for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
     expect(out.quality, c.id).toEqual({ valid: true, collapsedFaces: 0, foldedFaces: 0, nonFinite: 0, intersectingPairs: 0 });
     expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
+    const volume = meshVolume(neutral, engine.asset.quads);
+    expect(Math.abs(volume - out.volume)).toBeLessThan(0.01);
+    expect(Math.abs(volume / 1000 - out.tissues.fat / 0.9 - (out.tissues.muscle + out.tissues.otherLean) / 1.06)).toBeLessThan(0.001);
+    expect(Math.abs(out.tissues.otherLean - out.accounting.otherLeanBase - out.accounting.otherLeanControl - out.accounting.breastOtherLean)).toBeLessThan(0.001);
     // 從輸出的真實皮尺路徑獨立重算周長，不能以目標值冒充幾何結果。
     const path = out.measurement.neutralPaths.bust!;
     let perimeter = 0;
@@ -230,4 +246,45 @@ describe('形狀控制計畫的必要尺寸與幾何', () => {
     }
     expect(Math.abs(perimeter - out.values.bust)).toBeLessThan(0.001);
   });
+});
+
+
+// 同尺寸的型態必須改到責任區；毫米級數值檢查只攔住失效控制，外觀仍另作多視角驗收。
+function regionalRms(a: CaseResult, b: CaseResult, area: 'abdomen' | 'hip' | 'chest' | 'back' | 'arm' | 'thigh'): number {
+  const asset = engine.asset, h = a.out.values.height, crotch = a.out.marks.crotchY;
+  const under = a.out.measurement.neutralPaths.underbust![0][1];
+  let sum = 0, count = 0;
+  for (let i = 0; i < asset.nBody; i++) {
+    const region = asset.regions[asset.region[i]], y = a.neutral[i * 3 + 1], z = a.neutral[i * 3 + 2];
+    const torso = region === 'torso';
+    const include = area === 'abdomen' ? torso && y > crotch + 0.02 * h && y < under && z > 0
+      : area === 'hip' ? (torso || region.startsWith('thigh')) && y > crotch - 0.06 * h && y < crotch + 0.1 * h && z < 0
+      : area === 'chest' ? (torso || region.startsWith('breast')) && y > under && z > 0
+      : area === 'back' ? torso && y > crotch + 0.1 * h && z < 0
+      : area === 'arm' ? region.startsWith('upperarm') || region.startsWith('shoulder')
+      : region.startsWith('thigh') && y < crotch - 0.02 * h;
+    if (!include) continue;
+    for (let k = 0; k < 3; k++) sum += (a.neutral[i * 3 + k] - b.neutral[i * 3 + k]) ** 2;
+    count++;
+  }
+  expect(count).toBeGreaterThan(20);
+  return Math.sqrt(sum / count);
+}
+
+describe('固定尺寸的局部形態配對', () => {
+  for (const sex of ['female', 'male']) for (const thigh of ['', '-thigh']) {
+    for (const hip of ['balanced', 'projected']) it(`${sex}${thigh}：${hip} 臀下切換腹型仍改變腹部`, () => {
+      const a = planResult(`MORPH-${sex}-${hip}-soft${thigh}`), b = planResult(`MORPH-${sex}-${hip}-smooth${thigh}`);
+      expect(regionalRms(a, b, 'abdomen')).toBeGreaterThan(0.1);
+    }, 10000);
+    for (const abdomen of ['soft', 'smooth']) it(`${sex}${thigh}：${abdomen} 腹下切換臀型仍改變臀部`, () => {
+      const a = planResult(`MORPH-${sex}-balanced-${abdomen}${thigh}`), b = planResult(`MORPH-${sex}-projected-${abdomen}${thigh}`);
+      expect(regionalRms(a, b, 'hip')).toBeGreaterThan(0.1);
+    }, 10000);
+  }
+  for (const sex of ['female', 'male']) for (const fixed of ['free', 'fixed']) it(`${sex}-${fixed}：獨立肌肉量連動主要區域`, () => {
+    const [low, high] = sex === 'female' ? [20, 26] : [30, 36];
+    const a = planResult(`MUSCLE-${sex}-${fixed}-${low}`), b = planResult(`MUSCLE-${sex}-${fixed}-${high}`);
+    for (const area of ['chest', 'back', 'arm', 'hip', 'thigh'] as const) expect(regionalRms(a, b, area), area).toBeGreaterThan(0.1);
+  }, 10000);
 });

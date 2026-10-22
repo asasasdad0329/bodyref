@@ -8,6 +8,7 @@ import {
   cross,
   dist,
   horizontal,
+  horizontalPoints,
   lerp3,
   norm,
   pickLoop,
@@ -139,6 +140,21 @@ export function measureContext(a: BodyAsset, sex?: Sex): MeasureContext {
     freeBreast: Uint32Array.from(freeBreastVertices(a)) };
 }
 
+/** 骨架長度校準只需標記點；不必在每次長度探測建立全部皮尺與截面。 */
+export function measureSkeleton(ctx: MeasureContext, P: Float32Array) {
+  const a = ctx.asset;
+  let soleY = Infinity, topY = -Infinity, crotchY = Infinity;
+  for (let i = 0; i < a.nBody; i++) {
+    soleY = Math.min(soleY, P[i * 3 + 1]); topY = Math.max(topY, P[i * 3 + 1]);
+  }
+  for (const i of ctx.crotch) crotchY = Math.min(crotchY, P[i * 3 + 1]);
+  const elbow = centroid(P, ...a.joints['l-elbow']), wrist = centroid(P, ...a.joints['l-hand']);
+  const knee = centroid(P, ...a.joints['l-knee']), ankle = centroid(P, ...a.joints['l-ankle']);
+  return { values: { height: topY - soleY, upperArmLen: dist(vert(P, a.landmarks.acromionL), elbow),
+    forearmLen: dist(elbow, wrist), thighLen: crotchY - knee[1], calfLen: knee[1] - ankle[1] },
+    marks: { soleY, topY, crotchY } };
+}
+
 export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, search: readonly SearchKey[] = [], chestWall?: Float32Array): Measured {
   const a = ctx.asset;
   // 自由乳房遮住腰腹時，只把該片自由表面投回同一解的胸壁參照。
@@ -203,7 +219,7 @@ export function measure(ctx: MeasureContext, P: Float32Array, fixed?: Levels, se
   // 軀幹：面集合已排除手臂，把所有截面段合在一起取凸包（排除胸部時，布尺會從胸下直接跨過）
   const trunkGirth = (faces: Uint32Array, y: number, surface = P): Tape | null => {
     const plane = horizontal(y);
-    const pts = slice(surface, a.quads, faces === ctx.faces.trunk ? trunkCandidates(y) : faces, plane).flat();
+    const pts = horizontalPoints(surface, a.quads, faces === ctx.faces.trunk ? trunkCandidates(y) : faces, y);
     return pts.length > 2 ? tape(pts, plane) : null;
   };
 
