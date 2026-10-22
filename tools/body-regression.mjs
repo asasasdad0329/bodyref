@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import { surfaceQuality } from './surface-quality.mjs';
 
 const [output, ...selected] = process.argv.slice(2);
+const surfaceCases = (process.env.BODYREF_SURFACE_CASES ?? '').split(',').filter(Boolean);
 if (!output) throw new Error('用法：node tools/body-regression.mjs <倉庫外輸出.json> [案例 ID ...]');
 const root = process.cwd();
 const dest = path.resolve(output);
@@ -35,6 +36,7 @@ try {
   const buf = fs.readFileSync('public/body.bin');
   const asset = parseBodyAsset(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
   const unknown = selected.filter((id) => !BODY_CASES.some((c) => c.id === id));
+  unknown.push(...surfaceCases.filter(id => !BODY_CASES.some(c => c.id === id)));
   if (unknown.length) throw new Error(`未知案例：${unknown.join(", ")}`);
   const results = [], failures = [];
   for (const c of BODY_CASES.filter((c) => !selected.length || selected.includes(c.id))) {
@@ -58,7 +60,7 @@ try {
       suggestion: sug.values, range: sug.range, values: out.values, weight: out.weight,
       bodyFat: out.bodyFat, tissues: out.tissues, accounting: out.accounting, measurement: out.measurement, diagnostics: out.diagnostics, composition: out.composition, residual: out.residual, volume: out.volume,
       timing: { coldMs, warmMs, cachedMs }, repeat: { values: again.values, weight: again.weight, bodyFat: again.bodyFat } };
-    if (process.env.BODYREF_SURFACE_QUALITY === '1') row.surface = surfaceQuality(out.positions, out.bodyIndex, asset);
+    if (process.env.BODYREF_SURFACE_QUALITY === '1' || surfaceCases.includes(c.id)) row.surface = surfaceQuality(out.positions, out.bodyIndex, asset);
     const hardPass = out.residual.every(({ goal, error }) => Number.isFinite(error) && Math.abs(error) < (goal.kind === 'bodyFat' ? 0.01 : 0.5));
     const repeatPass = Object.keys(out.values).every((k) => Math.abs(out.values[k] - again.values[k]) < 0.01)
       && Math.abs(out.weight - again.weight) < 0.01 && Math.abs(out.bodyFat - again.bodyFat) < 0.0001;
