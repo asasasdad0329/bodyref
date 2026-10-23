@@ -8,6 +8,8 @@ import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { LowerBodyShapes, type LowerShape } from '../src/body/mh/lowerBodyShapes';
 import { GluteForm } from '../src/body/mh/gluteForm';
 import gluteForm from '../src/body/mh/forms/femaleGlute.json';
+import { LowerBodyForm } from '../src/body/mh/lowerBodyForm';
+import lowerBodyForm from '../src/body/mh/forms/femaleLowerBody.json';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
@@ -28,6 +30,19 @@ function run(sex: Sex, locked: Record<string, number>, cup: string | null = null
 }
 
 describe('人體網格', () => {
+  it('C1 五部位：形狀骨重現 Blender 獨立求值的混合變形', () => {
+    const shape = new LowerBodyForm(engine.asset);
+    const result = shape.evaluate(lowerBodyForm.sample.state);
+    let error = 0;
+    for (const [i, ...expected] of lowerBodyForm.sample.positions) for (let k = 0; k < 3; k++) {
+      error = Math.max(error, Math.abs(result[i * 3 + k] - expected[k]));
+    }
+    expect(error).toBeLessThan(3e-5);
+    const active = new Set(lowerBodyForm.rows.map(row => row[0]));
+    for (let i = 0; i < engine.asset.n; i++) if (!active.has(i)) {
+      for (let k = 0; k < 3; k++) expect(result[i * 3 + k]).toBe(shape.reference[i * 3 + k]);
+    }
+  });
   it('臀部雕形：結構骨重現 Blender 的肌脂中間狀態，作用域外保持原樣', () => {
     const shape = new GluteForm(engine.asset);
     const result = shape.evaluate(gluteForm.sample);

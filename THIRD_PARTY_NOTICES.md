@@ -38,3 +38,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+### C1 女性腰腹臀腿雕形
+
+`assets/shapes/female-lower-body.blend` 及 `src/body/mh/forms/femaleLowerBody.json`：以本專案 MakeHuman CC0 中性網格自行雕製的目標與變形，新增內容採本專案 AGPL-3.0-or-later。未使用外部遊戲資產、生成圖片或限制商用資料作模型來源。生理文獻僅支持解剖關係，位移及插值權重是工程設定；來源與限制見 `docs/SHAPE_C1_PROGRESS.md`。

@@ -3,6 +3,7 @@ import { REFERENCE, MUSCLE_OF_LEAN } from '../../core/reference';
 import { nhanesPreference } from '../../core/nhanes';
 import { SurfaceRig, defaultCondition, type ShapeCondition } from './controls';
 import { BreastRig } from './breast';
+import { LowerBodyForm } from './lowerBodyForm';
 import { SurfaceQuality, type ShapeQuality } from './quality';
 import { BodyModel } from './model';
 import { type BodyAsset, addTarget } from './asset';
@@ -238,6 +239,7 @@ interface Prepared {
   quality: SurfaceQuality;
   surfaceRig: SurfaceRig;
   breastRig: BreastRig;
+  lowerForm?: LowerBodyForm;
   condition: ShapeCondition;
   chestWall?: Float32Array;
   /** 相同框架與四肢參數的共同底面；軀幹材料響應探測不需重算拓撲平滑。 */
@@ -252,6 +254,7 @@ export class RingBody {
   readonly ctx: MeasureContext;
   readonly adj: number[][];
   private readonly surface: BodyModel;
+  private lowerForm?: LowerBodyForm;
   private readonly frameDelta: Float32Array;
   private readonly rawFrameDelta: Float32Array;
   private regionFields?: Pick<Prepared, 'w' | 'raw' | 'wGen' | 'armSets'>;
@@ -352,6 +355,8 @@ export class RingBody {
     // 不先選一個偏大的底稿，再用負參數削平。
     if (sex === 'female') addTarget(a, 'female-young-averagemuscle-averageweight-mincup-averagefirmness', 1, B0);
     addTarget(a, 'nipple-point-decr', 1, B0);
+    const lowerForm = sex === 'female' ? (this.lowerForm ??= new LowerBodyForm(a)) : undefined;
+    lowerForm?.apply(B0, {}, true, 1, B0);
 
     // 四肢長度：每一段各自用割線法調到目標（調完再縮放回身高，所以要反覆幾次）
     const lens = lensIn ? [...lensIn] : LENGTHS.map(() => 0);
@@ -374,7 +379,7 @@ export class RingBody {
       ({ B, m: frameMeasure } = this.skeleton(B0, t, lens));
     }
     let m = measure(this.ctx, B);
-    if (opts.neutralize) {
+    if (opts.neutralize && !lowerForm) {
       this.neutralizePelvis(B, m.marks);
       m = measure(this.ctx, B);
     }
@@ -467,9 +472,9 @@ export class RingBody {
     const torsoZ = centerLine(regionSet('torso'), 2, 'mid');
     const bodyWeight = Float32Array.from(w.torso, (v, i) => Math.min(1, v + w.legL[i] + w.legR[i]));
     const condition = opts.condition ?? defaultCondition();
-    const surfaceRig = new SurfaceRig(a, B, this.adj, sex, m.marks, normals, bodyWeight, wGen, w.torso, torsoZ, opts.hipExpansion ?? 0, condition);
+    const surfaceRig = new SurfaceRig(a, B, this.adj, sex, m.marks, normals, bodyWeight, wGen, w.torso, torsoZ, opts.hipExpansion ?? 0, condition, lowerForm?.ownership);
     return {
-      quality: new SurfaceQuality(a, B), surfaceRig, breastRig: new BreastRig(a, B, this.adj), condition,
+      quality: new SurfaceQuality(a, B), surfaceRig, lowerForm, breastRig: new BreastRig(a, B, this.adj), condition,
       sex,
       hipExpansion: opts.hipExpansion ?? 0,
       B,
@@ -550,8 +555,8 @@ export class RingBody {
     // 男性胸部體量共同擴展胸廓的側面與前後弧，局部覆蓋僅負責表層分布。
     // 不能把整個胸圍差集中成胸前一塊；單位響應包含這項共同變換。
     if (p.sex === 'male') d.breast += (soft?.chest ?? 0) * 0.08;
-    const dH = d.hip;
-    const W = MODULES.waist(d.waist), U = MODULES.underbust(d.underbust);
+    const dH = p.lowerForm ? 0 : d.hip;
+    const W = MODULES.waist(p.lowerForm ? 0 : d.waist), U = MODULES.underbust(d.underbust);
 
     // ── 軀幹：三條輪廓曲線（側面、前面、後面），各有自己的控制點（由下往上）
     // 骨架曲線只負責大輪廓（骨盆寬、腰窩、胸廓、肩寬）；臀部、下腹、臀側的「肉」由後面的量體負責
@@ -588,7 +593,8 @@ export class RingBody {
     const ankleRingY = ankleY + (kneeY - ankleY) * p.levels.ankle;
     const thighY = mk.crotchY - 0.1 * (mk.crotchY - kneeY);
     const midY = kneeY + 0.45 * (mk.crotchY - kneeY);
-    const sf = soft ?? zeroSoft();
+    const sf = p.lowerForm ? { ...(soft ?? zeroSoft()), thighFat: 0, thighMuscle: 0, calfFat: 0, calfMuscle: 0, thighCover: 0 } : soft ?? zeroSoft();
+    if (p.lowerForm) { d.thigh = 0; d.calf = 0; }
     const T = plus(MODULES.thigh(d.thigh), FAT.thigh(sf.thighFat), MUSCLE.thigh(sf.thighMuscle));
     const C = plus(MODULES.calf(d.calf), FAT.calf(sf.calfFat), MUSCLE.calf(sf.calfMuscle));
     const K = MODULES.ankle(d.ankle);
@@ -742,6 +748,8 @@ export class RingBody {
     const surfaceSoft = soft ?? { ...zeroSoft(), buttock: (male ? 14 : 26) * Math.max(-0.25, dH), hipSide: (male ? 4 : 9) * Math.max(-0.25, dH) };
     p.surfaceRig.apply(out, male ? { ...surfaceSoft, chest: surfaceSoft.chest * 0.2 } : surfaceSoft, single);
 
+    if (p.lowerForm) p.lowerForm.apply(out, p.lowerForm.state(q, soft ?? zeroSoft(), p.condition), false, p.lowerForm.scale(B), out);
+
     // 內側軟組織可接近正中面，但左右表面不能交換位置。
     // 指數壓縮保留連續斜率；體積與皮尺仍在此約束後重新量測。
     for (let i = 0; i < n; i++) {
@@ -762,6 +770,8 @@ export class RingBody {
       }
     }
 
+    const authoredLower = p.lowerForm ? out.slice() : undefined;
+    const authoredWall = authoredLower?.slice();
     if (!male) {
       p.chestWall ??= new Float32Array(out.length);
       if (q.breast <= 0) {
@@ -774,10 +784,21 @@ export class RingBody {
           const w = p.w.torso[i] / Math.max(1, p.w.torso[i] + p.w.legL[i] + p.w.legR[i] + p.w.armL[i] + p.w.armR[i] + p.w.neck[i]);
           return delta.map((v, k) => v + (after[k] - before[k]) * w) as V3;
         });
+        authoredLower?.set(out);
         this.surface.finishPair(p.chestWall, out, p.breastRig.support);
       }
     } else {
       this.surface.finish(out);
+    }
+    if (p.lowerForm && authoredLower) {
+      // C1 已在雕形時完成曲面，不能再套舊 Taubin 改寫；只整理上半身。
+      for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) {
+        const j = i * 3 + k, w = p.lowerForm.ownership[i];
+        out[j] += (authoredLower[j] - out[j]) * w;
+        if (p.chestWall && authoredWall) p.chestWall[j] += (authoredWall[j] - p.chestWall[j]) * w;
+      }
+      p.lowerForm.sampleSurface(out);
+      if (p.chestWall) p.lowerForm.sampleSurface(p.chestWall);
     }
     if (surfaceKey !== null) {
       if (p.surfaceCache.size >= 8) p.surfaceCache.delete(p.surfaceCache.keys().next().value!);

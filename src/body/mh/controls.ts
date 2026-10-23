@@ -39,7 +39,7 @@ export class SurfaceRig {
 
   constructor(a: BodyAsset, B: Float32Array, adj: number[][], sex: Sex, marks: Measured['marks'],
     normals: Float32Array, bodyWeight: Float32Array, generalWeight: Float32Array,
-    torsoWeight: Float32Array, torsoZ: (y: number) => number, spread: number, condition: ShapeCondition) {
+    torsoWeight: Float32Array, torsoZ: (y: number) => number, spread: number, condition: ShapeCondition, replaced?: Float32Array) {
     this.asset = a;
     this.reference = this.frames(B);
     const n = a.nBody, L = marks.underbustY - marks.crotchY;
@@ -86,7 +86,7 @@ export class SurfaceRig {
       const vertices = Uint32Array.from(active);
       const frame = this.reference[parent];
       const control: ShapeControl = { id, parent, origin: [0, 0, 0], vertices,
-        weights: Float32Array.from(vertices, i => Math.min(1, weights[i])), tissue: key,
+        weights: Float32Array.from(vertices, i => Math.min(1, weights[i]) * (1 - (replaced?.[i] ?? 0))), tissue: key,
         range: key.endsWith('Muscle') ? [-0.6, 1.8] : [-1.2, 12],
         boundary: '同一骨性父參照；支撐外零權重，交界從同一輸入曲面共同合成' };
       if (material) {
