@@ -16,7 +16,7 @@ export default defineConfig({
   base: './',
   // 授權全文與第三方授權聲明跟著網站一起發佈（three.js 的 MIT 授權要求散布時附上聲明）
   plugins: [
-    { name: 'source-version', transformIndexHtml: html => html.replace('<!-- build-version -->', `版本 ${revision}`) },
+    { name: 'source-version', transformIndexHtml: html => html.replace('<!-- build-version -->', `版本 ${revision}${process.env.BODYREF_CHECKPOINT === '1' ? ' · C1 工作版（未驗收）' : ''}`) },
     {
       name: 'license-files',
       generateBundle() {

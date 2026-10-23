@@ -5,6 +5,11 @@ import { parseBodyAsset } from '../src/body/mh/asset';
 import { distributionPenalty, redistributionStep } from '../src/body/mh/distribution';
 import { zeroSoft } from '../src/body/mh/rings';
 import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
+import { LowerBodyShapes, type LowerShape } from '../src/body/mh/lowerBodyShapes';
+import { GluteForm } from '../src/body/mh/gluteForm';
+import gluteForm from '../src/body/mh/forms/femaleGlute.json';
+import { LowerBodyForm } from '../src/body/mh/lowerBodyForm';
+import lowerBodyForm from '../src/body/mh/forms/femaleLowerBody.json';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
@@ -25,6 +30,78 @@ function run(sex: Sex, locked: Record<string, number>, cup: string | null = null
 }
 
 describe('人體網格', () => {
+  it('C1 五部位：形狀骨重現 Blender 獨立求值的混合變形', () => {
+    const shape = new LowerBodyForm(engine.asset);
+    const result = shape.evaluate(lowerBodyForm.sample.state);
+    let error = 0;
+    for (const [i, ...expected] of lowerBodyForm.sample.positions) for (let k = 0; k < 3; k++) {
+      error = Math.max(error, Math.abs(result[i * 3 + k] - expected[k]));
+    }
+    expect(error).toBeLessThan(3e-5);
+    const active = new Set(lowerBodyForm.rows.map(row => row[0]));
+    for (let i = 0; i < engine.asset.n; i++) if (!active.has(i)) {
+      for (let k = 0; k < 3; k++) expect(result[i * 3 + k]).toBe(shape.reference[i * 3 + k]);
+    }
+    shape.sampleSurface(result);
+    const surface = shape.surface.get(result)!;
+    for (const expected of lowerBodyForm.sample.surface) {
+      let nearest = Infinity;
+      for (let i = 0; i < shape.surface.asset.nBody; i++) {
+        nearest = Math.min(nearest, Math.hypot(...expected.map((v, k) => v - surface[i * 3 + k])));
+      }
+      expect(nearest).toBeLessThan(.001);
+    }
+  });
+  it('臀部雕形：結構骨重現 Blender 的肌脂中間狀態，作用域外保持原樣', () => {
+    const shape = new GluteForm(engine.asset);
+    const result = shape.evaluate(gluteForm.sample);
+    let maximumError = 0;
+    for (const [i, ...expected] of gluteForm.sample.positions) for (let k = 0; k < 3; k++) {
+      maximumError = Math.max(maximumError, Math.abs(result[i * 3 + k] - expected[k]));
+    }
+    expect(maximumError).toBeLessThan(2e-5);
+    const surface = shape.evaluateSurface(gluteForm.sample).positions;
+    // 比對 Blender 真正細分後的曲面，避免只有低模控制點相同卻仍留下稜角。
+    let surfaceError = 0;
+    for (const point of gluteForm.sample.surface) {
+      let nearest = Infinity;
+      for (let i = 0; i < surface.length; i += 3) {
+        const d2 = (surface[i] - point[0]) ** 2 + (surface[i + 1] - point[1]) ** 2 + (surface[i + 2] - point[2]) ** 2;
+        if (d2 < nearest) nearest = d2;
+      }
+      surfaceError = Math.max(surfaceError, Math.sqrt(nearest));
+    }
+    expect(surfaceError).toBeLessThan(.001);
+    const affected = new Set(gluteForm.rows.map(row => row[0]));
+    for (let i = 0; i < engine.asset.n; i++) if (!affected.has(i)) {
+      for (let k = 0; k < 3; k++) expect(result[i * 3 + k]).toBe(shape.reference[i * 3 + k]);
+    }
+    expect(() => shape.evaluate({ muscle: 1.01, fat: 0 })).toThrow('數值定錨尚未建立');
+  });
+
+  it('C1造型：共同形態可由形狀骨重現，大小端點及中間不跳動', () => {
+    const shapes = new LowerBodyShapes(engine.asset);
+    for (const shape of ['glute', 'waist', 'abdomen', 'thigh', 'calf'] as LowerShape[]) {
+      const whole = shapes.reference.slice(), bones = shapes.reference.slice();
+      shapes.apply(whole, { [shape]: 0.6 });
+      shapes.apply(bones, {}, Object.fromEntries(shapes.bones.filter(b => b.shape === shape).map(b => [b.id, 0.6])));
+      let difference = 0, changed = 0;
+      for (let i = 0; i < whole.length; i++) {
+        difference = Math.max(difference, Math.abs(whole[i] - bones[i]));
+        changed = Math.max(changed, Math.abs(whole[i] - shapes.reference[i]));
+      }
+      expect(difference, shape).toBeLessThan(0.0001);
+      expect(changed, shape).toBeGreaterThan(0.2);
+      for (const value of [-1, 0, 1]) {
+        const before = shapes.reference.slice(), after = shapes.reference.slice();
+        shapes.apply(before, { [shape]: value - 0.001 });
+        shapes.apply(after, { [shape]: value + 0.001 });
+        let step = 0;
+        for (let i = 0; i < before.length; i++) step = Math.max(step, Math.abs(before[i] - after[i]));
+        expect(step, `${shape}/${value}`).toBeLessThan(0.05);
+      }
+    }
+  });
   it('自由腰的下限偏好不會反過來懲罰較飽滿的腰，把補償強推到臀腿', () => {
     const preferences = { waist: { target: 100, scale: 0.1, confidence: 0.65, minimumTarget: 90 } };
     const values = { waist: 100, minWaist: 90 } as Parameters<typeof distributionPenalty>[0];
@@ -99,7 +176,8 @@ describe('人體網格', () => {
 
   it('顯示用輸出：移除原本的頭、加上人台頭與結構線', () => {
     const out = run('female', { height: 160, weight: 52 });
-    const allTriangles = (engine.asset.quads.length / 4) * 2 * 3;
+    const displayAsset = engine.rings.geometry(engine.rings.inspectSolved()!).asset;
+    const allTriangles = (displayAsset.quads.length / 4) * 2 * 3;
     expect(out.bodyIndex.length).toBeLessThan(allTriangles);
     expect(out.head.index.length).toBeGreaterThan(0);
     expect(out.guides.length).toBeGreaterThan(10);
@@ -233,7 +311,7 @@ describe('形狀控制計畫的必要尺寸與幾何', () => {
     for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
     expect(out.quality, c.id).toEqual({ valid: true, collapsedFaces: 0, foldedFaces: 0, nonFinite: 0, intersectingPairs: 0 });
     expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
-    const volume = meshVolume(neutral, engine.asset.quads);
+    const volume = meshVolume(engine.rings.geometry(neutral).positions, engine.rings.geometry(neutral).asset.quads);
     expect(Math.abs(volume - out.volume)).toBeLessThan(0.01);
     expect(Math.abs(volume / 1000 - out.tissues.fat / 0.9 - (out.tissues.muscle + out.tissues.otherLean) / 1.06)).toBeLessThan(0.001);
     expect(Math.abs(out.tissues.otherLean - out.accounting.otherLeanBase - out.accounting.otherLeanControl - out.accounting.breastOtherLean)).toBeLessThan(0.001);
@@ -261,7 +339,7 @@ describe('固定多圈增重的容量與失敗診斷', () => {
     expect(out.diagnostics.some(d => d.kind === 'unconverged')).toBe(Math.abs(mass.error) > 0.5);
     if (c.locked.weight! <= 60 || c.id === 'FIXED-75') expect(Math.abs(mass.error)).toBeLessThan(0.5);
     expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
-    expect(meshVolume(neutral, engine.asset.quads)).toBeCloseTo(out.volume, 2);
+    expect(meshVolume(engine.rings.geometry(neutral).positions, engine.rings.geometry(neutral).asset.quads)).toBeCloseTo(out.volume, 2);
     expect(out.volume / 1000).toBeCloseTo(out.tissues.fat / 0.9 + (out.tissues.muscle + out.tissues.otherLean) / 1.06, 3);
   });
 });

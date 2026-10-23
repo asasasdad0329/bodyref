@@ -86,6 +86,7 @@ export class LocalControlRig {
         const ax = frame.axes[0], ay = frame.axes[1], az = frame.axes[2];
         for (let row = 0; row < control.vertices.length; row++) {
           const i = control.vertices[row] * 3, j = row * 3, w = control.weights[row] * material;
+          if (!w) continue;
           const x = control.material[j], y = control.material[j + 1], z = control.material[j + 2];
           displacement[i] += (ax[0] * x + ay[0] * y + az[0] * z) * w;
           displacement[i + 1] += (ax[1] * x + ay[1] * y + az[1] * z) * w;

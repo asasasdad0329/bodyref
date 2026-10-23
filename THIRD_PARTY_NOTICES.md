@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | [three.js](https://threejs.org/) | 3D 顯示 | MIT（全文見下方） |
 | [Playwright](https://github.com/microsoft/playwright) | 開發用的瀏覽器回歸與外觀證據工具，不包含於網站輸出 | Apache-2.0 |
-| [MakeHuman](https://github.com/makehumancommunity/makehuman) 1.x 資產：人體網格、形變目標、骨架權重 | 人體網格（`public/body.bin` 由此產生） | CC0 1.0。只使用資產檔，沒有使用 MakeHuman 的程式碼（AGPL） |
+| [MakeHuman](https://github.com/makehumancommunity/makehuman) 1.x 資產：人體網格、形變目標、骨架權重 | 人體網格（`public/body.bin` 由此產生）；`assets/shapes/female-glute.blend` 的雕形胚體及其匯出材料 | 原始資產 CC0 1.0，本專案新雕形及程式依專案 AGPL-3.0-or-later。只使用資產檔，沒有使用 MakeHuman 的程式碼（AGPL） |
 | [ANSUR II](https://www.openlab.psu.edu/ansur2/) 人體計測資料 | 數值連動的統計（`src/core/statsModel.json` 由此產生） | 美國政府公有領域 |
 | [NHANES 2017–2018](https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?BeginYear=2017) DEMO_J、BMX_J、DXX_J | 放鬆上臂與粗分區組成衍生統計（`src/core/nhanesModel.json`）；不附個體資料 | 美國政府公開資料，公有領域 |
 | Barlow Condensed、IBM Plex Mono、Noto Sans TC | 介面字型，由 Google Fonts 載入，不包含在本倉庫 | SIL Open Font License 1.1 |
@@ -38,3 +38,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+### C1 女性腰腹臀腿雕形
+
+`assets/shapes/female-lower-body.blend` 及 `src/body/mh/forms/femaleLowerBody.json`：以本專案 MakeHuman CC0 中性網格自行雕製的目標與變形，新增內容採本專案 AGPL-3.0-or-later。未使用外部遊戲資產、生成圖片或限制商用資料作模型來源。生理文獻僅支持解剖關係，位移及插值權重是工程設定；來源與限制見 `docs/SHAPE_C1_PROGRESS.md`。

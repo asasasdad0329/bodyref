@@ -39,7 +39,7 @@ export class SurfaceRig {
 
   constructor(a: BodyAsset, B: Float32Array, adj: number[][], sex: Sex, marks: Measured['marks'],
     normals: Float32Array, bodyWeight: Float32Array, generalWeight: Float32Array,
-    torsoWeight: Float32Array, torsoZ: (y: number) => number, spread: number, condition: ShapeCondition) {
+    torsoWeight: Float32Array, torsoZ: (y: number) => number, spread: number, condition: ShapeCondition, replaced?: Float32Array) {
     this.asset = a;
     this.reference = this.frames(B);
     const n = a.nBody, L = marks.underbustY - marks.crotchY;
@@ -81,12 +81,12 @@ export class SurfaceRig {
     const regions = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR', 'upperarmL', 'upperarmR', 'breastL', 'breastR'].map(r => a.regions.indexOf(r)));
     const bind = (id: string, key: SoftKey, parent: string, weights: Float32Array, material?: Float32Array): ShapeControl => {
       const active: number[] = [];
-      for (let i = 0; i < n; i++) if (weights[i] > 0.00001
+      for (let i = 0; i < n; i++) if (weights[i] > 0.00001 && (replaced?.[i] ?? 0) < 1
         && (!material || material[i * 3] || material[i * 3 + 1] || material[i * 3 + 2])) active.push(i);
       const vertices = Uint32Array.from(active);
       const frame = this.reference[parent];
       const control: ShapeControl = { id, parent, origin: [0, 0, 0], vertices,
-        weights: Float32Array.from(vertices, i => Math.min(1, weights[i])), tissue: key,
+        weights: Float32Array.from(vertices, i => Math.min(1, weights[i]) * (1 - (replaced?.[i] ?? 0))), tissue: key,
         range: key.endsWith('Muscle') ? [-0.6, 1.8] : [-1.2, 12],
         boundary: '同一骨性父參照；支撐外零權重，交界從同一輸入曲面共同合成' };
       if (material) {
