@@ -176,7 +176,8 @@ describe('人體網格', () => {
 
   it('顯示用輸出：移除原本的頭、加上人台頭與結構線', () => {
     const out = run('female', { height: 160, weight: 52 });
-    const allTriangles = (engine.asset.quads.length / 4) * 2 * 3;
+    const displayAsset = engine.rings.geometry(engine.rings.inspectSolved()!).asset;
+    const allTriangles = (displayAsset.quads.length / 4) * 2 * 3;
     expect(out.bodyIndex.length).toBeLessThan(allTriangles);
     expect(out.head.index.length).toBeGreaterThan(0);
     expect(out.guides.length).toBeGreaterThan(10);

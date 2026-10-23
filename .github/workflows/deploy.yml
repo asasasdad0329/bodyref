@@ -11,6 +11,10 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
+      checkpoint:
+        description: '依作者要求發布未驗收工作版；保留測試失敗與網站標示'
+        type: boolean
+        default: false
       evidence:
         description: '附上本次版本的數值與九視角驗證頁'
         type: boolean
@@ -37,8 +41,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      - name: Run regression tests
+        id: tests
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' && inputs.checkpoint }}
+        run: npm test 2>&1 | tee "$RUNNER_TEMP/bodyref-tests.log"
+      - name: Preserve checkpoint test result
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-tests-${{ github.sha }}
+          path: ${{ runner.temp }}/bodyref-tests.log
+      - name: Mark checkpoint status
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.checkpoint
+        run: |
+          echo '### C1 工作版：未驗收，不是穩定版' >> "$GITHUB_STEP_SUMMARY"
+          echo '測試結果：${{ steps.tests.outcome }}。完整結果保存在 checkpoint-tests 產物；CI 與 PR 的通過條件不變。' >> "$GITHUB_STEP_SUMMARY"
       - run: npm run build
+        env:
+          BODYREF_CHECKPOINT: ${{ github.event_name == 'workflow_dispatch' && inputs.checkpoint && '1' || '' }}
       - name: Prepare evidence renderer
         if: github.event_name == 'workflow_dispatch' && inputs.evidence
         run: npx playwright install --with-deps chromium

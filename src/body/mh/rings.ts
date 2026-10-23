@@ -1392,14 +1392,14 @@ export class RingBody {
     // 改到曲面。最後直接在實際有界控制上聯立殘差，不再推動飽和的積分量。
     const constraints: { target: number; read: () => number; weight?: number; tolerance?: number }[] = blocks.flat().map(v => ({ target: v.target, read: v.read }));
     const dimensionCount = constraints.length;
-    if (inp.weightLocked) constraints.push({ target: inp.weight, read: () => weightOf(soft).weight });
-    if (inp.bodyFatLocked) constraints.push({ target: inp.bodyFat * 100,
+    if (inp.weightLocked || inp.estimateReference) constraints.push({ target: inp.weight, read: () => weightOf(soft).weight });
+    if (inp.bodyFatLocked || inp.estimateReference) constraints.push({ target: inp.bodyFat * 100,
       read: () => { const tissue = weightOf(soft); return (baseFat + tissue.fatKg) / tissue.weight * 100; } });
     if (inp.muscleMass !== undefined) constraints.push({ target: inp.muscleMass, read: () => weightOf(soft).muscleKg });
     if (p.lowerForm && inp.preferred) m = this.measure(P, undefined, [], p.chestWall);
     const hardCount = constraints.length;
     const freeShapeKeys: ParamKey[] = [];
-    if (p.lowerForm && constraints.every(v => Math.abs(v.read() - v.target) < .45)) for (const key of ['waist', 'hip', 'thigh', 'calf', 'upperArm'] as const) {
+    if (p.lowerForm && (inp.weightLocked || inp.estimateReference) && constraints.every(v => Math.abs(v.read() - v.target) < .45)) for (const key of ['waist', 'hip', 'thigh', 'calf', 'upperArm'] as const) {
       const preference = inp.preferred?.[key];
       if (inp.locked[key] !== undefined || !preference) continue;
       freeShapeKeys.push(key);
@@ -1443,12 +1443,16 @@ export class RingBody {
           set: v => { soft[k] = Math.max(lo, Math.min(upper[k] ?? Infinity, v / kgPer[k])); },
           probe: 0.1, step: 1, low: lo * kgPer[k], high });
       }
-      const update = () => { this.build(p, q, P, soft); m = this.measure( P, undefined, [], p.chestWall, freeShapeKeys.length ? [...new Set([...correctionKeys, ...freeShapeKeys as MeasureKey[]])] : correctionKeys); };
+      let correctionLevels = m.levels;
+      // 響應微分固定在當前極值切面；候選接受與最後輸出仍重新搜尋實際極值。
+      const update = (search = true) => { this.build(p, q, P, soft); m = this.measure(P, search ? undefined : correctionLevels, [], p.chestWall,
+        freeShapeKeys.length ? [...new Set([...correctionKeys, ...freeShapeKeys as MeasureKey[]])] : correctionKeys); };
       const defects = () => { const quality = p.quality.evaluate(P); return quality.foldedFaces + quality.collapsedFaces + quality.intersectingPairs + quality.nonFinite; };
       if (freeShapeKeys.length) update();
       let jacobian: { columns: number[][]; base: number[] } | undefined;
       for (let pass = 0; pass < (freeShapeKeys.length ? 32 : 6); pass++) {
         if (addBarriers()) jacobian = undefined;
+        correctionLevels = m.levels;
         const current = constraints.map(v => v.read()), error = constraints.map((v, i) => (v.target - current[i]) * (v.weight ?? 1));
         if (constraints.every(v => Math.abs(v.read() - v.target) < (v.tolerance ?? .15))) break;
         const base = variables.map(v => v.get()), cost = error.reduce((s, e) => s + e * e, 0), initialDefects = defects();
@@ -1456,7 +1460,7 @@ export class RingBody {
         const columns = reuse ? jacobian!.columns : variables.map((v, column) => {
           variables.forEach((item, k) => item.set(base[k]));
           v.set(base[column] + (base[column] + v.probe <= v.high ? v.probe : -v.probe));
-          const change = v.get() - base[column]; update();
+          const change = v.get() - base[column]; update(false);
           return constraints.map((item, row) => Math.abs(change) < 1e-8 ? 0 : (item.read() - current[row]) / change * v.step * (item.weight ?? 1));
         });
         if (!reuse) jacobian = { columns, base };
