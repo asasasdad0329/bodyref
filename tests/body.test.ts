@@ -5,6 +5,7 @@ import { parseBodyAsset } from '../src/body/mh/asset';
 import { distributionPenalty, redistributionStep } from '../src/body/mh/distribution';
 import { zeroSoft } from '../src/body/mh/rings';
 import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
+import { LowerBodyShapes, type LowerShape } from '../src/body/mh/lowerBodyShapes';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
@@ -25,6 +26,29 @@ function run(sex: Sex, locked: Record<string, number>, cup: string | null = null
 }
 
 describe('人體網格', () => {
+  it('C1造型：共同形態可由形狀骨重現，大小端點及中間不跳動', () => {
+    const shapes = new LowerBodyShapes(engine.asset);
+    for (const shape of ['glute', 'waist', 'abdomen', 'thigh', 'calf'] as LowerShape[]) {
+      const whole = shapes.reference.slice(), bones = shapes.reference.slice();
+      shapes.apply(whole, { [shape]: 0.6 });
+      shapes.apply(bones, {}, Object.fromEntries(shapes.bones.filter(b => b.shape === shape).map(b => [b.id, 0.6])));
+      let difference = 0, changed = 0;
+      for (let i = 0; i < whole.length; i++) {
+        difference = Math.max(difference, Math.abs(whole[i] - bones[i]));
+        changed = Math.max(changed, Math.abs(whole[i] - shapes.reference[i]));
+      }
+      expect(difference, shape).toBeLessThan(0.0001);
+      expect(changed, shape).toBeGreaterThan(0.2);
+      for (const value of [-1, 0, 1]) {
+        const before = shapes.reference.slice(), after = shapes.reference.slice();
+        shapes.apply(before, { [shape]: value - 0.001 });
+        shapes.apply(after, { [shape]: value + 0.001 });
+        let step = 0;
+        for (let i = 0; i < before.length; i++) step = Math.max(step, Math.abs(before[i] - after[i]));
+        expect(step, `${shape}/${value}`).toBeLessThan(0.05);
+      }
+    }
+  });
   it('自由腰的下限偏好不會反過來懲罰較飽滿的腰，把補償強推到臀腿', () => {
     const preferences = { waist: { target: 100, scale: 0.1, confidence: 0.65, minimumTarget: 90 } };
     const values = { waist: 100, minWaist: 90 } as Parameters<typeof distributionPenalty>[0];
