@@ -6,6 +6,8 @@ import { distributionPenalty, redistributionStep } from '../src/body/mh/distribu
 import { zeroSoft } from '../src/body/mh/rings';
 import { BodyEngine, type EngineOutput } from '../src/body/mh/engine';
 import { LowerBodyShapes, type LowerShape } from '../src/body/mh/lowerBodyShapes';
+import { GluteForm } from '../src/body/mh/gluteForm';
+import gluteForm from '../src/body/mh/forms/femaleGlute.json';
 import { suggest } from '../src/core/linkage';
 import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
@@ -26,6 +28,33 @@ function run(sex: Sex, locked: Record<string, number>, cup: string | null = null
 }
 
 describe('人體網格', () => {
+  it('臀部雕形：結構骨重現 Blender 的肌脂中間狀態，作用域外保持原樣', () => {
+    const shape = new GluteForm(engine.asset);
+    const result = shape.evaluate(gluteForm.sample);
+    let maximumError = 0;
+    for (const [i, ...expected] of gluteForm.sample.positions) for (let k = 0; k < 3; k++) {
+      maximumError = Math.max(maximumError, Math.abs(result[i * 3 + k] - expected[k]));
+    }
+    expect(maximumError).toBeLessThan(2e-5);
+    const surface = shape.evaluateSurface(gluteForm.sample).positions;
+    // 比對 Blender 真正細分後的曲面，避免只有低模控制點相同卻仍留下稜角。
+    let surfaceError = 0;
+    for (const point of gluteForm.sample.surface) {
+      let nearest = Infinity;
+      for (let i = 0; i < surface.length; i += 3) {
+        const d2 = (surface[i] - point[0]) ** 2 + (surface[i + 1] - point[1]) ** 2 + (surface[i + 2] - point[2]) ** 2;
+        if (d2 < nearest) nearest = d2;
+      }
+      surfaceError = Math.max(surfaceError, Math.sqrt(nearest));
+    }
+    expect(surfaceError).toBeLessThan(.001);
+    const affected = new Set(gluteForm.rows.map(row => row[0]));
+    for (let i = 0; i < engine.asset.n; i++) if (!affected.has(i)) {
+      for (let k = 0; k < 3; k++) expect(result[i * 3 + k]).toBe(shape.reference[i * 3 + k]);
+    }
+    expect(() => shape.evaluate({ muscle: 1.01, fat: 0 })).toThrow('數值定錨尚未建立');
+  });
+
   it('C1造型：共同形態可由形狀骨重現，大小端點及中間不跳動', () => {
     const shapes = new LowerBodyShapes(engine.asset);
     for (const shape of ['glute', 'waist', 'abdomen', 'thigh', 'calf'] as LowerShape[]) {
