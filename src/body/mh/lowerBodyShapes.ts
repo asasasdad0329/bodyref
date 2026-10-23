@@ -32,7 +32,11 @@ const ease = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** 先建立形態，再由固定表面區塊拆成形狀骨；這裡沒有圍度求解或體重分配。 */
+/**
+ * 既有材料的試作草稿，未接入產品。
+ * 此草稿從材料出發，尚未完成「美術目標造型 → 有解剖／生理依據的漂亮變形
+ * → 結構骨重現」；不得將插值或綁定測試通過當成造型階段完成。
+ */
 export class LowerBodyShapes {
   readonly bones: readonly ShapeBone[];
   readonly reference: Float32Array;
