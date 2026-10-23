@@ -98,6 +98,109 @@ export class SubdivisionSurface {
     }
   }
 
+  /** 同拓撲的線性插值，用於分區、蒙皮與不參與雕形的表面。 */
+  interpolate(source: Float32Array, dimensions = 1, diagonalFaces = false): Float32Array {
+    let result = source;
+    for (const step of this.steps) {
+      const faceStart = step.count + step.edges.length;
+      const next = new Float32Array((faceStart + step.quads.length / 4) * dimensions);
+      next.set(result.subarray(0, step.count * dimensions));
+      step.edges.forEach(([a, b], i) => {
+        for (let k = 0; k < dimensions; k++) next[(step.count + i) * dimensions + k] = (result[a * dimensions + k] + result[b * dimensions + k]) / 2;
+      });
+      for (let f = 0; f < step.quads.length / 4; f++) for (let k = 0; k < dimensions; k++) {
+        for (let j = 0; j < 4; j += diagonalFaces ? 2 : 1) {
+          next[(faceStart + f) * dimensions + k] += result[step.quads[f * 4 + j] * dimensions + k] / (diagonalFaces ? 2 : 4);
+        }
+      }
+      result = next;
+    }
+    return result;
+  }
+
+  /** 將固定的一級曲面及分區混合編成稀疏權重，求解迭代不反覆建整份細分暫存。 */
+  compile(vertices: Uint32Array, ownership: Float32Array): (source: Float32Array, output: Float32Array) => void {
+    if (this.steps.length !== 1) throw new Error('稀疏曲面目前僅支援一級細分');
+    type Stencil = Map<number, number>;
+    const step = this.steps[0];
+    const add = (out: Stencil, input: Stencil, gain: number) => {
+      for (const [i, value] of input) out.set(i, (out.get(i) ?? 0) + value * gain);
+    };
+    const unit = (i: number): Stencil => new Map([[i, 1]]);
+    const faces: Stencil[] = [];
+    const touching: number[][] = Array.from({ length: step.count }, () => []);
+    const neighbors: number[][] = Array.from({ length: step.count }, () => []);
+    for (let f = 0; f < step.quads.length / 4; f++) {
+      const stencil: Stencil = new Map();
+      for (let k = 0; k < 4; k++) {
+        const i = step.quads[f * 4 + k]; add(stencil, unit(i), .25); touching[i].push(f);
+      }
+      faces.push(stencil);
+    }
+    for (const [a, b] of step.edges) { neighbors[a].push(b); neighbors[b].push(a); }
+    const refined: Stencil[] = [];
+    const linear: Stencil[] = [];
+    for (let i = 0; i < step.count; i++) {
+      const n = step.valence[i], edge = step.boundary.get(i), stencil: Stencil = new Map();
+      if (edge?.length === 2) { add(stencil, unit(i), .75); for (const j of edge) add(stencil, unit(j), .125); }
+      else if (n) {
+        add(stencil, unit(i), (n - 2) / n);
+        for (const j of neighbors[i]) add(stencil, unit(j), 1 / (n * n));
+        for (const f of touching[i]) add(stencil, faces[f], 1 / (n * n));
+      } else add(stencil, unit(i), 1);
+      refined.push(stencil); linear.push(unit(i));
+    }
+    for (const [a, b, first, second] of step.edges) {
+      const stencil: Stencil = new Map(), midpoint: Stencil = new Map();
+      add(midpoint, unit(a), .5); add(midpoint, unit(b), .5);
+      add(stencil, midpoint, second < 0 ? 1 : .5);
+      if (second >= 0) { add(stencil, faces[first], .25); add(stencil, faces[second], .25); }
+      refined.push(stencil); linear.push(midpoint);
+    }
+    for (let f = 0; f < faces.length; f++) {
+      refined.push(faces[f]);
+      linear.push(new Map([[step.quads[f * 4], .5], [step.quads[f * 4 + 2], .5]]));
+    }
+    const around: number[][] = Array.from({ length: refined.length }, () => []);
+    for (let f = 0; f < this.quads.length; f += 4) for (let k = 0; k < 4; k++) around[this.quads[f + k]].push(f + k);
+    const offsets = new Uint32Array(vertices.length + 1), ids: number[] = [], coefficients: number[] = [];
+    vertices.forEach((i, row) => {
+      const weight = ownership[row], result: Stencil = new Map();
+      add(result, linear[i], 1 - weight);
+      if (weight) {
+        const edge = this.boundary.get(i), n = around[i].length;
+        if (edge?.length === 2) {
+          add(result, refined[i], weight * 4 / 6);
+          for (const j of edge) add(result, refined[j], weight / 6);
+        } else if (n) {
+          const factor = weight / (n * (n + 5));
+          add(result, refined[i], n * n * factor);
+          for (const position of around[i]) {
+            const f = position - position % 4, k = position % 4;
+            add(result, refined[this.quads[f + (k + 1) % 4]], 2 * factor);
+            add(result, refined[this.quads[f + (k + 3) % 4]], 2 * factor);
+            add(result, refined[this.quads[f + (k + 2) % 4]], factor);
+          }
+        } else add(result, refined[i], weight);
+      }
+      offsets[row] = ids.length;
+      for (const [j, value] of result) if (Math.abs(value) > 1e-14) { ids.push(j); coefficients.push(value); }
+    });
+    offsets[vertices.length] = ids.length;
+    const indices = Uint32Array.from(ids), values = Float64Array.from(coefficients);
+    // 編譯後只保留數字陣列，Map 及中間面可回收。
+    return (source, output) => {
+      for (let row = 0; row < vertices.length; row++) {
+        let x = 0, y = 0, z = 0;
+        for (let j = offsets[row]; j < offsets[row + 1]; j++) {
+          const i = indices[j] * 3, w = values[j];
+          x += source[i] * w; y += source[i + 1] * w; z += source[i + 2] * w;
+        }
+        output[row * 3] = x; output[row * 3 + 1] = y; output[row * 3 + 2] = z;
+      }
+    };
+  }
+
   evaluate(controlPoints: Float32Array): Float32Array {
     let result = controlPoints;
     for (const step of this.steps) result = refine(result, step);

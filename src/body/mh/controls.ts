@@ -81,7 +81,7 @@ export class SurfaceRig {
     const regions = new Set(['torso', 'thighL', 'thighR', 'shoulderL', 'shoulderR', 'upperarmL', 'upperarmR', 'breastL', 'breastR'].map(r => a.regions.indexOf(r)));
     const bind = (id: string, key: SoftKey, parent: string, weights: Float32Array, material?: Float32Array): ShapeControl => {
       const active: number[] = [];
-      for (let i = 0; i < n; i++) if (weights[i] > 0.00001
+      for (let i = 0; i < n; i++) if (weights[i] > 0.00001 && (replaced?.[i] ?? 0) < 1
         && (!material || material[i * 3] || material[i * 3 + 1] || material[i * 3 + 2])) active.push(i);
       const vertices = Uint32Array.from(active);
       const frame = this.reference[parent];

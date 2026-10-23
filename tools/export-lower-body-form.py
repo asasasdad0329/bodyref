@@ -39,10 +39,22 @@ evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
 result = evaluated.to_mesh()
 sample = [[row[0], *[round(v, 6) for v in cm(result.vertices[row[0]].co)]] for row in rows]
 evaluated.to_mesh_clear()
+for modifier in obj.modifiers:
+    if modifier.type == 'SUBSURF':
+        modifier.show_viewport = True
+        modifier.levels = 1
+bpy.context.view_layer.update()
+evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+result = evaluated.to_mesh()
+interior = [cm(v.co) for v in result.vertices
+            if 2 < abs(v.co.x * 100) < 18 and -70 < v.co.z * 100 < 15]
+surface_sample = [[round(v, 6) for v in point]
+                  for point in interior[::max(1, len(interior) // 64)]]
+evaluated.to_mesh_clear()
 data = {'source': str(SOURCE.relative_to(ROOT)),
         'sourceSha256': hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
         'bodyVertexCount': len(mesh.vertices), 'channels': channels, 'rows': rows,
-        'sample': {'state': state, 'positions': sample}}
+        'sample': {'state': state, 'positions': sample, 'surface': surface_sample}}
 (ROOT / 'src/body/mh/forms/femaleLowerBody.json').write_text(
     json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n')
 print(f"已匯出 {len(rows)} 頂點、{len(channels)} 通道")

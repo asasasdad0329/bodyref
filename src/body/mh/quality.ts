@@ -36,6 +36,12 @@ export class SurfaceQuality {
     const n = Math.hypot(nx, ny, nz), m = Math.hypot(mx, my, mz);
     return [Math.min(n, m), (nx * mx + ny * my + nz * mz) / Math.max(1e-15, n * m)];
   }
+  /** 求解器可讀的折面餘裕；只約束控制參數，不在頂點上補修形狀。 */
+  foldBarriers(P: Float32Array): { id: number; read: (surface: Float32Array) => number }[] {
+    return [...this.faces].filter((f, row) => this.reference[row * 2 + 1] > .3 && this.metric(P, f)[1] < .2)
+      .map(f => ({ id: f, read: surface => Math.min(.25, this.metric(surface, f)[1]) }));
+  }
+
   evaluate(P: Float32Array): ShapeQuality {
     let collapsedFaces = 0, foldedFaces = 0, nonFinite = 0;
     for (let i = 0; i < this.asset.nBody * 3; i++) if (!Number.isFinite(P[i])) nonFinite++;

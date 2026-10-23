@@ -42,6 +42,15 @@ describe('人體網格', () => {
     for (let i = 0; i < engine.asset.n; i++) if (!active.has(i)) {
       for (let k = 0; k < 3; k++) expect(result[i * 3 + k]).toBe(shape.reference[i * 3 + k]);
     }
+    shape.sampleSurface(result);
+    const surface = shape.surface.get(result)!;
+    for (const expected of lowerBodyForm.sample.surface) {
+      let nearest = Infinity;
+      for (let i = 0; i < shape.surface.asset.nBody; i++) {
+        nearest = Math.min(nearest, Math.hypot(...expected.map((v, k) => v - surface[i * 3 + k])));
+      }
+      expect(nearest).toBeLessThan(.001);
+    }
   });
   it('臀部雕形：結構骨重現 Blender 的肌脂中間狀態，作用域外保持原樣', () => {
     const shape = new GluteForm(engine.asset);
@@ -301,7 +310,7 @@ describe('形狀控制計畫的必要尺寸與幾何', () => {
     for (const { goal, error } of out.residual) expect(Math.abs(error), JSON.stringify(goal)).toBeLessThan(goal.kind === 'bodyFat' ? 0.01 : 0.5);
     expect(out.quality, c.id).toEqual({ valid: true, collapsedFaces: 0, foldedFaces: 0, nonFinite: 0, intersectingPairs: 0 });
     expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
-    const volume = meshVolume(neutral, engine.asset.quads);
+    const volume = meshVolume(engine.rings.geometry(neutral).positions, engine.rings.geometry(neutral).asset.quads);
     expect(Math.abs(volume - out.volume)).toBeLessThan(0.01);
     expect(Math.abs(volume / 1000 - out.tissues.fat / 0.9 - (out.tissues.muscle + out.tissues.otherLean) / 1.06)).toBeLessThan(0.001);
     expect(Math.abs(out.tissues.otherLean - out.accounting.otherLeanBase - out.accounting.otherLeanControl - out.accounting.breastOtherLean)).toBeLessThan(0.001);
@@ -329,7 +338,7 @@ describe('固定多圈增重的容量與失敗診斷', () => {
     expect(out.diagnostics.some(d => d.kind === 'unconverged')).toBe(Math.abs(mass.error) > 0.5);
     if (c.locked.weight! <= 60 || c.id === 'FIXED-75') expect(Math.abs(mass.error)).toBeLessThan(0.5);
     expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
-    expect(meshVolume(neutral, engine.asset.quads)).toBeCloseTo(out.volume, 2);
+    expect(meshVolume(engine.rings.geometry(neutral).positions, engine.rings.geometry(neutral).asset.quads)).toBeCloseTo(out.volume, 2);
     expect(out.volume / 1000).toBeCloseTo(out.tissues.fat / 0.9 + (out.tissues.muscle + out.tissues.otherLean) / 1.06, 3);
   });
 });

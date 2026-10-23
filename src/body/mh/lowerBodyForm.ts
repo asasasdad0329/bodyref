@@ -5,6 +5,7 @@ import { LocalControlRig, type BoundControl, type LocalTransform } from './local
 import { shapeBlocks } from './shapeBlocks';
 import type { Soft } from './rings';
 import type { ShapeCondition } from './controls';
+import { LowerBodySurface } from './lowerBodySurface';
 
 export type LowerBodyState = Partial<Record<string, number>>;
 const ease = (a: number, b: number, x: number) => {
@@ -22,17 +23,14 @@ export class LowerBodyForm {
   private readonly rig: LocalControlRig;
   private readonly channel: string[] = [];
   private readonly neighbors: number[][];
-  private readonly diagonal: number[][];
+  private evaluatedSurface?: LowerBodySurface;
+  get surface(): LowerBodySurface { return this.evaluatedSurface ??= new LowerBodySurface(this.asset, this.ownership); }
 
   constructor(private readonly asset: BodyAsset) {
     if (asset.nBody !== form.bodyVertexCount) throw new Error('C1 雕形拓撲不符');
     const blocks = shapeBlocks(asset);
     this.reference = blocks.reference;
     this.neighbors = adjacency(asset.quads, asset.nBody);
-    this.diagonal = Array.from({ length: asset.nBody }, () => []);
-    for (let f = 0; f < asset.quads.length; f += 4) for (let k = 0; k < 4; k++) {
-      this.diagonal[asset.quads[f + k]].push(asset.quads[f + (k + 2) % 4]);
-    }
     this.ownership = Float32Array.from({ length: asset.nBody }, (_, i) => {
       const r = asset.regions[asset.region[i]];
       return r === 'torso' ? 1 - ease(18, 24, this.reference[i * 3 + 1])
@@ -120,21 +118,6 @@ export class LowerBodyForm {
     };
   }
 
-  /**
-   * 取雕形極限曲面在原拓撲頂點的樣本；產品以這份幾何顯示、量測及算體積。
-   * 不在畫面另外細分，避免數值量粗模、顯示卻是另一個表面。
-   */
-  sampleSurface(P: Float32Array): void {
-    const source = P.slice();
-    for (let i = 0; i < this.ownership.length; i++) {
-      const w = this.ownership[i], n = this.neighbors[i].length;
-      if (!w || n !== this.diagonal[i].length) continue;
-      for (let k = 0; k < 3; k++) {
-        const sum = this.neighbors[i].reduce((s, j) => s + 4 * source[j * 3 + k], 0)
-          + this.diagonal[i].reduce((s, j) => s + source[j * 3 + k], 0);
-        const value = (n * n * source[i * 3 + k] + sum) / (n * (n + 5));
-        P[i * 3 + k] += (value - source[i * 3 + k]) * w;
-      }
-    }
-  }
+  /** 同一份細分幾何用於量測、體積和顯示。 */
+  sampleSurface(P: Float32Array): void { this.surface.update(P); }
 }
