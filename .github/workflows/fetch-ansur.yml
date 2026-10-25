@@ -1,28 +1,27 @@
-# 暫存用：從官方來源下載 ANSUR II 公開資料，提交回這條暫存分支（不合併進 main）
-name: Fetch ANSUR II
+# 暫存用：試著從 GitHub 的機器下載 ANSUR I（1988）公開資料，做成 Actions 產物（不提交、不合併進 main）
+name: Fetch ANSUR I
 on:
   push:
     branches: [claude/fetch-ansur]
     paths: ['.github/workflows/fetch-ansur.yml']
 permissions:
-  contents: write
+  contents: read
 jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
       - run: |
-          mkdir -p data-raw/probe
-          cd data-raw/probe
-          curl -fsSL https://tools.openlab.psu.edu/tools/data-explorer -o explorer.html || true
-          for js in $(grep -oE '/assets/[^"]+\.js' explorer.html | sort -u); do curl -fsSL "https://tools.openlab.psu.edu$js" -o "$(basename $js)"; done
-          grep -ohE '"[^"]*(ansur|ANSUR|\.csv|publicData|/data/|/api/)[^"]*"' *.js | sort -u | head -200 > urls.txt || true
-          cat urls.txt
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
-          git rm -rq --cached data-raw/*.csv data-raw/*.pdf 2>/dev/null || true
-          rm -f data-raw/*.csv data-raw/*.pdf
-          git add -A data-raw
-          git commit -m "Probe OpenLab data explorer for ANSUR II data URLs (temporary)"
-          git push
+          mkdir out && cd out
+          for f in ansurWomen.csv ansurMen.csv ANSUR-TR89-044.pdf; do
+            for base in http://tools.openlab.psu.edu/publicData https://tools.openlab.psu.edu/publicData; do
+              code=$(curl -sSL -A "Mozilla/5.0" -o "$f" -w "%{http_code}" "$base/$f" || true)
+              echo "$base/$f -> $code $(stat -c %s "$f" 2>/dev/null)"
+              [ "$code" = "200" ] && break
+            done
+          done
+          head -c 400 ansurWomen.csv || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ansur1
+          path: out
+          retention-days: 3
