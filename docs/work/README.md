@@ -8,7 +8,7 @@
 
 | 軌道 | 項目 | 工作檔 | 狀態 | 備註 |
 |---|---|---|---|---|
-| 基礎 | 分區與數據 | [00-foundation](00-foundation/README.md) | 進行中 | D1、D2 待作者決定 |
+| 基礎 | 分區與數據 | [00-foundation](00-foundation/README.md) | 進行中 | 研究第一批完成，下一批：骨架 |
 | 形狀 | C1 女性下半身（總覽） | [c1-lower-body](c1-lower-body/README.md) | 進行中 | |
 | 形狀 | C1-1 臀（試做） | [01-glute](c1-lower-body/01-glute.md) | 未開始 | 下一步：① 構型 |
 | 形狀 | C1-2 腰 | [02-waist](c1-lower-body/02-waist.md) | 未開始 | |

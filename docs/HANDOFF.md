@@ -13,6 +13,12 @@
 
 只留最近幾次；每次交棒在最上面加一段：日期、代理、做了什麼、下一步、未決問題。細節寫在工作檔，不寫在這裡。
 
+### 2026-10-25 · Claude
+
+- 做了：數據討論定下 DECISIONS #19～#43（含變形軸範本）；研究總表 R1～R18 列於[基礎軌第 10 節](work/00-foundation/README.md)。第一批（R1～R5，NHANES DXA）完成，結果在 [research-composition.md](work/00-foundation/research-composition.md)，程式在 `tools/research/`。
+- 下一步：作者決定三個待決定項（體脂尺度、「壯碩」上限、#20 修正）；第二批（骨架：R6、R7、R8、R10、R11、R15，ANSUR II）。完成條件：每項都有數字、限制與對形狀軌的意義，記入研究資料庫。
+- 未決：見 [DECISIONS 待決定](DECISIONS.md#待決定)。原始資料在容器暫存區，換容器要重新下載（來源見基礎軌第 8 節）。
+
 ### 2026-10-24 · Claude
 
 - 做了：檢視 Codex 的三輪實作與 PR #15，和作者重新規劃。建立 VISION、PLAN、DECISIONS 與工作區；舊計畫文件歸檔。決定不回滾 main、關閉 PR #15。
