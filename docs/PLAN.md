@@ -1,6 +1,6 @@
 # 現行規劃
 
-更新：2026-10-24。這是接手者的**單一入口**：先讀 [VISION](VISION.md)（要什麼），再讀本文件（怎麼做），然後看 [工作區](work/README.md) 的狀態總表（做到哪）。決定與理由在 [DECISIONS](DECISIONS.md)。
+更新：2026-10-24。這是接手者的**單一入口**：先讀 [VISION](VISION.md)（要什麼），再讀本文件（怎麼做），然後看 [工作區](work/README.md) 的狀態總表（做到哪）。決定與理由在 [DECISIONS](DECISIONS.md)；每個欄位的量法在 [量法手冊](MANUAL.md)。
 
 舊的 `SHAPE_CONTROL_PLAN.md` 等文件已移到 [archive](archive/)，只作歷史參考，不再是開工依據。
 
