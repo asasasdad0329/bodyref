@@ -12,14 +12,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: |
-          mkdir -p data-raw
-          for f in ANSUR_II_MALE_Public.csv ANSUR_II_FEMALE_Public.csv ANSURII-MFR.pdf; do
-            curl -fsSL -A "Mozilla/5.0" "https://tools.openlab.psu.edu/publicData/$f" -o "data-raw/$f" || curl -fsSL -A "Mozilla/5.0" "http://tools.openlab.psu.edu/publicData/$f" -o "data-raw/$f"
-          done
-          ls -la data-raw
+          mkdir -p data-raw/probe
+          cd data-raw/probe
+          curl -fsSL https://tools.openlab.psu.edu/tools/data-explorer -o explorer.html || true
+          for js in $(grep -oE '/assets/[^"]+\.js' explorer.html | sort -u); do curl -fsSL "https://tools.openlab.psu.edu$js" -o "$(basename $js)"; done
+          grep -ohE '"[^"]*(ansur|ANSUR|\.csv|publicData|/data/|/api/)[^"]*"' *.js | sort -u | head -200 > urls.txt || true
+          cat urls.txt
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
-          git add data-raw
-          git commit -m "Fetch ANSUR II public data (temporary branch)"
+          git rm -rq --cached data-raw/*.csv data-raw/*.pdf 2>/dev/null || true
+          rm -f data-raw/*.csv data-raw/*.pdf
+          git add -A data-raw
+          git commit -m "Probe OpenLab data explorer for ANSUR II data URLs (temporary)"
           git push
