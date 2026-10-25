@@ -86,3 +86,6 @@
 |---|---|---|
 | 骨架推算方式（骨架因子、肋骨與胯骨的複合推算、混合部位的骨／軟分攤） | 討論中，提案見基礎軌第 7 節 | [基礎軌](work/00-foundation/README.md) |
 | 俯身胸圍與罩杯的具體定義 | C2 數值定錨前決定 | [C2](work/c2-breast/README.md) |
+| 體脂的尺度：網站建議與顯示用 DXA 實測，還是換算成一般體脂計的數值（DXA 同 BMI 比目前網站高 3～7 個百分點） | 第一批研究提出 | [組成 R3](work/00-foundation/research-composition.md#r3-體脂建議) |
+| 「壯碩」的上限：一般人口第 97 百分位（男 172／70 約體脂 15%）是否夠；更壯的體型改填 kg 或另設等級 | 第一批研究提出 | [組成 R4](work/00-foundation/research-composition.md#r4-肌肉五等級) |
+| 修正 #20：基礎去脂不只隨身高，也隨肌肉與脂肪量變化（資料顯示組成鏈仍可閉合） | 第一批研究提出，需作者同意 | [組成 R5](work/00-foundation/research-composition.md#r5-基礎去脂隨身高) |
