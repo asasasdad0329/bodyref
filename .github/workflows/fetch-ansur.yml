@@ -1,0 +1,25 @@
+# 暫存用：從官方來源下載 ANSUR II 公開資料，提交回這條暫存分支（不合併進 main）
+name: Fetch ANSUR II
+on:
+  push:
+    branches: [claude/fetch-ansur]
+    paths: ['.github/workflows/fetch-ansur.yml']
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          mkdir -p data-raw
+          for f in ANSUR_II_MALE_Public.csv ANSUR_II_FEMALE_Public.csv ANSURII-MFR.pdf; do
+            curl -fsSL -A "Mozilla/5.0" "https://tools.openlab.psu.edu/publicData/$f" -o "data-raw/$f" || curl -fsSL -A "Mozilla/5.0" "http://tools.openlab.psu.edu/publicData/$f" -o "data-raw/$f"
+          done
+          ls -la data-raw
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add data-raw
+          git commit -m "Fetch ANSUR II public data (temporary branch)"
+          git push
