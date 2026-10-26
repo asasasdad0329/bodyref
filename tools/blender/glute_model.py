@@ -13,7 +13,7 @@ blender -b -noaudio --python tools/blender/glute_model.py -- <輸出資料夾>
 3. 中性型就是籠的基本形（形狀鍵 basis）；之後的變形線做成籠上的形狀鍵。
 4. 骨點（髂嵴、髂前上棘、髂後上棘、大轉子、恥骨聯合、坐骨結節、尾骨、髖關節）另外記錄，
    是之後變形線（骨架線）和素體控制共用的座標框架。
-5. 量臀圍、寬、厚與大腿圍，用 Eevee 算多視圖。
+5. 量臀圍、寬、厚與大腿圍，用 Eevee 算灰模多視圖。
 
 尺寸：台灣年輕女性中位數 160 cm、臀圍約 92.5（research-taiwan.md），各部位的高度與寬厚
 用 ANSUR II 女性對身高、臀圍的迴歸推到這個體型（見 01-glute.md 的「尺寸」）。
@@ -40,7 +40,7 @@ TARGET = dict(hip=92.5, hipY=81.6, hipBreadth=32.2, buttockDepth=20.6, thigh=55.
 PROFILE = {
     'W': [(69.5, 15.6), (72, 16.1), (75, 16.6), (78, 17.2), (80.5, 17.5), (83, 17.5), (86, 17.05), (90, 16.05),
           (94, 14.6), (98, 13.0)],
-    'F': [(69.5, 7.2), (72, 7.3), (75, 7.35), (78, 7.5), (80, 8.0), (83, 8.5), (86, 8.6), (90, 8.1), (94, 7.6), (98, 6.9)],
+    'F': [(69.5, 7.2), (72, 7.3), (75, 7.4), (78, 7.5), (80, 7.8), (83, 8.45), (86, 8.6), (90, 8.1), (94, 7.6), (98, 6.9)],
     'B': [(69.5, -9.6), (73, -9.9), (75, -10.25), (76.5, -10.85), (78.5, -12.05), (80.5, -13.15), (82.5, -13.6),
           (84.5, -13.45), (87, -12.2), (90, -10.6), (94, -8.6), (98, -7.4)],
 }
@@ -48,7 +48,7 @@ PROFILE = {
 # lobe 臀峰比底弧多突的量，xl 臀峰離正中的距離，sl、slm 臀峰往外、往內的寬；cleft 臀縫往前凹。
 SHAPE = {
     'zc': [(79.2, -2.0), (83, -1.8), (90, -1.3), (98, -1.0)],
-    'pf': [(79.2, 2.35), (86, 2.45), (98, 2.4)],
+    'pf': [(79.2, 2.9), (82, 2.75), (86, 2.5), (98, 2.4)],
     'pb': [(79.2, 2.3), (86, 2.4), (98, 2.5)],
     'lobe': [(79.2, 3.0), (81.5, 3.3), (85, 2.9), (89, 1.7), (92, 0.5), (95, 0.0), (98, 0.4)],
     'xl': [(79.2, 5.4), (84, 5.8), (90, 5.0), (94, 4.2), (98, 3.2)],
@@ -56,26 +56,41 @@ SHAPE = {
     'slm': [(79.2, 5.0), (88, 5.0), (94, 3.0), (98, 2.5)],
     'cleft': [(79.2, 3.0), (82, 2.5), (85, 2.0), (88, 1.3), (91, 0.4), (94, 0.0), (98, 0.0)],
 }
+# 正面造型（隨高度內插）：belly 下腹弧面比底弧多突的量；groin 鼠蹊溝的深度
+FRONT = {
+    'belly': [(77, 0.0), (79.5, 0.3), (82, 0.75), (86, 1.1), (90, 0.95), (93, 0.5), (96, 0.1), (98, 0.0)],
+    'groin': [(76, 0.4), (79, 0.65), (84, 0.6), (89, 0.35), (92, 0.0)],
+}
 TORSO_Y = [98.0, 95.5, 93.0, 90.5, 88.0, 85.5, 83.0, 81.0, 79.2]
-# 腿圈（左腿）：中心 (cx, cz)；外側、前、後由側影曲線決定，內側離正中 GAP；
+# 腿圈（左腿）：中心 (cx, cz)；外側、前、後由側影曲線決定，內側離正中 gap（往下漸寬，大腿內側是圓的）；
 # bulge 臀下半往後的量；fold 臀溝：後內側往前、往上收（淺，只在內側）；torso 沿用骨盆截面外圈的比例。
 LEGS = [
-    dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.0, torso=0.75),
-    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.35, torso=0.5),
-    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2),
-    dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0),
+    dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.0, torso=0.75, gap=0.15),
+    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.35, torso=0.5, gap=0.25),
+    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gap=0.55),
+    dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0, gap=0.8),
 ]
-LEG_P = dict(pl=2.4, pbl=2.2, pm=3.0)
-GAP = 0.35
-# 籠在骨盆圈上的取樣角度（左半 10 點），加上臀縫兩側固定 x 的 3 點，共 13 點。
-TORSO_T = [0, 18, 36, 54, 72, 90, 106, 122, 138, 154]
+LEG_P = dict(pl=2.4, pfl=2.2, pbl=2.2, pm=2.3)
+# 籠在骨盆圈上的取樣（左半 17 點）：正面用固定的 x 比例取 8 點（下腹、鼠蹊、恥丘需要較密），
+# 外側到後方用角度取 6 點，臀縫兩側用固定的 x 取 3 點。
+FRONT_U = [0.0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84]
+TORSO_T = [72, 90, 106, 122, 138, 154]
 BACK_X = [3.4, 1.1, 0.0]
 # 胯下：最後一層的正前、正後換成會陰的位置；中間一串正中頂點（後 → 前）把左右腿分開。
-CROTCH_FRONT = (79.4, 6.8)   # (y, z) 恥骨聯合下緣
+CROTCH_FRONT = (79.2, 7.1)   # (y, z) 恥骨聯合下緣
 CROTCH_BACK = (80.2, -5.2)   # 臀縫底
-CHAIN = [(78.4, -3.0), (77.0, 0.4), (77.9, 4.2)]
-# 腿圈 16 點的方位角（0° 正前、90° 外側、180° 正後、270° 內側）：前 13 點對應骨盆圈左半，後 3 點對應會陰串。
-LEG_PHI = [-40, -15, 10, 35, 62, 90, 115, 140, 162, 182, 198, 210, 222, 248, 275, 302]
+CHAIN = [(78.4, -3.0), (76.9, 1.2), (77.5, 5.6)]
+
+
+def leg_phi():
+    """腿圈各點的方位角（0° 正前、90° 外側、180° 正後、270° 內側），和骨盆圈左半一一對應，最後 3 點對應會陰串。"""
+    pf = 2.4
+    ts = [math.degrees(math.asin(u ** (pf / 2))) for u in FRONT_U] + TORSO_T
+    phi = np.interp(ts, [0, 18, 36, 54, 72, 90, 106, 122, 138, 154], [-40, -15, 10, 35, 62, 90, 115, 140, 162, 182])
+    return list(phi) + [198, 210, 222, 248, 275, 302]
+
+
+LEG_PHI = leg_phi()
 
 
 def curve(pts, y):
@@ -110,6 +125,11 @@ def torso_level(y):
     L['zb'] = L['zc'] - (L['zc'] - curve(PROFILE['B'], y) - L['lobe']) / g
     L['dimple'] = 0.35 * math.exp(-((y - 94.5) / 1.8) ** 2)   # 腰窩（髂後上棘）
     L['side'] = -0.12 * math.exp(-((y - 85.5) / 2.5) ** 2)    # 臀側凹陷（C 點），中性型幾乎看不出
+    # 正面：下腹是一個圓的弧面，往下收進鼠蹊的 V 字；鼠蹊從髂前上棘（約 x 11、y 92）斜到胯下（約 x 3、y 79）
+    L['groinX'] = 3.0 + 8.5 * min(max((y - 79.0) / 13.0, 0.0), 1.0)
+    L['groin'] = curve(FRONT['groin'], y)
+    L['belly'] = curve(FRONT['belly'], y)
+    L['mons'] = 0.35 * math.exp(-((y - 81.2) / 1.4) ** 2)
     return L
 
 
@@ -124,19 +144,29 @@ def back_z(L, x):
     return z + L['cleft'] * math.exp(-(x / 0.6) ** 2)
 
 
+def front_z(L, x):
+    """前半截面在 x 處的前後位置：圓弧，加下腹弧面、恥丘，減鼠蹊溝。正中剛好落在側影曲線 F 上。"""
+    u = min(x / L['w'], 1.0)
+    xb = 0.85 * L['groinX']                       # 下腹弧面的寬度跟著鼠蹊往下收
+    zf = L['zf'] - L['belly'] - L['mons']         # 底弧的正中，加上弧面後回到 F
+    z = L['zc'] + (zf - L['zc']) * (1 - u ** L['pf']) ** (1 / L['pf'])
+    z += L['belly'] * math.exp(-(x / xb) ** 2) + L['mons'] * math.exp(-(x / 3.2) ** 2)
+    return z - L['groin'] * math.exp(-((x - L['groinX']) / 1.3) ** 2)
+
+
 def torso_half(L):
-    pts = []
+    pts = [(u * L['w'], L['y'], front_z(L, u * L['w'])) for u in FRONT_U]
     for t in TORSO_T:
         s, c = math.sin(math.radians(t)), math.cos(math.radians(t))
         if c >= 0:
-            x, z = L['w'] * abs(s) ** (2 / L['pf']), L['zc'] + (L['zf'] - L['zc']) * abs(c) ** (2 / L['pf'])
+            x, z = L['w'] * abs(s) ** (2 / L['pf']), L['zc'] + (L['zf'] - L['belly'] - L['mons'] - L['zc']) * abs(c) ** (2 / L['pf'])
         else:
             x = L['w'] * abs(s) ** (2 / L['pb'])
             z = back_z(L, x)
         g = math.exp(-((t - 114) / 14) ** 2)
         x += L['side'] * g * s
         z += L['side'] * g * c
-        pts.append((0.0 if t == 0 else x, L['y'], z))
+        pts.append((x, L['y'], z))
     # 臀縫兩側：用固定的 x 取樣，讓臀縫窄而深，左右臀在正中幾乎貼合
     for x in BACK_X:
         pts.append((x, L['y'], back_z(L, x)))
@@ -145,7 +175,7 @@ def torso_half(L):
 
 def leg_ring(L):
     y0, cx, cz = L['y'], L['cx'], L['cz']
-    al, am = curve(PROFILE['W'], y0) - cx, cx - GAP
+    al, am = curve(PROFILE['W'], y0) - cx, cx - L['gap']
     bf = curve(PROFILE['F'], y0) - cz
     back = lambda phi: math.exp(-((phi - 200) / 25) ** 2)
     fold = lambda phi: math.exp(-((phi - 205) / 22) ** 2)
@@ -157,17 +187,20 @@ def leg_ring(L):
         a, p = (al, LEG_P['pl']) if s >= 0 else (am, LEG_P['pm'])
         if s >= 0 and c < 0:
             p = LEG_P['pbl']  # 後外側較圓，臀下半才不會在外側鼓出一圈
+        if s >= 0 and c >= 0:
+            p = LEG_P['pfl']  # 前外側較圓，大腿前外側才不會比胯飽滿，正面不出橫溝
         x = cx + a * spow(s, 2 / p)
         z = cz + (bf if c >= 0 else bb) * spow(c, 2 / p)
         z += -L['bulge'] * back(phi) + L['fold'] * fold(phi)
         y = y0 + 0.5 * L['fold'] * fold(phi)
-        pts.append((max(x, GAP), y, z))
+        pts.append((max(x, L['gap']), y, z))
     # 腿圈上段先沿用骨盆截面的外圈（斜前、外側、斜後），往下才漸漸變成大腿的形；
     # 不然骨盆截面飽滿的斜角接到較收的腿圈，交界會往內凹一圈。內側與臀縫附近維持腿的形。
     if L['torso'] > 0:
         T = torso_half(torso_level(y0))
-        for j in range(1, 10):
-            w = L['torso'] * math.sin(math.pi * j / 10) ** 0.5
+        n = len(FRONT_U) + len(TORSO_T)
+        for j in range(1, n):
+            w = L['torso'] * math.sin(math.pi * j / n) ** 0.5
             pts[j] = tuple(w * np.array(T[j]) + (1 - w) * np.array(pts[j]))
     return pts
 
@@ -176,7 +209,7 @@ def cage():
     """左半籠的頂點與四邊形面（頂點座標用素體慣例）。"""
     V, F, rings = [], [], []
     for y in TORSO_Y:
-        rings.append(list(range(len(V), len(V) + len(TORSO_T) + len(BACK_X))))
+        rings.append(list(range(len(V), len(V) + len(FRONT_U) + len(TORSO_T) + len(BACK_X))))
         V += torso_half(torso_level(y))
     last = rings[-1]
     V[last[0]] = (0.0, *CROTCH_FRONT)
@@ -194,7 +227,16 @@ def cage():
         n = len(a)
         for k in range(n):
             F.append((a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]))
-    return np.array(V, float), F
+    V = np.array(V, float)
+    # 縱向平滑：同一縱列（骨盆圈接腿圈）上下相鄰的點取平均，消掉層與層之間的小起伏。
+    # 只動正面、外側到後外側的點，只動前後位置；正中、臀縫與臀溝內側不動
+    cols = rings[:-1] + loops
+    for j in range(2, len(FRONT_U) + len(TORSO_T) - 1):
+        col = [r[j] for r in cols]
+        for _ in range(2):
+            z = V[col, 2].copy()
+            V[col[1:-1], 2] = 0.5 * z[1:-1] + 0.25 * (z[:-2] + z[2:])
+    return V, F
 
 
 def to_blender(p):
@@ -361,30 +403,49 @@ np.savez(OUT / 'glute_model.npz', design=Vc, cage=Vc_cage, positions=P, faces=np
 bpy.ops.wm.save_as_mainfile(filepath=str((OUT / 'glute_model.blend').resolve()))
 
 # ---------- 4. 算圖 ----------
-# Eevee、霧面材質、斜上方的平行光（固定在每個視角的左上方），讓起伏讀得出來
+# 灰模：淺灰背景、中灰霧面材質、大面積柔光（主光在視角左上方，對側補光），加環境光遮蔽，
+# 起伏靠柔和的明暗讀，不靠硬投影
 scene = bpy.context.scene
 scene.render.engine = 'BLENDER_EEVEE_NEXT'
-scene.render.resolution_x, scene.render.resolution_y = 700, 700
+scene.render.resolution_x, scene.render.resolution_y = 900, 900
+scene.view_settings.view_transform = 'Standard'
+if hasattr(scene.eevee, 'use_gtao'):
+    scene.eevee.use_gtao = True
 world = scene.world or bpy.data.worlds.new('world')
 scene.world = world
 world.use_nodes = True
-world.node_tree.nodes['Background'].inputs[0].default_value = (0.25, 0.25, 0.25, 1)
-world.node_tree.nodes['Background'].inputs[1].default_value = 0.6
+# 環境光用淺灰；相機看到的背景另外用較深的灰，讓輪廓和背景分得開
+nt = world.node_tree
+amb = nt.nodes['Background']
+amb.inputs[0].default_value = (0.62, 0.62, 0.62, 1)
+amb.inputs[1].default_value = 0.55
+bg = nt.nodes.new('ShaderNodeBackground')
+bg.inputs[0].default_value = (0.16, 0.16, 0.16, 1)
+path = nt.nodes.new('ShaderNodeLightPath')
+mix = nt.nodes.new('ShaderNodeMixShader')
+nt.links.new(path.outputs['Is Camera Ray'], mix.inputs[0])
+nt.links.new(amb.outputs[0], mix.inputs[1])
+nt.links.new(bg.outputs[0], mix.inputs[2])
+nt.links.new(mix.outputs[0], nt.nodes['World Output'].inputs[0])
 mat = bpy.data.materials.new('clay')
 mat.use_nodes = True
 bsdf = mat.node_tree.nodes['Principled BSDF']
-bsdf.inputs['Base Color'].default_value = (0.6, 0.6, 0.58, 1)
-bsdf.inputs['Roughness'].default_value = 0.85
+bsdf.inputs['Base Color'].default_value = (0.42, 0.42, 0.42, 1)
+bsdf.inputs['Roughness'].default_value = 0.9
 obj.data.materials.append(mat)
 sun = bpy.data.objects.new('key', bpy.data.lights.new('key', 'SUN'))
-sun.data.energy = 3.5
-sun.data.angle = math.radians(12)  # 柔和的投影，避免硬邊被誤看成稜線
+sun.data.energy = 2.6
+sun.data.angle = math.radians(35)
 scene.collection.objects.link(sun)
+fill = bpy.data.objects.new('fill', bpy.data.lights.new('fill', 'SUN'))
+fill.data.energy = 0.7
+fill.data.use_shadow = False
+scene.collection.objects.link(fill)
 
 cam_data = bpy.data.cameras.new('cam')
 cam_data.type = 'ORTHO'
 cam_data.clip_start, cam_data.clip_end = 1, 2000
-cam_data.ortho_scale = 44.0
+cam_data.ortho_scale = 46.0
 cam = bpy.data.objects.new('cam', cam_data)
 scene.collection.objects.link(cam)
 scene.camera = cam
@@ -397,7 +458,8 @@ def shoot(tag):
         yaw = math.atan2(-dy, -dx) - math.pi / 2
         cam.location = (dx * 300, dy * 300, 84.0)
         cam.rotation_euler = (math.pi / 2, 0, yaw)
-        sun.rotation_euler = (math.radians(50), 0, yaw - math.radians(40))
+        sun.rotation_euler = (math.radians(45), 0, yaw - math.radians(35))
+        fill.rotation_euler = (math.radians(70), 0, yaw + math.radians(60))
         scene.render.filepath = str(OUT / f'{tag}-{name}.png')
         bpy.ops.render.render(write_still=True)
 
