@@ -66,9 +66,9 @@ TORSO_Y = [98.0, 95.5, 93.0, 90.5, 88.0, 85.5, 83.0, 81.0, 79.2]
 # bulge 臀下半往後的量；fold 臀溝：後內側往前、往上收（淺，只在內側）；torso 沿用骨盆截面外圈的比例；
 # pfm 前內側的方圓程度（大於 2 就往正中填）。
 LEGS = [
-    dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.0, torso=0.75, gap=0.15, pfm=3.6),
-    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.35, torso=0.5, gap=0.25, pfm=3.2),
-    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gap=0.55, pfm=2.7),
+    dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.08, torso=0.75, gap=0.15, pfm=3.1),
+    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.3, torso=0.5, gap=0.25, pfm=2.9),
+    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gap=0.55, pfm=2.6),
     dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0, gap=0.8, pfm=2.4),
 ]
 LEG_P = dict(pl=2.4, pfl=2.2, pbl=2.2, pm=2.3)
@@ -81,6 +81,8 @@ BACK_X = [3.4, 1.1, 0.0]
 CROTCH_FRONT = (79.0, 7.0)   # (y, z) 恥骨聯合下緣
 CROTCH_BACK = (80.2, -5.2)   # 臀縫底
 CHAIN = [(78.4, -3.0), (76.8, 1.2), (76.4, 5.3)]
+# 局部鬆弛的中心與半徑（素體座標，公分）：胯下前方的會合點、臀縫底
+RELAX = [((0.0, 77.0, 4.5), 6.0), ((0.0, 78.5, -4.5), 5.0)]
 
 
 def leg_phi():
@@ -178,7 +180,7 @@ def leg_ring(L):
     al, am = curve(PROFILE['W'], y0) - cx, cx - L['gap']
     bf = curve(PROFILE['F'], y0) - cz
     back = lambda phi: math.exp(-((phi - 200) / 25) ** 2)
-    fold = lambda phi: math.exp(-((phi - 205) / 22) ** 2)
+    fold = lambda phi: math.exp(-((phi - 208) / 30) ** 2)  # 往外緩緩漸淡，不收成三角形
     # 正後（182°）落在側影曲線 B 上
     bb = cz - curve(PROFILE['B'], y0) - L['bulge'] * back(182) + L['fold'] * fold(182)
     pts = []
@@ -238,6 +240,21 @@ def cage():
         for _ in range(2):
             z = V[col, 2].copy()
             V[col[1:-1], 2] = 0.5 * z[1:-1] + 0.25 * (z[:-2] + z[2:])
+    # 局部鬆弛：胯下前方的會合點與臀縫底，是骨盆一圈分成兩條腿的地方，籠點的連接數不規則，
+    # 細分後容易出現小凸點、小凹點。附近的籠點往鄰點的平均移一些（越近中心移越多），正中的點留在正中
+    nb = [set() for _ in V]
+    for f in F:
+        for a, b in zip(f, f[1:] + f[:1]):
+            nb[a].add(b)
+            nb[b].add(a)
+    nb = [list(n) for n in nb]
+    for c, r in RELAX:
+        w = 0.6 * np.clip(1 - np.linalg.norm(V - np.array(c), axis=1) / r, 0, 1)
+        for _ in range(4):
+            avg = np.array([V[n].mean(0) for n in nb])
+            mid = V[:, 0] == 0
+            V += w[:, None] * (avg - V)
+            V[mid, 0] = 0
     return V, F
 
 
