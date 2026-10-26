@@ -4,7 +4,8 @@ blender -b -noaudio --python tools/blender/glute_model.py -- <輸出資料夾>
 
 範圍：髂嵴（下腰）到臀溝下方約 6 公分的大腿根，前後左右一整圈；不含腰背、不到大腿中段。
 做法（一般的角色建模流程）：
-1. 只建左半邊的低面數控制籠（cage），由一層層的水平截面組成；截面形狀由下方 TORSO、LEGS 的參數決定。
+1. 只建左半邊的低面數控制籠（cage），由一層層的水平截面組成。先定外側、正前、正後三條側影曲線，
+   每層截面從曲線取值，形狀參數也沿高度平滑內插（PROFILE、SHAPE、LEGS）。
    上半是一個圈（骨盆），到胯下分成兩條腿的圈；兩腿之間用一串正中頂點（會陰）接起來。
 2. 鏡像修改器補右半邊（正中頂點合併），細分曲面修改器（Catmull-Clark）把籠變成平滑曲面。
    細分會把籠往內收，所以籠先反覆往外補差值，讓曲面接近設計的截面（fit_cage）。
@@ -33,21 +34,38 @@ OUT.mkdir(parents=True, exist_ok=True)
 TARGET = dict(hip=92.5, hipY=81.6, hipBreadth=32.2, buttockDepth=20.6, thigh=55.0,
               iliocristale=97.5, trochanter=82.9, crotch=77.0)
 
-# ---------- 1. 截面參數 ----------
-# 骨盆圈：每層一個水平截面（左半），從正前（t=0°）經外側（90°）到正後（180°）。
-# w 半寬；zf 正前；zc 最寬處的前後位置；zb 正後（未加臀峰、臀縫前）；pf、pb 前後半的方圓程度（越大越方）。
-# lobe 臀峰往後的量，xl 臀峰離正中的距離，sl、slm 臀峰往外、往內的寬；cleft 正中往前凹（下背是脊溝，往下是臀縫）。
-# side 外側的凹（負）凸（正），sideT 位置（度），用來做臀側凹陷（C 點）；dimple 腰窩的深度。
-TORSO = [
-    dict(y=98.0, w=13.2, zf=6.8, zc=-1.0, zb=-7.4, pf=3.0, pb=2.8, lobe=0.6, xl=3.2, sl=2.0, slm=2.5, cleft=0.0),
-    dict(y=94.0, w=14.8, zf=7.6, zc=-1.1, zb=-8.4, pf=3.3, pb=3.2, lobe=0.0, xl=4.2, sl=2.6, cleft=0.0, dimple=0.35),
-    dict(y=90.0, w=15.8, zf=8.0, zc=-1.3, zb=-9.4, pf=3.7, pb=3.4, lobe=1.2, xl=4.8, sl=4.6, cleft=0.6),
-    dict(y=86.0, w=16.4, zf=8.3, zc=-1.6, zb=-9.8, pf=4.0, pb=3.8, lobe=2.2, xl=5.0, sl=6.0, cleft=2.2,
-         side=-0.35, sideT=112),
-    dict(y=82.5, w=16.5, zf=8.1, zc=-1.8, zb=-9.9, pf=4.0, pb=3.8, lobe=2.8, xl=5.0, sl=6.0, cleft=3.0,
-         side=-0.15, sideT=118),
-    dict(y=79.2, w=16.0, zf=7.3, zc=-2.0, zb=-9.4, pf=3.8, pb=3.4, lobe=2.8, xl=4.8, sl=5.2, cleft=3.6),
+# ---------- 1. 側影曲線與截面參數 ----------
+# 先定三條側影曲線（隨高度 y 平滑變化），每一層截面都從曲線取值，骨盆圈和腿圈接在同一條曲線上，
+# 交界才不會凹一圈。W 外側（半寬）；F 正前（骨盆是正中，腿是大腿前側）；B 正後（臀峰、往下接大腿後側）。
+PROFILE = {
+    'W': [(69.5, 15.0), (73, 15.35), (77, 15.75), (80, 16.0), (83, 16.15), (86, 16.05), (90, 15.6), (94, 14.7), (98, 13.2)],
+    'F': [(69.5, 7.0), (73, 7.0), (76, 6.95), (78, 7.05), (80, 7.35), (83, 7.8), (86, 8.0), (90, 7.9), (94, 7.5), (98, 6.9)],
+    'B': [(69.5, -9.4), (73, -9.7), (75, -10.05), (76.5, -10.6), (78, -11.35), (80, -12.05), (82, -12.45), (84, -12.4),
+          (87, -11.7), (90, -10.5), (94, -8.8), (98, -7.6)],
+}
+# 骨盆圈的截面形狀（也隨高度內插）：zc 最寬處的前後位置；pf、pb 前後半的方圓程度（2 是橢圓，越大越方）；
+# lobe 臀峰比底弧多突的量，xl 臀峰離正中的距離，sl、slm 臀峰往外、往內的寬；cleft 臀縫往前凹。
+SHAPE = {
+    'zc': [(79.2, -2.0), (83, -1.8), (90, -1.3), (98, -1.0)],
+    'pf': [(79.2, 2.7), (86, 2.9), (98, 2.6)],
+    'pb': [(79.2, 2.5), (86, 2.6), (98, 2.6)],
+    'lobe': [(79.2, 2.7), (81, 2.7), (85, 2.4), (89, 1.6), (92, 0.5), (95, 0.0), (98, 0.5)],
+    'xl': [(79.2, 5.6), (84, 6.0), (90, 5.0), (94, 4.2), (98, 3.2)],
+    'sl': [(79.2, 5.8), (84, 6.6), (90, 5.2), (94, 3.0), (98, 2.0)],
+    'slm': [(79.2, 4.5), (88, 4.5), (94, 3.0), (98, 2.5)],
+    'cleft': [(79.2, 3.4), (82, 3.0), (85, 2.5), (88, 1.6), (91, 0.5), (94, 0.0), (98, 0.0)],
+}
+TORSO_Y = [98.0, 95.5, 93.0, 90.5, 88.0, 85.5, 83.0, 81.0, 79.2]
+# 腿圈（左腿）：中心 (cx, cz)；外側、前、後由側影曲線決定，內側離正中 GAP；
+# bulge 臀下半往後的量；fold 臀溝：後內側往前、往上收（淺，只在內側）；torso 沿用骨盆截面外圈的比例。
+LEGS = [
+    dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.0, torso=0.75),
+    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.45, torso=0.45),
+    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.15),
+    dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0),
 ]
+LEG_P = dict(pl=2.4, pbl=2.2, pm=3.0)
+GAP = 0.35
 # 籠在骨盆圈上的取樣角度（左半 10 點），加上臀縫兩側固定 x 的 3 點，共 13 點。
 TORSO_T = [0, 18, 36, 54, 72, 90, 106, 122, 138, 154]
 BACK_X = [3.4, 1.1, 0.0]
@@ -55,30 +73,53 @@ BACK_X = [3.4, 1.1, 0.0]
 CROTCH_FRONT = (80.4, 6.2)   # (y, z) 恥骨聯合下緣
 CROTCH_BACK = (80.2, -5.2)   # 臀縫底
 CHAIN = [(78.4, -3.0), (77.0, 0.2), (78.6, 3.4)]
-# 腿圈（左腿）：中心 cx、cz；外側半寬 al、內側半寬 am；前 bf、後 bb；外、內側的方圓程度 pl、pm。
-# bulge 臀下半往後的量（腿圈後內側）；fold 臀溝：後內側往前、往上收。
-LEGS = [
-    dict(y=77.0, cx=8.1, cz=-1.2, al=7.8, am=7.6, bf=7.5, bb=9.0, pl=2.7, pm=3.0, pbl=2.3, bulge=1.4, fold=0.0),
-    dict(y=75.0, cx=8.0, cz=-1.0, al=7.8, am=7.6, bf=7.8, bb=8.9, pl=2.8, pm=3.2, pbl=2.3, bulge=0.0, fold=1.0),
-    dict(y=72.5, cx=7.9, cz=-0.8, al=7.7, am=7.5, bf=7.9, bb=8.9, pl=2.8, pm=3.2, pbl=2.3, bulge=0.0, fold=0.2),
-    dict(y=69.5, cx=7.8, cz=-0.7, al=7.5, am=7.4, bf=7.8, bb=8.8, pl=2.7, pm=3.0, pbl=2.3, bulge=0.0, fold=0.0),
-]
 # 腿圈 16 點的方位角（0° 正前、90° 外側、180° 正後、270° 內側）：前 13 點對應骨盆圈左半，後 3 點對應會陰串。
 LEG_PHI = [-40, -15, 10, 35, 62, 90, 115, 140, 162, 182, 198, 210, 222, 248, 275, 302]
+
+
+def curve(pts, y):
+    """單調三次內插（Fritsch–Carlson），曲線不會在控制點之間多出起伏。"""
+    xs, ys = np.array([p[0] for p in pts], float), np.array([p[1] for p in pts], float)
+    if y <= xs[0]:
+        return float(ys[0])
+    if y >= xs[-1]:
+        return float(ys[-1])
+    h, d = np.diff(xs), np.diff(ys) / np.diff(xs)
+    m = np.zeros(len(xs))
+    m[0], m[-1] = d[0], d[-1]
+    for i in range(1, len(xs) - 1):
+        if d[i - 1] * d[i] > 0:
+            w1, w2 = 2 * h[i] + h[i - 1], h[i] + 2 * h[i - 1]
+            m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i])
+    i = int(np.searchsorted(xs, y) - 1)
+    t = (y - xs[i]) / h[i]
+    h00, h10, h01, h11 = 2 * t**3 - 3 * t**2 + 1, t**3 - 2 * t**2 + t, -2 * t**3 + 3 * t**2, t**3 - t**2
+    return float(h00 * ys[i] + h10 * h[i] * m[i] + h01 * ys[i + 1] + h11 * h[i] * m[i + 1])
 
 
 def spow(v, e):
     return math.copysign(abs(v) ** e, v)
 
 
+def torso_level(y):
+    L = {k: curve(v, y) for k, v in SHAPE.items()}
+    L.update(y=y, w=curve(PROFILE['W'], y), zf=curve(PROFILE['F'], y))
+    # 讓臀峰（x = xl）剛好落在側影曲線 B 上：反推正中的底弧深度 zb
+    g = (1 - (L['xl'] / L['w']) ** L['pb']) ** (1 / L['pb'])
+    L['zb'] = L['zc'] - (L['zc'] - curve(PROFILE['B'], y) - L['lobe']) / g
+    L['dimple'] = 0.35 * math.exp(-((y - 94.5) / 1.8) ** 2)   # 腰窩（髂後上棘）
+    L['side'] = -0.3 * math.exp(-((y - 85.5) / 2.5) ** 2)     # 臀側凹陷（C 點），中性型很淡
+    return L
+
+
 def back_z(L, x):
-    """後半截面在 x 處的前後位置：方圓的弧，加臀峰、減臀縫。"""
+    """後半截面在 x 處的前後位置：圓弧，加臀峰、減臀縫。"""
     u = min(x / L['w'], 1.0)
     z = L['zc'] - (L['zc'] - L['zb']) * (1 - u ** L['pb']) ** (1 / L['pb'])
     # 臀峰：外側頂部較平（四次方），內側較圓，往臀縫收
-    q = (x - L['xl']) / L['sl'] if x >= L['xl'] else (x - L['xl']) / L.get('slm', 4.5)
+    q = (x - L['xl']) / L['sl'] if x >= L['xl'] else (x - L['xl']) / L['slm']
     z -= L['lobe'] * math.exp(-q ** (4 if x >= L['xl'] else 2))
-    z += L.get('dimple', 0) * math.exp(-((x - 4.2) / 1.3) ** 2)  # 腰窩（髂後上棘）
+    z += L['dimple'] * math.exp(-((x - 4.2) / 1.3) ** 2)
     return z + L['cleft'] * math.exp(-(x / 0.6) ** 2)
 
 
@@ -91,10 +132,9 @@ def torso_half(L):
         else:
             x = L['w'] * abs(s) ** (2 / L['pb'])
             z = back_z(L, x)
-        if 'side' in L:
-            g = math.exp(-((t - L['sideT']) / 14) ** 2)
-            x += L['side'] * g * s
-            z += L['side'] * g * c
+        g = math.exp(-((t - 114) / 14) ** 2)
+        x += L['side'] * g * s
+        z += L['side'] * g * c
         pts.append((0.0 if t == 0 else x, L['y'], z))
     # 臀縫兩側：用固定的 x 取樣，讓臀縫窄而深，左右臀在正中幾乎貼合
     for x in BACK_X:
@@ -103,31 +143,40 @@ def torso_half(L):
 
 
 def leg_ring(L):
+    y0, cx, cz = L['y'], L['cx'], L['cz']
+    al, am = curve(PROFILE['W'], y0) - cx, cx - GAP
+    bf = curve(PROFILE['F'], y0) - cz
+    back = lambda phi: math.exp(-((phi - 200) / 25) ** 2)
+    fold = lambda phi: math.exp(-((phi - 205) / 22) ** 2)
+    # 正後（182°）落在側影曲線 B 上
+    bb = cz - curve(PROFILE['B'], y0) - L['bulge'] * back(182) + L['fold'] * fold(182)
     pts = []
     for phi in LEG_PHI:
         s, c = math.sin(math.radians(phi)), math.cos(math.radians(phi))
-        a, p = (L['al'], L['pl']) if s >= 0 else (L['am'], L['pm'])
+        a, p = (al, LEG_P['pl']) if s >= 0 else (am, LEG_P['pm'])
         if s >= 0 and c < 0:
-            p = L.get('pbl', p)  # 後外側較圓，臀下半才不會在外側鼓出一圈
-        b = L['bf'] if c >= 0 else L['bb']
-        x = L['cx'] + a * spow(s, 2 / p)
-        z = L['cz'] + b * spow(c, 2 / p)
-        y = L['y']
-        back = math.exp(-((phi - 200) / 25) ** 2)
-        z -= L['bulge'] * back
-        fold = math.exp(-((phi - 205) / 16) ** 2)
-        z += L['fold'] * fold
-        y += 0.8 * L['fold'] * fold * (L['y'] > 74)
-        pts.append((max(x, 0.35), y, z))
+            p = LEG_P['pbl']  # 後外側較圓，臀下半才不會在外側鼓出一圈
+        x = cx + a * spow(s, 2 / p)
+        z = cz + (bf if c >= 0 else bb) * spow(c, 2 / p)
+        z += -L['bulge'] * back(phi) + L['fold'] * fold(phi)
+        y = y0 + 0.5 * L['fold'] * fold(phi)
+        pts.append((max(x, GAP), y, z))
+    # 腿圈上段先沿用骨盆截面的外圈（斜前、外側、斜後），往下才漸漸變成大腿的形；
+    # 不然骨盆截面飽滿的斜角接到較收的腿圈，交界會往內凹一圈。內側與臀縫附近維持腿的形。
+    if L['torso'] > 0:
+        T = torso_half(torso_level(y0))
+        for j in range(1, 10):
+            w = L['torso'] * math.sin(math.pi * j / 10) ** 0.5
+            pts[j] = tuple(w * np.array(T[j]) + (1 - w) * np.array(pts[j]))
     return pts
 
 
 def cage():
     """左半籠的頂點與四邊形面（頂點座標用素體慣例）。"""
     V, F, rings = [], [], []
-    for L in TORSO:
+    for y in TORSO_Y:
         rings.append(list(range(len(V), len(V) + len(TORSO_T) + len(BACK_X))))
-        V += torso_half(L)
+        V += torso_half(torso_level(y))
     last = rings[-1]
     V[last[0]] = (0.0, *CROTCH_FRONT)
     V[last[-1]] = (0.0, *CROTCH_BACK)
