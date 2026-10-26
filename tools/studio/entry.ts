@@ -48,13 +48,13 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setPixelRatio(1);
 document.body.appendChild(renderer.domElement);
 
-function render(P: Float32Array, view: string, size: [number, number], focus?: { y0: number; y1: number }): string {
+function render(P: Float32Array, view: string, size: [number, number], focus?: { y0: number; y1: number }, faceIndex: Uint32Array = index): string {
   renderer.setSize(size[0], size[1]);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xf2f2f0);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(P, 3));
-  geo.setIndex(new THREE.BufferAttribute(index, 1));
+  geo.setIndex(new THREE.BufferAttribute(faceIndex, 1));
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb8b8b4, roughness: 0.92, metalness: 0 }));
   scene.add(mesh);
@@ -78,4 +78,13 @@ function render(P: Float32Array, view: string, size: [number, number], focus?: {
   return renderer.domElement.toDataURL('image/png');
 }
 
-(window as unknown as Record<string, unknown>).studio = { asset, compose, render };
+/** 外部網格（例如獨立模的等值面）：int32 頂點數、int32 三角形數、float32 頂點、uint32 索引 */
+function renderMesh(base64: string, view: string, size: [number, number], focus?: { y0: number; y1: number }): string {
+  const raw = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const head = new Int32Array(raw.buffer, 0, 2);
+  const P = new Float32Array(raw.buffer, 8, head[0] * 3);
+  const F = new Uint32Array(raw.buffer.slice(8 + head[0] * 12, 8 + head[0] * 12 + head[1] * 12));
+  return render(P, view, size, focus, F);
+}
+
+(window as unknown as Record<string, unknown>).studio = { asset, compose, render, renderMesh };

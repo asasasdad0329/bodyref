@@ -13,6 +13,8 @@
 
 開發與建置用的工具（Vite、TypeScript、Vitest 等）不包含在網站輸出裡，授權為 MIT、Apache-2.0 等寬鬆授權。
 
+離線研究與造型工具（`tools/research/`、`tools/glute/`）另外使用以下 Python 套件，只在開發時執行，不包含在網站輸出裡：NumPy、SciPy、pandas、Matplotlib、scikit-image（BSD 系列授權）、trimesh、Rtree（MIT）。研究另外使用 NHANES 2011–2018 四期（DEMO、BMX、DXX、DXXAG；公有領域）與已發表的文獻數字，原始資料不進倉庫。
+
 ## three.js
 
 ```
