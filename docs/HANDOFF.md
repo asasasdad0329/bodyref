@@ -13,6 +13,12 @@
 
 只留最近幾次；每次交棒在最上面加一段：日期、代理、做了什麼、下一步、未決問題。細節寫在工作檔，不寫在這裡。
 
+### 2026-10-26 · Claude
+
+- 做了：研究 R1～R19 全部完成；定下四個系統（#57）與臀的四條變形線（#58）。臀的獨立模改成在 Blender 裡用控制籠從零建（#59，`tools/blender/glute_model.py`），第一版中性型的臀圍、寬、厚、大腿圍都接近目標，算圖與自我檢查記在 [01-glute](work/c1-lower-body/01-glute.md)。
+- 下一步：作者看中性型第一版（看圖點 ①）→ 修到通過 → 依序做純脂肪線、純肌肉線、組成線、骨架線（籠上的形狀鍵）。完成條件：每條線有兩端與中間的算圖，臀圍隨線單調。
+- 未決：中性臀型；數值控制的資料形式（見 DECISIONS 待決定）。Blender 4.2 LTS 要在容器裡另外下載（約 350 MB），算圖需要 libegl1 等套件，見 01-glute 的「工具」。
+
 ### 2026-10-25 · Claude
 
 - 做了：數據討論定下 DECISIONS #19～#43（含變形軸範本）；研究總表 R1～R18 列於[基礎軌第 10 節](work/00-foundation/README.md)。第一批（R1～R5，NHANES DXA）完成，結果在 [research-composition.md](work/00-foundation/research-composition.md)，程式在 `tools/research/`。
