@@ -52,12 +52,13 @@ TORSO_Y = [98.0, 95.5, 93.0, 90.5, 88.0, 85.5, 83.0, 81.0, 79.2]
 # 內側離正中的距離：gf 前內側、gb 後內側。胯下內側的幾點另外指定（LABIA_RING、FOLD_RING、THIGH_FRONT），
 # 大腿內側不貼到正中，胯下留出大陰唇與會陰的位置；大陰唇下面兩腿之間留一個小三角空隙。
 LEGS = [
-    dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.08, torso=0.75, gf=2.0, gb=1.3, pfm=2.0),
-    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.3, torso=0.5, gf=1.8, gb=1.5, pfm=2.0),
-    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gf=1.0, gb=1.0, pfm=2.6),
-    dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0, gf=1.1, gb=1.1, pfm=2.4),
+    dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.08, torso=0.75, gf=1.0, gb=0.9, pfm=2.2),
+    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.3, torso=0.5, gf=1.1, gb=1.0, pfm=2.1),
+    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gf=1.0, gb=1.0, pfm=2.0),
+    dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0, gf=1.0, gb=1.0, pfm=2.0),
 ]
 LEG_P = dict(pl=2.4, pfl=2.2, pbl=2.2, pm=2.3)
+TORSO_BLEND_POW = 1.0   # 腿圈上段沿用骨盆截面的比例，往前內、後內兩端漸弱的快慢（大，胯下兩側才不會出方角）
 # 籠在骨盆圈上的取樣（左半 17 點）：正面用固定的 x 比例取 8 點（下腹、鼠蹊、恥丘需要較密），
 # 外側到後方用角度取 6 點，臀縫兩側用固定的 x 取 3 點。
 FRONT_U = [0.0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84]
@@ -65,18 +66,20 @@ TORSO_T = [72, 90, 106, 122, 138, 154]
 BACK_X = [3.4, 1.1, 0.0]
 # 胯下：最後一層的正前、正後換成會陰的位置；中間一串正中頂點（後 → 前）把左右腿分開。
 CROTCH_FRONT = (79.0, 7.0)   # (y, z) 恥丘下緣、縫的上端
-CROTCH_BACK = (80.2, -5.2)   # 臀縫底
-CHAIN = [(77.2, -3.2), (75.9, 1.6), (76.0, 6.0)]   # 會陰 → 大陰唇下緣最低處 → 大陰唇前下
+CROTCH_BACK = (78.2, -5.2)   # 臀縫底（肛門附近）：兩邊臀部一路貼到這裡才接會陰
+CROTCH_CHEEK = (0.5, 79.2, -10.2)   # 最後一圈臀縫旁的點：兩邊臀部往正中貼，不在臀縫底下留一個凹洞
+CHAIN = [(77.0, -3.0), (75.9, 1.0), (76.3, 5.6)]   # 會陰 → 大陰唇下緣最低處 → 大陰唇前下
 # 胯下內側四個方位角（前內 −50°、內前 290°、正內 268°、內後 245°）的點另外指定，不用腿圈公式：
-# 第一圈腿圈（高 77）的這幾點是大陰唇最鼓的地方，往下、往正中收，讓大陰唇是兩團飽滿的圓墊；
-# 第二圈（高 75）的這幾點往上提到股生殖摺，比大陰唇下緣高，摺外面才是往下的大腿內側。
-# 這樣不必多加一圈籠點（多一圈會在骨盆接大腿的地方留下一道橫向的明暗）。
-LABIA_RING = {-50.0: (1.6, 77.4, 6.8), 290.0: (1.1, 76.2, 5.0), 268.0: (0.9, 76.2, 0.8), 245.0: (0.8, 77.0, -3.4)}
-FOLD_RING = {-50.0: (2.3, 77.9, 6.1), 290.0: (1.4, 76.9, 4.0), 268.0: (1.2, 76.8, 0.0), 245.0: (1.1, 77.2, -4.0)}
-# 大腿內前側：從腹股溝往後斜下去的內收肌斜面（作者 2026-10-27 範例圖），在大陰唇旁邊貼著它，只留一道摺；
-# 大陰唇下面才是兩腿之間的空隙。不沿用骨盆截面平的正面，也不讓腿圈公式在這裡轉成方角，
-# 不然正面看大陰唇兩側會露出一長條大腿內側的面，頂端是一圈拱門形的折線。{腿圈序號: {方位角: 座標}}
-THIGH_FRONT = {0: {-37.1: (3.1, 77.6, 6.2)}, 1: {-37.1: (2.4, 75.6, 5.8)}}
+# 第一圈腿圈（高 77）的這幾點（LABIA_RING）是恥丘往下捲進兩腿之間的那段（大陰唇），往下、往後、往正中收，
+# 上寬下窄；大陰唇直接順著接到大腿內側，只靠中間的縫和一點隆起讀出來。
+# 作者 2026-10-27：大陰唇不能凸、不能像另外加一塊；試過把第二圈（高 75）的同幾點往上提成股生殖摺（FOLD_RING），
+# 大陰唇兩側上端會出現拱門形的鉤角，所以目前不用（留空）。
+LABIA_RING = {-50.0: (1.0, 77.0, 6.3), 290.0: (0.8, 76.3, 4.0), 268.0: (0.6, 76.1, 0.6), 245.0: (0.5, 76.9, -2.8)}
+FOLD_RING = {}
+# 其他腿圈點的個別指定 {腿圈序號: {方位角: 座標}}：第一圈的後內側（222°、210°）往正中收，
+# 兩邊臀部的下內側一路貼到會陰（作者：屁股會接合回會陰），不在臀縫底下留一個凹洞。
+# 大腿內前側不另外指定：腿圈公式在 pfm 約 2 時接近橢圓，本身是圓的；另外指定反而做出一道角。
+THIGH_FRONT = {0: {222.0: (1.2, 77.6, -7.4), 210.0: (3.4, 77.0, -9.8)}}
 # 局部鬆弛的中心與半徑（素體座標，公分）：胯下前方的會合點、臀縫底
 RELAX = [((0.0, 77.0, 4.5), 6.0), ((0.0, 78.5, -4.5), 5.0)]
 
@@ -201,7 +204,7 @@ def leg_ring(L):
         T = torso_half(torso_level(y0))
         n = len(FRONT_U) + len(TORSO_T)
         for j in range(1, n):
-            w = L['torso'] * math.sin(math.pi * j / n) ** 0.5
+            w = L['torso'] * math.sin(math.pi * j / n) ** TORSO_BLEND_POW
             pts[j] = tuple(w * np.array(T[j]) + (1 - w) * np.array(pts[j]))
     return pts
 
@@ -215,6 +218,8 @@ def cage():
     last = rings[-1]
     V[last[0]] = (0.0, *CROTCH_FRONT)
     V[last[-1]] = (0.0, *CROTCH_BACK)
+    if CROTCH_CHEEK:
+        V[last[-2]] = CROTCH_CHEEK
     for a, b in zip(rings, rings[1:]):
         for k in range(len(a) - 1):
             F.append((a[k], a[k + 1], b[k + 1], b[k]))
@@ -224,7 +229,9 @@ def cage():
     legs = [leg_ring(L) for L in LEGS]
     for k, phi in enumerate(LEG_PHI):
         if round(phi, 1) in LABIA_RING:
-            legs[0][k], legs[1][k] = LABIA_RING[round(phi, 1)], FOLD_RING[round(phi, 1)]
+            legs[0][k] = LABIA_RING[round(phi, 1)]
+        if round(phi, 1) in FOLD_RING:
+            legs[1][k] = FOLD_RING[round(phi, 1)]
     for r, pts in THIGH_FRONT.items():
         for k, phi in enumerate(LEG_PHI):
             if round(phi, 1) in pts:
@@ -256,7 +263,8 @@ def cage():
     # 大陰唇（會陰串、第一圈腿圈的內側）、股生殖摺（第二圈的內側）與大腿內前側斜面是刻意做的起伏，不鬆弛
     keep = np.zeros(len(V), bool)
     keep[chain] = True
-    keep[[r[k] for r in loops[1:3] for k, phi in enumerate(LEG_PHI) if round(phi, 1) in LABIA_RING]] = True
+    keep[[loops[1][k] for k, phi in enumerate(LEG_PHI) if round(phi, 1) in LABIA_RING]] = True
+    keep[[loops[2][k] for k, phi in enumerate(LEG_PHI) if round(phi, 1) in FOLD_RING]] = True
     keep[[loops[r + 1][k] for r, pts in THIGH_FRONT.items() for k, phi in enumerate(LEG_PHI) if round(phi, 1) in pts]] = True
     for c, r in RELAX:
         w = 0.6 * np.clip(1 - np.linalg.norm(V - np.array(c), axis=1) / r, 0, 1) * ~keep
@@ -303,7 +311,7 @@ LANDMARKS = {
 # ---------- 細部層：大陰唇中間的縫 ----------
 # 大陰唇的體積在籠裡（作者 2026-10-27：不是另外加一塊，是恥丘往下捲進兩腿之間的延伸）：
 # 恥丘最下方往內捲，第一圈腿圈內側的點（LABIA_RING）是捲下去的那段，正中的會陰串是它的下緣，
-# 兩側的股生殖摺（FOLD_RING）是腹股溝往下的延伸，是凹的溝。細部層只刻中間那道縫：
+# 兩側直接順著接到大腿內側。細部層只刻中間那道縫：
 # 正面是一道淺凹痕，往下到胯下兩片緊貼、只剩一條線，往後到會陰前漸淡。不做小陰唇、陰蒂等裡面的形。
 # 縫沿著一條路徑（正中平面上，(高 y, 前後 z, 深度)）走，往路徑的內側壓；scale 隨脂肪量。
 CLEFT = dict(
