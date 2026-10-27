@@ -3,6 +3,12 @@ name: Shape and UI evidence
 
 on:
   pull_request:
+    # 只改文件、離線工具時不跑（同 ci.yml）
+    paths-ignore:
+      - 'docs/**'
+      - 'tools/blender/**'
+      - 'tools/research/**'
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:

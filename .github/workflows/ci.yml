@@ -1,10 +1,22 @@
-# 每次推送與 PR 都跑測試和建置
+# 推送到 main 與 PR 時跑測試和建置。
+# 只改文件、離線工具（Blender 獨立模、研究腳本）時不跑：這些不影響網站，網站測試又重又偶爾超時，
+# 每次都跑只會寄來無關的失敗通知。改了網站程式、測試、素體資產或相依套件才會跑。
 name: CI
 
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'tools/blender/**'
+      - 'tools/research/**'
+      - '**/*.md'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'tools/blender/**'
+      - 'tools/research/**'
+      - '**/*.md'
 
 permissions:
   contents: read
