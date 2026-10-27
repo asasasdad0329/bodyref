@@ -53,9 +53,9 @@ TORSO_Y = [98.0, 95.5, 93.0, 90.5, 88.0, 85.5, 83.0, 81.0, 79.2]
 # 大腿內側不貼到正中，胯下留出大陰唇與會陰的位置；大陰唇下面兩腿之間留一個小三角空隙。
 LEGS = [
     dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.08, torso=0.75, gf=2.0, gb=1.3, pfm=3.1),
-    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.3, torso=0.5, gf=1.6, gb=1.3, pfm=3.3),
-    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gf=0.8, gb=0.7, pfm=3.2),
-    dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0, gf=0.9, gb=0.9, pfm=2.4),
+    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.3, torso=0.5, gf=2.0, gb=1.6, pfm=2.3),
+    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gf=1.6, gb=1.5, pfm=2.3),
+    dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0, gf=1.3, gb=1.3, pfm=2.3),
 ]
 LEG_P = dict(pl=2.4, pfl=2.2, pbl=2.2, pm=2.3)
 # 籠在骨盆圈上的取樣（左半 17 點）：正面用固定的 x 比例取 8 點（下腹、鼠蹊、恥丘需要較密），
@@ -66,13 +66,13 @@ BACK_X = [3.4, 1.1, 0.0]
 # 胯下：最後一層的正前、正後換成會陰的位置；中間一串正中頂點（後 → 前）把左右腿分開。
 CROTCH_FRONT = (79.0, 7.0)   # (y, z) 恥丘下緣、縫的上端
 CROTCH_BACK = (80.2, -5.2)   # 臀縫底
-CHAIN = [(77.2, -3.2), (76.3, 1.0), (76.8, 5.4)]   # 會陰 → 大陰唇下緣最低處 → 大陰唇前下
+CHAIN = [(77.2, -3.2), (76.2, 1.0), (76.6, 5.2)]   # 會陰 → 大陰唇下緣最低處 → 大陰唇前下
 # 胯下內側四個方位角（前內 −50°、內前 290°、正內 268°、內後 245°）的點另外指定，不用腿圈公式：
 # 第一圈腿圈（高 77）的這幾點是大陰唇最鼓的地方，往下、往正中收，讓大陰唇是兩團飽滿的圓墊；
 # 第二圈（高 75）的這幾點往上提到股生殖摺，比大陰唇下緣高，摺外面才是往下的大腿內側。
 # 這樣不必多加一圈籠點（多一圈會在骨盆接大腿的地方留下一道橫向的明暗）。
-LABIA_RING = {-50.0: (1.2, 77.8, 6.4), 290.0: (1.4, 77.0, 3.8), 268.0: (1.3, 76.9, -0.5), 245.0: (1.0, 77.4, -3.8)}
-FOLD_RING = {-50.0: (2.2, 77.8, 6.0), 290.0: (2.1, 77.6, 3.4), 268.0: (2.0, 77.6, -1.0), 245.0: (1.6, 77.7, -4.4)}
+LABIA_RING = {-50.0: (1.4, 77.8, 6.7), 290.0: (1.4, 77.0, 3.8), 268.0: (1.3, 76.9, -0.5), 245.0: (1.0, 77.4, -3.8)}
+FOLD_RING = {-50.0: (2.5, 77.6, 6.4), 290.0: (2.1, 77.6, 3.4), 268.0: (2.0, 77.6, -1.0), 245.0: (1.6, 77.7, -4.4)}
 # 局部鬆弛的中心與半徑（素體座標，公分）：胯下前方的會合點、臀縫底
 RELAX = [((0.0, 77.0, 4.5), 6.0), ((0.0, 78.5, -4.5), 5.0)]
 
@@ -291,97 +291,76 @@ LANDMARKS = {
 
 
 # ---------- 細部層：大陰唇 ----------
-# 籠只做胯下的空間（大腿內側離開正中、正中一條往下垂的稜），控制籠的點距約 4 公分，做不出 2 公分寬的圓墊。
-# 大陰唇用一個明確的形狀描述，加在細分後的網格（點距約 0.2 公分）上：左右各一條圓管，沿著胯下的稜
-# 從恥丘下緣（縫的上端）往下、往後到會陰前；管的半徑在上端從 0 長出來（接恥丘，正面看是恥丘末端的缺口），
-# 下段最粗，往後收細。兩條管在正中相交，交線就是中間閉合的縫；管和大腿相交處是股生殖摺。
-# 網格上落在管裡面的點，沿自己的法線往外推到管的表面（只推面向正中以外的點，大腿內側不動）。
-# 只做閉合的外形，不做裡面。scale 隨脂肪量（大陰唇是脂肪墊）。
+# 籠只做胯下的空間（大腿內側離開正中、正中一條往下垂的稜），控制籠的點距約 4 公分，做不出 4 公分寬的墊。
+# 大陰唇用一個明確的形狀描述，加在細分後的網格（點距約 0.2 公分）上（作者 2026-10-27：不是兩根分開的
+# 香腸，是兩片緊貼成的一整塊）：
+# - 一塊扁的橢圓墊，沿著胯下的稜從恥丘下緣往下、往後到會陰前。截面是橫向較寬（半寬 rx）、前後或上下
+#   較薄（rn）的橢圓；上端從 0 長出來接恥丘，中段最寬，往後收窄。墊和大腿內側相接處是股生殖摺。
+# - 中間一道淺的縫（cleft）：正面是一道淺凹痕，往下到胯下兩片緊貼、只剩一條線，往後漸淡。
+# - 只做閉合的外形，不做小陰唇、陰蒂等裡面的形（作者：那種算「不含蓄」）。
+# 網格上落在墊裡面的點，從最深的那個橢圓的中心往外推到橢圓面，再反覆平滑讓點分布均勻，最後刻縫。
+# scale 隨脂肪量（大陰唇是脂肪墊）。
 LABIA = dict(
-    x=0.8,   # 管中心離正中的距離（兩條管在正中交疊，交線是縫）
-    blend=0.0,   # 管和周圍表面平滑聯集的寬度（公分）
-    # 管中心沿稜的路徑 (y, z, 半徑)：上端（恥丘下緣）→ 前下 → 最低處 → 會陰前
-    path=[(79.6, 6.1, 0.0), (78.9, 6.15, 0.45), (78.3, 6.05, 0.85), (77.7, 5.75, 1.1), (77.2, 5.0, 1.15),
-          (76.9, 3.7, 1.15), (76.8, 2.0, 1.1), (76.9, 0.2, 0.95), (77.2, -1.5, 0.6), (77.6, -2.6, 0.0)],
+    rt=0.6,   # 每個橢圓沿路徑方向的半徑（一串橢圓取聯集，成為平順的長條墊）
+    # 墊的中心沿稜的路徑：(高 y, 前後 z, 半寬 rx, 厚 rn, 縫深 cleft)，上端（恥丘下緣）→ 前下 → 最低處 → 會陰前
+    path=[(79.5, 6.2, 0.0, 0.0, 0.0), (78.9, 6.2, 1.2, 0.5, 0.3), (78.3, 6.05, 1.85, 0.85, 0.35),
+          (77.7, 5.8, 2.1, 1.0, 0.3), (77.1, 5.2, 2.1, 1.05, 0.25), (76.8, 4.0, 1.9, 1.05, 0.2),
+          (76.7, 2.4, 1.6, 1.0, 0.18), (76.8, 0.6, 1.3, 0.9, 0.12), (77.2, -1.2, 0.85, 0.6, 0.05),
+          (77.8, -2.6, 0.0, 0.0, 0.0)],
+    cleft_w=0.22,   # 縫的半寬（公分）
 )
 
 
 def _labia_path(scale):
-    L = LABIA
-    pts = np.array(L['path'], float)
+    """沿路徑取 240 個橢圓：中心、切線 t、朝外的法線 n（在正中平面上，前段朝前、下段朝下）與半徑。"""
+    pts = np.array(LABIA['path'], float)
     t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(pts[:, :2], axis=0), axis=1))]
     u = np.linspace(0, t[-1], 240)
-    y, z, r = (np.interp(u, t, pts[:, k]) for k in range(3))
-    r = r * scale ** 0.35
-    return y, z, r
+    y, z, rx, rn, cl = (np.interp(u, t, pts[:, k]) for k in range(5))
+    k = scale ** 0.35
+    ty, tz = np.gradient(y), np.gradient(z)
+    norm = np.hypot(ty, tz)
+    ty, tz = ty / norm, tz / norm
+    C = np.stack([np.zeros_like(y), y, z], 1)
+    T = np.stack([np.zeros_like(y), ty, tz], 1)
+    N = np.stack([np.zeros_like(y), tz, -ty], 1)
+    keep = rx > 0.05
+    return C[keep], T[keep], N[keep], rx[keep] * k, rn[keep] * k, cl[keep] * k
 
 
-def _labia_field(P, path):
-    """到兩條管表面的距離（負的是在管裡面）：沿路徑的一串球取聯集。"""
-    y, z, r = path
-    out = np.full(len(P), np.inf)
-    for side in (1.0, -1.0):
-        dx = P[:, 0:1] - side * LABIA['x']
-        d = np.sqrt(dx ** 2 + (P[:, 1:2] - y[None]) ** 2 + (P[:, 2:3] - z[None]) ** 2) - r[None]
-        out = np.minimum(out, d.min(1))
-    return out
+def _labia_nearest(P, path):
+    """每個點最深的那個橢圓：回傳正規化半徑 ρ（< 1 在墊裡面）與它的索引。"""
+    C, T, N, rx, rn, _ = path
+    best, idx = np.full(len(P), np.inf), np.zeros(len(P), int)
+    for i in range(len(C)):
+        v = P - C[i]
+        rho = np.sqrt((v[:, 0] / rx[i]) ** 2 + ((v @ N[i]) / rn[i]) ** 2 + ((v @ T[i]) / LABIA['rt']) ** 2)
+        m = rho < best
+        best[m], idx[m] = rho[m], i
+    return best, idx
 
 
-def vertex_normals(P, faces):
-    N = np.zeros_like(P)
-    for f in faces:
-        for i in range(1, len(f) - 1):
-            a, b, c = P[f[0]], P[f[i]], P[f[i + 1]]
-            n = np.cross(b - a, c - a)
-            N[[f[0], f[i], f[i + 1]]] += n
-    return N / np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
-
-
-def _labia_project(P, y, z, r, blend=0.0):
-    """落在管裡面的點，從所在最深的那顆球的球心往外推到球面（重複幾次，落到管的表面）。
-    每個點只看自己那一側的管（x ≥ 0 看左管），正中的點留在正中：推到正中平面和管面的交線上，那就是縫。
-    blend > 0 時，管外 blend 公分內的點也往外推一點（平滑聯集），管和恥丘、大腿交接處才是圓的轉折、不是硬摺。"""
-    side = np.where(P[:, 0] >= 0, 1.0, -1.0)
-    X = LABIA['x']
+def _labia_project(P, path):
+    """落在墊裡面的點，從最深的橢圓的中心往外推到橢圓面（重複幾次，落到聯集的表面）。"""
+    C = path[0]
     for _ in range(3):
-        best, cen, rad = np.full(len(P), -np.inf), np.zeros((len(P), 3)), np.zeros(len(P))
-        for yy, zz, rr in zip(y, z, r):
-            c = np.stack([side * X, np.full(len(P), yy), np.full(len(P), zz)], 1)
-            depth = rr - np.linalg.norm(P - c, axis=1)
-            m = depth > best
-            best[m], cen[m], rad[m] = depth[m], c[m], rr
-        if blend > 0:
-            f = -best
-            push = np.where(f < 0, -f, np.where(f < blend, (blend - f) ** 2 / (4 * blend), 0.0))
-        else:
-            push = np.clip(best, 0, None)
-        m = push > 1e-6
+        rho, idx = _labia_nearest(P, path)
+        m = rho < 1 - 1e-6
         if not m.any():
             break
-        v = P[m] - cen[m]
-        d = np.maximum(np.linalg.norm(v, axis=1), 1e-9)
-        Q = cen[m] + v * ((d + push[m]) / d)[:, None]
-        # 越過正中的點拉回正中，並落在正中平面上同樣離球心 r 的地方（縫的位置）
-        cross = Q[:, 0] * side[m] < 0
-        if cross.any():
-            rr = np.sqrt(np.maximum((d[cross] + push[m][cross]) ** 2 - X ** 2, 1e-6))
-            yz = v[cross][:, 1:]
-            Q[cross, 0] = 0.0
-            Q[cross, 1:] = cen[m][cross][:, 1:] + yz * (rr / np.maximum(np.linalg.norm(yz, axis=1), 1e-9))[:, None]
-        P[m] = Q
-        if blend > 0:
-            break
+        P[m] = C[idx[m]] + (P[m] - C[idx[m]]) / np.maximum(rho[m], 1e-6)[:, None]
     return P
 
 
 def crotch_detail(P, faces, scale=1.0):
-    """網格上落在管裡面的點推到管的表面；被推開的點會擠在一起，所以在推過的範圍（和外圍一圈）
-    反覆做「往鄰點平均靠一點 → 再推回管外」，讓點在管面上分布均勻，圓墊才是平順的。"""
+    """網格上落在墊裡面的點推到墊的表面；被推開的點會擠在一起，所以在推過的範圍（和外圍兩圈）
+    反覆做「往鄰點平均靠一點 → 再推回墊外」，讓點分布均勻；最後沿正中刻縫。"""
     P = np.array(P, float)
-    y, z, r = _labia_path(scale)
-    R = float(r.max())
-    box = np.where((np.abs(P[:, 0]) < LABIA['x'] + R + 1.0) & (P[:, 1] > y.min() - R - 1.0)
-                   & (P[:, 1] < y.max() + 1.0) & (P[:, 2] > z.min() - R - 1.0) & (P[:, 2] < z.max() + R + 1.0))[0]
+    path = _labia_path(scale)
+    C, T, N, rx, rn, cl = path
+    R = float(max(rx.max(), rn.max())) + 1.0
+    box = np.where((np.abs(P[:, 0]) < R) & (P[:, 1] > C[:, 1].min() - R) & (P[:, 1] < C[:, 1].max() + R)
+                   & (P[:, 2] > C[:, 2].min() - R) & (P[:, 2] < C[:, 2].max() + R))[0]
     if not len(box):
         return P
     local = {int(v): i for i, v in enumerate(box)}
@@ -392,7 +371,7 @@ def crotch_detail(P, faces, scale=1.0):
                 nb[local[a]].add(local[b])
                 nb[local[b]].add(local[a])
     Q0 = P[box].copy()
-    Q = _labia_project(Q0.copy(), y, z, r, blend=LABIA['blend'])
+    Q = _labia_project(Q0.copy(), path)
     moved = np.linalg.norm(Q - Q0, axis=1) > 1e-6
     # 推過的點和外圍兩圈才平滑；更外面的點不動，接回原本的網格
     region = moved.copy()
@@ -402,9 +381,13 @@ def crotch_detail(P, faces, scale=1.0):
     for _ in range(12):
         avg = np.array([Q[n].mean(0) if n else Q[i] for i, n in enumerate(nbl)])
         Q[region] += 0.5 * (avg[region] - Q[region])
-        Q = _labia_project(Q, y, z, r)
-    if LABIA['blend'] > 0:
-        Q = _labia_project(Q, y, z, r, blend=LABIA['blend'])
+        Q[:, 0] = np.where(np.abs(Q0[:, 0]) < 1e-9, 0.0, Q[:, 0])   # 正中的點留在正中（鏡像）
+        Q = _labia_project(Q, path)
+    # 縫：墊表面靠正中的點往墊的中心方向壓進去
+    rho, idx = _labia_nearest(Q, path)
+    on = region & (rho < 1.05)
+    g = cl[idx] * np.exp(-(Q[:, 0] / LABIA['cleft_w']) ** 2) * on
+    Q -= N[idx] * g[:, None]
     P[box] = Q
     return P
 
