@@ -1,22 +1,14 @@
 # 推送到 main 與 PR 時跑測試和建置。
-# 只改文件、離線工具（Blender 獨立模、研究腳本）時不跑：這些不影響網站，網站測試又重又偶爾超時，
-# 每次都跑只會寄來無關的失敗通知。改了網站程式、測試、素體資產或相依套件才會跑。
+# 只改文件、離線工具（Blender 獨立模、研究腳本）時跳過測試與建置：這些不影響網站，網站測試又重又偶爾超時，
+# 每次都跑只會寄來無關的失敗通知。改了網站程式、測試、素體資產或相依套件才會真的跑。
+# 跳過時 test 這個檢查仍然要回報「通過」：main 的保護規則要求它，不回報的話 PR 會一直不能合併。
+# 所以不用 paths-ignore（那會讓整個工作流程不執行），改在工作裡判斷改了哪些檔案。
 name: CI
 
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - 'tools/blender/**'
-      - 'tools/research/**'
-      - '**/*.md'
   pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - 'tools/blender/**'
-      - 'tools/research/**'
-      - '**/*.md'
 
 permissions:
   contents: read
@@ -26,10 +18,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: 判斷是否只改了文件或離線工具
+        id: scope
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # 找不到比較的起點（新分支、強制推送等）就照常全跑
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "site=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          site_files=$(git diff --name-only "$BASE" HEAD | grep -Ev '^(docs/|tools/blender/|tools/research/)|\.md$' || true)
+          if [ -n "$site_files" ]; then
+            echo "改到網站相關的檔案，照常測試與建置："
+            echo "$site_files"
+            echo "site=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "只改了文件或離線工具，跳過測試與建置。"
+            echo "site=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v5
+        if: steps.scope.outputs.site == 'true'
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+      - if: steps.scope.outputs.site == 'true'
+        run: npm ci
+      - if: steps.scope.outputs.site == 'true'
+        run: npm test
+      - if: steps.scope.outputs.site == 'true'
+        run: npm run build
