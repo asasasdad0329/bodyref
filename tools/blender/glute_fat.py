@@ -47,6 +47,13 @@ KEYS = [9.0, 17.0, 30.0, 50.0, 80.0, 110.0]
 REGION_SLOPE = 0.2
 STEP_F = 0.5
 SPREAD_REF = 33.0   # 堆積範圍外擴的速率：每 33 kg 擴 sp 倍（第一版 17～50 kg 的設定）
+# 下垂：每次充氣時，厚的地方順便往下移 SAG × 這次加的厚度 × (已經比中性厚多少 ÷ 5 公分)；
+# 附著線上（鼠蹊、臀溝、臀縫）不動，所以下腹垂到鼠蹊上、臀垂到臀溝上
+SAG = 0.6
+# 下腹前面另外加倍（腹部垂肉往下蓋過鼠蹊與恥丘）
+SAG_BELLY = 2.0
+# 邊界：模型上緣（98 cm 的切口）附近增長放緩到 55%，切口順著下面的趨勢延伸，之後才接得上腰
+TOP_TAPER = (93.5, 98.0, 0.55)
 
 TMIN = 0.25   # 最瘦時的皮膚加最薄皮下脂肪（公分）
 GAIN = 0.9    # 全部堆積點的共同倍率；用「臀圍每 kg 全身脂肪 +0.7 公分」校準（見下方）
@@ -166,6 +173,8 @@ def distribution(F, A):
     w = np.zeros(len(A))
     for name, d in DEPOTS.items():
         w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
+    y0, y1, keep = TOP_TAPER
+    w *= 1 - (1 - keep) * np.clip((V0[:, 1] - y0) / (y1 - y0), 0, 1)
     return w * A
 
 
@@ -196,7 +205,10 @@ def inflate(V, F, dF, A, mid, leg):
     area = areas(V, Fc)
     vol = REGION_SLOPE * dF / 0.9 * 1000          # 公分³（脂肪密度 0.9）
     dT = vol * w / (2 * (area * w).sum())         # 左右兩半
-    return constrain(V + dT[:, None] * normals(V, Fc), mid, leg)
+    V = V + dT[:, None] * normals(V, Fc)
+    excess = np.linalg.norm(V - V0, axis=1)       # 已經比中性厚了多少（中性以上只有脂肪在變）
+    V[:, 1] -= SAG * dT * excess / 5.0 * A * SAG_MAP
+    return constrain(V, mid, leg)
 
 
 # ---------- 中性型拆層 ----------
@@ -208,6 +220,9 @@ leg = (V0[:, 1] < 77.6) & ~mid
 T0 = thickness(F0, V0, N0, A0)
 AREA = areas(V0, Fc)
 base = V0 - T0[:, None] * N0
+# 下垂的分布：下腹前面加倍；越靠近上下邊界（98、69.5 cm 的切口）越小，邊界本身不動，之後才接得上腰和大腿
+SAG_MAP = 1 + (SAG_BELLY - 1) * np.clip(N0[:, 2], 0, 1) * np.exp(-((V0[:, 1] - 87.0) / 5.0) ** 2) * np.exp(-(V0[:, 0] / 9.0) ** 2)
+SAG_MAP *= np.clip((98.0 - V0[:, 1]) / 3.0, 0, 1) * np.clip((V0[:, 1] - 69.5) / 4.0, 0, 1)
 print('中性脂肪厚度（公分）：最薄', round(float(T0.min()), 2), '最厚', round(float(T0.max()), 2))
 assert np.abs(shape(F0, base, N0, A0, mid, leg) - V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
 

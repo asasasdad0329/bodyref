@@ -44,7 +44,7 @@
     <div class="now" aria-live="off">全身脂肪 <b id="fat">17.0</b> kg・臀圍 <span id="hip">—</span> cm</div>
   </div>
   <div class="status" id="status">載入模型中…</div>
-  <div class="hint">拖曳旋轉・雙指或滾輪縮放・全身脂肪 9 → 50 → 9 kg 循環</div>
+  <div class="hint" id="hint">拖曳旋轉・雙指或滾輪縮放</div>
 </div>
 
 <script type="application/json" id="meta">/*__META__*/null</script>
@@ -63,7 +63,8 @@ const meta = JSON.parse(document.getElementById('meta').textContent);
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const Fmin = meta.F[0], Fmax = meta.F[meta.F.length - 1];
-const PERIOD = 10;   // 秒：瘦 → 胖 → 瘦一趟
+const PERIOD = 16;   // 秒：瘦 → 胖 → 瘦一趟
+$('hint').textContent += `・全身脂肪 ${Fmin} → ${Fmax} → ${Fmin} kg 循環`;
 
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -104,7 +105,7 @@ new ResizeObserver(resize).observe(canvas.parentElement);
 // 起始視角：斜後方；距離依畫面比例決定，手機直向時胖端（寬約 50 公分）也放得進畫面
 function frame() {
   resize();
-  const halfW = 30, halfH = 22, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const halfW = 34, halfH = 24, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   const dist = Math.max(halfH / t, halfW / (t * camera.aspect));
   camera.position.copy(target).add(new THREE.Vector3(1, 0.12, -1).normalize().multiplyScalar(dist));
   controls.maxDistance = Math.max(260, dist * 1.6);
