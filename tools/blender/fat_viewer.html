@@ -3,14 +3,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500&display=swap">
 <style>
-  /* 版面：一個畫面的檢視器。上方細標題列，中間是可旋轉的灰模，下方是讀數、脂肪量滑桿與視角按鈕。 */
+  /* 版面：整個畫面就是可旋轉的灰模，自動在瘦 ↔ 胖之間循環；角落一行小字顯示目前的脂肪量與臀圍。 */
   :root {
-    --bg: #ecebe8;          /* 頁面 */
     --stage: #d9d8d4;       /* 3D 背景 */
-    --panel: #f7f6f3;       /* 控制面板 */
     --fg: #22221f;          /* 文字 */
     --muted: #6d6b65;       /* 次要文字 */
-    --line: #cfcdc7;        /* 分隔、軌道 */
     --accent: #c26a1a;      /* 脂肪曲線的橘（和研究圖同色系） */
     --clay: #a8a7a2;        /* 灰模 */
     --display: "Barlow Condensed", "Noto Sans TC", system-ui, sans-serif;
@@ -18,99 +15,36 @@
     --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #1b1b1a; --stage: #2a2a28; --panel: #222220; --fg: #ecebe7; --muted: #a3a19a;
-      --line: #3b3a37; --accent: #e8913f; --clay: #9a9994; color-scheme: dark;
-    }
+    :root:not([data-theme="light"]) { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; color-scheme: dark; }
   }
-  :root[data-theme="dark"] {
-    --bg: #1b1b1a; --stage: #2a2a28; --panel: #222220; --fg: #ecebe7; --muted: #a3a19a;
-    --line: #3b3a37; --accent: #e8913f; --clay: #9a9994; color-scheme: dark;
-  }
+  :root[data-theme="dark"] { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; color-scheme: dark; }
   html, body { height: 100%; }
-  body { background: var(--bg); color: var(--fg); font-family: var(--body); }
-  .app { height: 100%; display: flex; flex-direction: column; }
-  header {
-    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-    padding-block: 10px 8px;
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
-  }
-  h1 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 1.35rem; letter-spacing: .02em; }
-  header p { margin: 0; color: var(--muted); font-size: .8rem; }
-  .stage { position: relative; flex: 1 1 auto; min-height: 220px; background: var(--stage); }
+  body { background: var(--stage); color: var(--fg); font-family: var(--body); }
+  .stage { position: relative; height: 100%; }
   canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .label {
+    position: absolute; top: 10px; pointer-events: none;
+    left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+  }
+  h1 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 1.15rem; letter-spacing: .02em; }
+  .now { font-family: var(--display); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .now b { color: var(--accent); font-weight: 600; }
   .hint, .status {
-    position: absolute; left: max(12px, env(safe-area-inset-left, 0px)); bottom: 10px;
-    font-size: .75rem; color: var(--muted); pointer-events: none;
+    position: absolute; bottom: 10px; pointer-events: none; font-size: .75rem; color: var(--muted);
+    left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px));
   }
-  .status { top: 12px; bottom: auto; font-size: .9rem; color: var(--fg); }
-  .panel {
-    background: var(--panel); border-top: 1px solid var(--line);
-    padding-block: 12px max(12px, env(safe-area-inset-bottom, 0px));
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
-    display: grid; gap: 10px;
-  }
-  .readout { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: baseline; }
-  .metric { display: grid; gap: 0; min-width: 0; }
-  .metric span { font-size: .72rem; color: var(--muted); letter-spacing: .04em; }
-  .metric b { font-family: var(--display); font-weight: 600; font-size: 1.7rem; line-height: 1.05; font-variant-numeric: tabular-nums; }
-  .metric b small { font-family: var(--mono); font-weight: 400; font-size: .72rem; color: var(--muted); margin-left: 4px; }
-  .metric.main b { color: var(--accent); }
-  .slider { display: grid; gap: 2px; }
-  input[type=range] { width: 100%; margin: 0; accent-color: var(--accent); height: 28px; }
-  .ticks { position: relative; height: 22px; font-family: var(--mono); font-size: .66rem; color: var(--muted); }
-  .ticks i { position: absolute; top: 0; transform: translateX(-50%); font-style: normal; white-space: nowrap; text-align: center; line-height: 1.25; }
-  .ticks i::before { content: ""; display: block; width: 1px; height: 6px; margin: 0 auto 2px; background: var(--muted); }
-  .legend { margin: 0; font-size: .72rem; color: var(--muted); }
-  .ticks i.neutral { color: var(--fg); }
-  .ticks i.neutral::before { background: var(--accent); width: 2px; height: 14px; }
-  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-  button {
-    font: inherit; font-size: .85rem; color: var(--fg); background: transparent;
-    border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer;
-  }
-  button:hover { border-color: var(--muted); }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 500; }
-  button[aria-pressed="true"] { border-color: var(--fg); }
-  .spacer { flex: 1 1 auto; }
+  .status { bottom: auto; top: 44px; font-size: .9rem; color: var(--fg); }
 </style>
 
-<div class="app">
-  <header>
+<div class="stage">
+  <canvas id="view" aria-label="可旋轉的臀部灰模，自動在瘦與胖之間循環"></canvas>
+  <div class="label">
     <h1>臀・純脂肪線</h1>
-    <p>獨立模第一版・全身脂肪 9～50 kg・肌肉與骨架不動</p>
-  </header>
-  <div class="stage" id="stage">
-    <canvas id="view" aria-label="可旋轉的臀部灰模"></canvas>
-    <div class="status" id="status">載入模型中…</div>
-    <div class="hint">拖曳旋轉・雙指或滾輪縮放・兩指拖曳平移</div>
+    <div class="now" aria-live="off">全身脂肪 <b id="fat">17.0</b> kg・臀圍 <span id="hip">—</span> cm</div>
   </div>
-  <div class="panel">
-    <div class="readout" aria-live="polite">
-      <div class="metric main"><span>全身脂肪</span><b id="fat">17.0<small>kg</small></b></div>
-      <div class="metric"><span>臀圍</span><b id="hip">—<small>cm</small></b></div>
-      <div class="metric"><span>大腿圍（臀溝下）</span><b id="thigh">—<small>cm</small></b></div>
-      <div class="metric"><span>和中性比</span><b id="delta">—<small>cm</small></b></div>
-    </div>
-    <div class="slider">
-      <label for="f" class="metric"><span>拖曳調整全身脂肪量</span></label>
-      <input id="f" type="range" min="9" max="50" step="0.1" value="17">
-      <div class="ticks" id="ticks"></div>
-      <p class="legend" id="legend"></p>
-    </div>
-    <div class="buttons">
-      <button id="play" class="primary" type="button">播放</button>
-      <button id="reset" type="button">回到中性</button>
-      <span class="spacer"></span>
-      <button type="button" data-view="front">正面</button>
-      <button type="button" data-view="side">側面</button>
-      <button type="button" data-view="back">背面</button>
-      <button type="button" data-view="rear">斜後</button>
-    </div>
-  </div>
+  <div class="status" id="status">載入模型中…</div>
+  <div class="hint">拖曳旋轉・雙指或滾輪縮放・全身脂肪 9 → 50 → 9 kg 循環</div>
 </div>
 
 <script type="application/json" id="meta">/*__META__*/null</script>
@@ -127,18 +61,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const meta = JSON.parse(document.getElementById('meta').textContent);
 const $ = (id) => document.getElementById(id);
-const status = $('status');
-const slider = $('f');
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-
-// 滑桿下方的刻度：中性點與各堆積點開始長的位置
-const span = meta.F[meta.F.length - 1] - meta.F[0];
-const pos = (F) => `${((F - meta.F[0]) / span) * 100}%`;
-// 刻度只標數字，手機上才不會疊在一起；說明寫在下面一行
-const ticks = [{ F: meta.F0, label: '中性', neutral: true }, ...meta.onsets].sort((a, b) => a.F - b.F);
-$('ticks').innerHTML = ticks.map((t) =>
-  `<i class="${t.neutral ? 'neutral' : ''}" style="left:${pos(t.F)}">${t.neutral ? '' : t.F}</i>`).join('');
-$('legend').textContent = `刻度：${meta.F0} 中性；` + meta.onsets.map((t) => `${t.F} ${t.label}`).join('、') + ' 開始長';
+const Fmin = meta.F[0], Fmax = meta.F[meta.F.length - 1];
+const PERIOD = 10;   // 秒：瘦 → 胖 → 瘦一趟
 
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -160,17 +85,6 @@ controls.target.copy(target);
 controls.enableDamping = true;
 controls.minDistance = 45;
 controls.maxDistance = 260;
-const VIEWS = { front: [0, 0, 1], side: [1, 0, 0], back: [0, 0, -1], rear: [0.72, 0, -0.72] };
-function setView(name) {
-  const d = VIEWS[name];
-  camera.position.set(target.x + d[0] * 125, target.y + 6, target.z + d[2] * 125);
-  controls.target.copy(target);
-  controls.update();
-  document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === name)));
-}
-document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
-controls.addEventListener('start', () => document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', 'false')));
-setView('rear');
 
 function applyTheme() {
   scene.background = new THREE.Color(css('--stage'));
@@ -187,77 +101,62 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 new ResizeObserver(resize).observe(canvas.parentElement);
-
-let frames, positions, geometry;
-const interp = (arr, F) => {
-  const t = Math.min(Math.max((F - meta.F[0]) / meta.step_F, 0), meta.F.length - 1);
-  const i = Math.min(Math.floor(t), meta.F.length - 2), u = t - i;
-  return arr[i] * (1 - u) + arr[i + 1] * u;
-};
-function setFat(F) {
-  const t = Math.min(Math.max((F - meta.F[0]) / meta.step_F, 0), meta.F.length - 1);
-  const i = Math.min(Math.floor(t), meta.F.length - 2), u = t - i;
-  const n = meta.nv * 3, a = i * n, b = a + n, s = meta.step, o = meta.origin;
-  for (let k = 0; k < n; k++) {
-    const q = frames[a + k] * (1 - u) + frames[b + k] * u;
-    positions[k] = o[k % 3] + q * s;
-  }
-  geometry.attributes.position.needsUpdate = true;
-  geometry.computeVertexNormals();
-  const hip = interp(meta.hip, F), thigh = interp(meta.thigh, F), d = hip - interp(meta.hip, meta.F0);
-  $('fat').innerHTML = `${F.toFixed(1)}<small>kg</small>`;
-  $('hip').innerHTML = `${hip.toFixed(1)}<small>cm</small>`;
-  $('thigh').innerHTML = `${thigh.toFixed(1)}<small>cm</small>`;
-  $('delta').innerHTML = `${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}<small>cm 臀圍</small>`;
+// 起始視角：斜後方；距離依畫面比例決定，手機直向時胖端（寬約 50 公分）也放得進畫面
+function frame() {
+  resize();
+  const halfW = 30, halfH = 22, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const dist = Math.max(halfH / t, halfW / (t * camera.aspect));
+  camera.position.copy(target).add(new THREE.Vector3(1, 0.12, -1).normalize().multiplyScalar(dist));
+  controls.maxDistance = Math.max(260, dist * 1.6);
+  controls.update();
 }
 
-slider.addEventListener('input', () => { stop(); setFat(Number(slider.value)); });
-$('reset').addEventListener('click', () => { stop(); slider.value = meta.F0; setFat(meta.F0); });
-
-// 播放：瘦 → 胖 → 瘦來回，約 5 秒走完一趟
-let playing = false, dir = 1, last = 0;
-const play = $('play');
-function stop() { playing = false; play.textContent = '播放'; }
-play.addEventListener('click', () => {
-  playing = !playing;
-  play.textContent = playing ? '暫停' : '播放';
-  last = performance.now();
-});
-
-function loop(now) {
-  if (playing && frames) {
-    const dt = Math.min((now - last) / 1000, 0.1);
-    let F = Number(slider.value) + dir * dt * span / 5;
-    if (F >= meta.F[meta.F.length - 1]) { F = meta.F[meta.F.length - 1]; dir = -1; }
-    if (F <= meta.F[0]) { F = meta.F[0]; dir = 1; }
-    slider.value = F.toFixed(1);
-    setFat(F);
-  }
-  last = now;
-  controls.update();
-  renderer.render(scene, camera);
-  requestAnimationFrame(loop);
+let frames, positions, geometry;
+function locate(F) {
+  const t = Math.min(Math.max((F - Fmin) / meta.step_F, 0), meta.F.length - 1);
+  const i = Math.min(Math.floor(t), meta.F.length - 2);
+  return [i, t - i];
+}
+function setFat(F) {
+  const [i, u] = locate(F);
+  const n = meta.nv * 3, a = i * n, b = a + n, s = meta.step, o = meta.origin;
+  for (let k = 0; k < n; k++) positions[k] = o[k % 3] + (frames[a + k] * (1 - u) + frames[b + k] * u) * s;
+  geometry.attributes.position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  $('fat').textContent = F.toFixed(1);
+  $('hip').textContent = (meta.hip[i] * (1 - u) + meta.hip[i + 1] * u).toFixed(1);
 }
 
 // 網格資料以 base64 內嵌在頁面裡（文章站不接受另外的二進位檔）
-new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
-  const bin = atob(document.getElementById('data').textContent.trim());
+try {
+  const bin = atob($('data').textContent.trim());
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes.buffer;
-}).then((buf) => {
-  frames = new Int16Array(buf, 0, meta.F.length * meta.nv * 3);
-  const index = new Uint32Array(buf, frames.byteLength, meta.nt * 3);
+  frames = new Int16Array(bytes.buffer, 0, meta.F.length * meta.nv * 3);
+  const index = new Uint32Array(bytes.buffer, frames.byteLength, meta.nt * 3);
   positions = new Float32Array(meta.nv * 3);
   geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(index, 1));
   scene.add(new THREE.Mesh(geometry, material));
-  setFat(Number(slider.value));
-  status.hidden = true;
-}).catch((e) => {
-  status.textContent = `模型檔讀不到（${e.message}）。重新整理頁面再試一次。`;
-});
-resize();
+  $('status').hidden = true;
+} catch (e) {
+  $('status').textContent = `模型資料讀不到（${e.message}）。重新整理頁面再試一次。`;
+}
+
+// 減少動態的設定：停在中性，不循環
+const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const start = performance.now();
+function loop(now) {
+  if (frames) {
+    const phase = ((now - start) / 1000 / PERIOD) % 1;
+    const F = still ? meta.F0 : Fmin + (Fmax - Fmin) * (1 - Math.cos(2 * Math.PI * phase)) / 2;
+    setFat(F);
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+frame();
 requestAnimationFrame(loop);
 </script>
