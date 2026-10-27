@@ -25,7 +25,7 @@ import bpy
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glute_cage import cage  # noqa: E402
+from glute_cage import cage, to_body  # noqa: E402
 import glute_scene as gs  # noqa: E402
 
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else ['.']
@@ -33,6 +33,7 @@ OUT = Path(args[0])
 OUT.mkdir(parents=True, exist_ok=True)
 FRAMES = 'frames' in args
 QUICK = 'quick' in args   # 只量測，不算圖（調參數用）
+EXPORT = 'export' in args  # 另存給網頁檢視器用的網格（細分 2 次），不算圖
 
 # ---------- 軸 ----------
 # 中性型：160 cm、54.5 kg 的台灣年輕女性，DXA 體脂約 31%
@@ -176,9 +177,29 @@ def solve(F):
 
 # ---------- 沿線量測（每 1 kg） ----------
 Fs = np.arange(FMIN, FMAX + 0.01, 1.0)
-rows, meshes = [], []
+
+
+def viewer_mesh():
+    """目前形狀細分 2 次的網格（頂點、三角形），給網頁檢視器；細分 3 次的檔太大，手機載入慢。"""
+    subd = obj.modifiers['subd']
+    subd.levels = 2
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    ev = obj.evaluated_get(dg)
+    m = ev.to_mesh()
+    P = to_body(np.array([v.co[:] for v in m.vertices]))
+    tris = [(p[0], p[i], p[i + 1]) for p in (q.vertices[:] for q in m.polygons) for i in range(1, len(p) - 1)]
+    ev.to_mesh_clear()
+    subd.levels = 3
+    dg.update()
+    return P.astype(np.float32), np.array(tris, np.uint32)
+
+
+rows, meshes, view_meshes = [], [], []
 for F in Fs:
     C, P, m, prof = solve(F)
+    if EXPORT:
+        view_meshes.append(viewer_mesh())
     meshes.append(P.astype(np.float32))
     # 範圍內脂肪層多了多少公斤（左右兩半；脂肪密度 0.9）
     m['fatKg'] = round(float(2 * (AREA * (thickness(F, V0, N0, A0) - T0)).sum() * 0.9 / 1000), 3)
@@ -201,7 +222,10 @@ np.savez_compressed(OUT / 'fat_line.npz', F=Fs, positions=np.stack(meshes), base
                     thickness0=T0)
 
 # ---------- 關鍵形與影格 ----------
-if QUICK:
+if EXPORT:
+    np.savez_compressed(OUT / 'fat_viewer.npz', F=Fs, positions=np.stack([v[0] for v in view_meshes]),
+                        tris=view_meshes[0][1], F0=F0, hip=hip, thigh=np.array([r['thighCirc'] for r in rows]))
+if QUICK or EXPORT:
     sys.exit(0)
 for F in KEYS:
     solve(F)
