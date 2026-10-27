@@ -53,8 +53,8 @@ TORSO_Y = [98.0, 95.5, 93.0, 90.5, 88.0, 85.5, 83.0, 81.0, 79.2]
 # 大腿內側不貼到正中：大陰唇下方先貼著，往下漸漸張開成倒 V 的空隙（站直、腿不夾時；作者 2026-10-27）。
 LEGS = [
     dict(y=77.0, cx=8.0, cz=-1.3, bulge=0.6, fold=0.08, torso=0.75, gf=1.0, gb=0.9, pfm=2.2),
-    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.3, torso=0.5, gf=0.9, gb=0.9, pfm=2.1),
-    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.1, torso=0.2, gf=1.3, gb=1.2, pfm=2.0),
+    dict(y=75.0, cx=8.0, cz=-1.1, bulge=0.0, fold=0.0, torso=0.5, gf=0.9, gb=0.9, pfm=2.1),
+    dict(y=73.0, cx=7.9, cz=-0.9, bulge=0.0, fold=0.0, torso=0.2, gf=1.3, gb=1.2, pfm=2.0),
     dict(y=69.5, cx=7.8, cz=-0.7, bulge=0.0, fold=0.0, torso=0.0, gf=1.8, gb=1.7, pfm=2.0),
 ]
 LEG_P = dict(pl=2.4, pfl=2.2, pbl=2.2, pm=2.3)
@@ -79,8 +79,11 @@ FOLD_RING = {}
 # 其他腿圈點的個別指定 {腿圈序號: {方位角: 座標}}：第一圈的後內側（222°、210°）往正中收、往後，
 # 兩邊臀部的下內側一路貼到會陰（作者：屁股會接合回會陰），臀縫底下只露出小三角，不是一大片橫向的暗區；
 # 臀的下內側也要垂得夠低，臀溝從正中往外是先往下再往上的弧，不是從臀縫底往外往上斜的一片暗。
+# 第二、三圈（高 75、73）的後內側也往後，臀溝正下方的大腿內後側是飽滿的，不是一個凹窩。
 # 大腿內前側不另外指定：腿圈公式在 pfm 約 2 時接近橢圓，本身是圓的；另外指定反而做出一道角。
-THIGH_FRONT = {0: {222.0: (1.6, 77.0, -9.8), 210.0: (3.4, 76.8, -10.8)}}
+THIGH_FRONT = {0: {222.0: (1.6, 77.0, -9.8), 210.0: (3.4, 76.8, -10.8)},
+               1: {222.0: (2.8, 75.0, -9.0), 210.0: (4.2, 75.0, -9.9), 198.0: (5.7, 75.0, -10.2)},
+               2: {222.0: (2.8, 73.0, -8.4), 210.0: (4.1, 73.0, -9.2)}}
 # 腹股溝往下收成 V 字（作者 2026-10-27 參考圖）：恥丘下段往下收窄成大陰唇，兩側的腹股溝斜斜收到大陰唇旁，
 # 中間沒有橫向的界線。{骨盆圈高度: {正面取樣序號: 前後位移}}，序號 2 約在離正中 4 公分。
 GROIN_DZ = {79.2: {2: -0.6}, 81.0: {2: -0.3}}
@@ -324,9 +327,10 @@ LANDMARKS = {
 # 正面是一道淺凹痕，往下到胯下兩片緊貼、只剩一條線，往後到會陰前漸淡。不做小陰唇、陰蒂等裡面的形。
 # 縫沿著一條路徑（正中平面上，(高 y, 前後 z, 深度)）走，往路徑的內側壓；scale 隨脂肪量。
 CLEFT = dict(
-    path=[(81.0, 8.25, 0.0), (80.4, 8.05, 0.2), (79.5, 7.75, 0.28), (78.5, 7.25, 0.3), (77.5, 6.6, 0.28),
-          (76.8, 5.9, 0.22), (76.4, 4.9, 0.18), (76.1, 3.5, 0.15), (76.0, 2.0, 0.1), (76.4, 0.3, 0.0)],
-    w=0.25,   # 縫的半寬（公分）
+    path=[(81.2, 8.3, 0.0), (80.4, 8.05, 0.1), (79.5, 7.7, 0.22), (78.5, 7.2, 0.3), (77.5, 6.55, 0.32),
+          (76.8, 5.85, 0.3), (76.4, 4.9, 0.25), (76.1, 3.5, 0.2), (76.0, 2.0, 0.12), (76.4, 0.3, 0.0)],
+    # 縫的半寬隨深度：上端淺而寬，往下兩片貼緊、窄而清楚
+    w=[(81.2, 0.9), (80.0, 0.75), (78.5, 0.6), (77.0, 0.5), (76.0, 0.45)],
 )
 
 
@@ -357,7 +361,7 @@ def mound(P, faces):
     N = vertex_normals(P, faces)
     x, y, z = np.abs(P[:, 0]), P[:, 1], P[:, 2]
     lo, hi = M['bottom'] - 1.2, M['top'] + 1.5
-    sel = np.where((y > lo) & (y < hi) & (x < 10.0) & (z > 1.0) & (N[:, 2] > 0.0))[0]
+    sel = np.where((y > lo) & (y < hi) & (x < 10.0) & (z > 1.0) & (N[:, 2] > -0.3))[0]
     xs, ys, zs = x[sel], y[sel], z[sel]
     f = lambda k: np.array([curve(M[k], v) for v in ys])
     c, h, g = f('center'), f('half'), f('groove')
@@ -375,7 +379,15 @@ def mound(P, faces):
     # 往邊緣漸漸換回原本的表面：(1 − u²)² 在 u = 1 時值與斜率都是 0，交界不出折線
     phi = (1 - u ** 2) ** 2
     ramp = lambda t: np.clip(t, 0, 1) ** 2 * (3 - 2 * np.clip(t, 0, 1))
-    W = ramp((ys - lo) / 1.2) * ramp((hi - ys) / 1.5) * ramp(N[sel, 2] / 0.5)
+    # 朝前的程度先在網格上平滑過再用：溝壁上相鄰頂點的法線一排排地跳動，直接用會在溝上留下鋸齒
+    E = edges(faces)
+    nz = N[:, 2].copy()
+    for _ in range(15):
+        acc, cnt = np.zeros(len(P)), np.zeros(len(P))
+        np.add.at(acc, E[:, 0], nz[E[:, 1]]); np.add.at(acc, E[:, 1], nz[E[:, 0]])
+        np.add.at(cnt, E[:, 0], 1); np.add.at(cnt, E[:, 1], 1)
+        nz = 0.5 * nz + 0.5 * acc / np.maximum(cnt, 1)
+    W = ramp((ys - lo) / 1.2) * ramp((hi - ys) / 1.5) * ramp((nz[sel] + 0.1) / 0.5)
     P[sel, 2] = zs + W * (phi * (target - zs) - g * np.exp(-((xs - h) / 0.9) ** 2))
     return P
 
@@ -393,17 +405,23 @@ def vertex_normals(P, faces):
 # 胯下正面與臀下兩區，在細分後的網格上做 Taubin 平滑（一步往鄰點平均、一步往回推，體積不會一直縮），
 # 消掉籠點與隆起層交界留下的小起伏；權重往區外漸漸歸零。中間的縫在平滑之後才刻，不會被抹掉。
 FAIR = dict(iters=80, lam=0.5, mu=-0.53,
-            front=dict(y=(75.0, 86.5), x=10.0), back=dict(y=(73.5, 83.5), x=11.0))
+            front=dict(y=(75.0, 86.5), x=10.0), back=dict(y=(73.5, 83.5), x=11.0),
+            # 局部的小凹窩另外用純拉普拉斯平滑填平（會把凹的地方撐起來）：(|x|, y, z) 中心、半徑、次數
+            spots=[((2.4, 77.0, 5.3), 1.6, 40)])
+
+
+def edges(faces):
+    E = set()
+    for f in faces:
+        for a, b in zip(f, list(f[1:]) + [f[0]]):
+            E.add((min(a, b), max(a, b)))
+    return np.array(sorted(E))
 
 
 def fair(P, faces):
     P = np.array(P, float)
     F = FAIR
-    E = set()
-    for f in faces:
-        for a, b in zip(f, list(f[1:]) + [f[0]]):
-            E.add((min(a, b), max(a, b)))
-    E = np.array(sorted(E))
+    E = edges(faces)
     cnt = np.zeros(len(P))
     np.add.at(cnt, E[:, 0], 1)
     np.add.at(cnt, E[:, 1], 1)
@@ -424,28 +442,40 @@ def fair(P, faces):
             np.add.at(acc, E[:, 1], P[E[:, 0]])
             P += (k * w)[:, None] * (acc / cnt[:, None] - P)
             P[mid, 0] = 0
+    for (cx, cy, cz), r, n in F['spots']:
+        d = np.linalg.norm(np.stack([np.abs(P[:, 0]) - cx, P[:, 1] - cy, P[:, 2] - cz], 1), axis=1)
+        ws = 0.5 * ramp(1 - d / r)
+        for _ in range(n):
+            acc = np.zeros_like(P)
+            np.add.at(acc, E[:, 0], P[E[:, 1]])
+            np.add.at(acc, E[:, 1], P[E[:, 0]])
+            P += ws[:, None] * (acc / cnt[:, None] - P)
+            P[mid, 0] = 0
     return P
 
 
 def crotch_detail(P, faces=None, scale=1.0):
+    """隆起與平滑之後刻縫。縫的截面是 (1 − |x|/w)²：正中最深，兩側是兩片圓鼓的大陰唇往中間收，
+    不是在圓頂上刻一條細線；上端深度與寬度一起漸漸歸零，在恥丘上淡出。"""
     P = np.array(P, float)
     if faces is not None:
         P = fair(mound(P, faces), faces)
     pts = np.array(CLEFT['path'], float)
     t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(pts[:, :2], axis=0), axis=1))]
-    u = np.linspace(0, t[-1], 200)
+    u = np.linspace(0, t[-1], 300)
     y, z, dep = (np.interp(u, t, pts[:, k]) for k in range(3))
     ty, tz = np.gradient(y), np.gradient(z)
     n = np.hypot(ty, tz)
     ny, nz = tz / n, -ty / n                   # 路徑朝外的法線（前段朝前、下段朝下）
-    near = np.where((np.abs(P[:, 0]) < 4 * CLEFT['w']) & (P[:, 1] < y.max() + 0.5) & (P[:, 1] > y.min() - 2.0)
+    near = np.where((np.abs(P[:, 0]) < 1.2) & (P[:, 1] < y.max() + 0.5) & (P[:, 1] > y.min() - 2.0)
                     & (P[:, 2] > z.min() - 2.0))[0]
     Q = P[near]
     d2 = (Q[:, 1:2] - y[None]) ** 2 + (Q[:, 2:3] - z[None]) ** 2
     i = d2.argmin(1)
-    # 只刻在路徑外側（表面那一側）約 2.5 公分以內的點
     out = (Q[:, 1] - y[i]) * ny[i] + (Q[:, 2] - z[i]) * nz[i]
-    g = dep[i] * scale ** 0.35 * np.exp(-(Q[:, 0] / CLEFT['w']) ** 2) * ((out > -0.5) & (out < 2.5))
+    w = np.array([curve(CLEFT['w'], v) for v in y[i]])
+    prof = np.clip(1 - np.abs(Q[:, 0]) / w, 0, None) ** 2
+    g = dep[i] * scale ** 0.35 * prof * ((out > -0.5) & (out < 2.5))
     P[near, 1] -= g * ny[i]
     P[near, 2] -= g * nz[i]
     return P
