@@ -97,6 +97,24 @@ def evaluated(obj):
     return P, E, F
 
 
+def display_object(obj, P, F):
+    """算圖用的物件：細分後的網格加上細部層（glute_cage.crotch_detail）。原本的籠物件不算圖。"""
+    me = bpy.data.meshes.new('glute_display')
+    me.from_pydata(to_blender(P).tolist(), [], F)
+    me.update()
+    for p in me.polygons:
+        p.use_smooth = True
+    d = bpy.data.objects.new('glute_display', me)
+    bpy.context.scene.collection.objects.link(d)
+    obj.hide_render = True
+    return d
+
+
+def show(d, P):
+    d.data.vertices.foreach_set('co', to_blender(P).astype(np.float32).ravel())
+    d.data.update()
+
+
 def hull_perimeter(pts):
     """截面點的凸包周長，等於皮尺繞一圈（會跨過臀縫）。"""
     pts = sorted(set(map(tuple, np.round(pts, 4))))

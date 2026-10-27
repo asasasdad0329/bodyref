@@ -25,7 +25,7 @@ import bpy
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glute_cage import cage, to_body  # noqa: E402
+from glute_cage import cage, crotch_detail, to_body  # noqa: E402
 import glute_scene as gs  # noqa: E402
 
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else ['.']
@@ -235,31 +235,46 @@ print('中性脂肪厚度（公分）：最薄', round(float(T0.min()), 2), '最
 assert np.abs(shape(F0, base, N0, A0, mid, leg) - V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
 
 obj = gs.build(V0, Fc)
-studio = gs.Studio(obj)
+
+
+def detail_scale(F):
+    """大陰唇與恥丘下緣的細部隨脂肪量：瘦端約 0.6 倍，中性 1，越胖越大（它們是脂肪墊）。"""
+    return float(np.clip(1 + 0.03 * (F - F0), 0.6, 2.5))
+
 
 
 def solve(F):
     """每個脂肪量都從設計點重新擬合（不接續上一個），結果只由 F 決定，和計算順序無關。"""
     V = shape(F, base, N0, A0, mid, leg)
     C, err = gs.fit_cage(obj, V, Fc)
-    P, E, _ = gs.evaluated(obj)
+    P, E, faces = gs.evaluated(obj)
+    P = crotch_detail(P, detail_scale(F))
     m, prof = gs.measure(P, E)
+    if display is not None:
+        gs.show(display, P)
     return C, P, m, prof
+
+
+display = None
+_, P0, _, _ = solve(F0)
+display = gs.display_object(obj, P0, gs.evaluated(obj)[2])
+studio = gs.Studio(display)
 
 
 # ---------- 沿線量測（每 1 kg） ----------
 Fs = np.arange(FMIN, FMAX + 0.01, 1.0)
 
 
-def viewer_mesh():
-    """目前形狀細分 2 次的網格（頂點、三角形），給網頁檢視器；細分 3 次的檔太大，手機載入慢。"""
+def viewer_mesh(F):
+    """目前形狀的網格（頂點、三角形），給網頁檢視器。細分 3 次才做得出胯下的細部；
+    檔案大小由 fat_viewer.py 用抽格控制。"""
     subd = obj.modifiers['subd']
-    subd.levels = 2
+    subd.levels = 3
     dg = bpy.context.evaluated_depsgraph_get()
     dg.update()
     ev = obj.evaluated_get(dg)
     m = ev.to_mesh()
-    P = to_body(np.array([v.co[:] for v in m.vertices]))
+    P = crotch_detail(to_body(np.array([v.co[:] for v in m.vertices])), detail_scale(F))
     tris = [(p[0], p[i], p[i + 1]) for p in (q.vertices[:] for q in m.polygons) for i in range(1, len(p) - 1)]
     ev.to_mesh_clear()
     subd.levels = 3
@@ -271,7 +286,8 @@ rows, meshes, view_meshes = [], [], []
 for F in Fs:
     C, P, m, prof = solve(F)
     if EXPORT:
-        view_meshes.append(viewer_mesh())
+        if int(round(F)) % 2 == 1:  # 檢視器每 2 kg 一格（9、11、…），細分 3 次的網格才放得進一頁
+            view_meshes.append(viewer_mesh(F))
     meshes.append(P.astype(np.float32))
     # 範圍內脂肪層多了多少公斤（左右兩半；脂肪密度 0.9）。中性以上照體積規律，是設定值
     m['fatKg'] = round(float(2 * (AREA * (thickness(F, V0, N0, A0) - T0)).sum() * 0.9 / 1000), 3) if F <= F0 \
@@ -296,8 +312,9 @@ np.savez_compressed(OUT / 'fat_line.npz', F=Fs, positions=np.stack(meshes), base
 
 # ---------- 關鍵形與影格 ----------
 if EXPORT:
-    np.savez_compressed(OUT / 'fat_viewer.npz', F=Fs, positions=np.stack([v[0] for v in view_meshes]),
-                        tris=view_meshes[0][1], F0=F0, hip=hip, thigh=np.array([r['thighCirc'] for r in rows]))
+    np.savez_compressed(OUT / 'fat_viewer.npz', F=Fs[np.round(Fs).astype(int) % 2 == 1], positions=np.stack([v[0] for v in view_meshes]),
+                        tris=view_meshes[0][1], F0=F0, hip=hip[np.round(Fs).astype(int) % 2 == 1],
+                        thigh=np.array([r['thighCirc'] for r in rows])[np.round(Fs).astype(int) % 2 == 1])
 if QUICK or EXPORT:
     sys.exit(0)
 # 所有關鍵形用同一個比例尺（放得下最胖的形），大小才能互相比較

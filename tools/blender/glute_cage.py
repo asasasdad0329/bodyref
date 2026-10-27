@@ -264,3 +264,41 @@ LANDMARKS = {
     'pubicSymphysis': (0.0, 82.2, 5.2),
     'coccyx': (0.0, 83.5, -8.2),
 }
+
+
+# ---------- 細部層：大陰唇與恥丘下緣 ----------
+# 控制籠在胯下的點距約 4 公分，做不出 1～2 公分寬的形，所以在細分後的網格（點距約 0.2 公分）上加一層細部。
+# 只做外形（中性人偶等級）：恥丘往下收窄，接兩條圓的大陰唇，中間一道縫。
+# 正面看兩腿之間不是空的，而是兩條大腿前面往正中彎下去的 V 形溝；大陰唇把這條溝的上段填成兩條圓墊。
+# 圓墊的位置以「同高度大腿前面」為準（上端和恥丘齊平，往下漸漸退到大腿前面後方），所以脂肪讓大腿往前長時，
+# 大陰唇跟著走，不會被埋掉。圓墊和大腿相交的地方自然形成一道摺（股生殖摺）。
+# 只往前（z）推、不往後拉，左右對稱；scale 隨脂肪量（大陰唇是脂肪墊）。
+LABIA = dict(top=80.2, bottom=74.4, recess=2.6, x=1.0, w=0.95, round=0.6, cleft=0.5, cleft_top=79.2)
+
+
+def crotch_detail(P, scale=1.0):
+    P = np.array(P, float)
+    L = LABIA
+    x, y, z = np.abs(P[:, 0]), P[:, 1], P[:, 2]
+    # 同高度大腿前面的位置：離正中約 3 公分、前半的點，依高度加權平均。
+    # 用平滑的加權平均（不用分格取最大值），脂肪量連續改變時這個參考也連續改變，預先算好的形才能內插
+    sel = (z > 0) & (x > 2.0) & (x < 4.0)
+    xs, ys, zs = x[sel], y[sel], z[sel]
+    wx = np.exp(-((xs - 3.0) / 0.5) ** 2)
+    yb = np.arange(L['bottom'] - 1.0, L['top'] + 1.01, 0.25)
+    wb = wx[None, :] * np.exp(-((ys[None, :] - yb[:, None]) / 0.6) ** 2)
+    ref = (wb * zs[None, :]).sum(1) / np.maximum(wb.sum(1), 1e-9)
+    zr = np.interp(y, yb, ref)
+    t = np.clip((y - L['bottom']) / (L['top'] - L['bottom']), 0, 1)      # 下端 0、上端 1
+    ramp = lambda u: np.clip(u, 0, 1) ** 2 * (3 - 2 * np.clip(u, 0, 1))
+    band = ramp(t / 0.5) * ramp((1 - t) / 0.3)                           # 下端、上端都慢慢漸弱，接恥丘不出台階
+    w = L['w'] * np.sqrt(scale)
+    zc = zr - L['recess'] * (1 - t) ** 1.3 + 0.25 * (scale - 1)
+    target = zc - L['round'] * ((x - L['x']) / w) ** 2
+    reach = np.exp(-(np.clip(x - (L['x'] + w), 0, None) / 0.5) ** 2)    # 只到圓墊外緣
+    front = np.clip((z - 0.5) / 2.5, 0, 1)                                # 只動前面，往後到會陰的那段不動
+    P[:, 2] += np.clip(target - z, 0, 2.2) * band * reach * front
+    # 中間的縫：從恥丘下緣開始往下
+    cl = np.clip((L['cleft_top'] - y) / 0.8, 0, 1) * ramp((y - L['bottom']) / 1.0)
+    P[:, 2] -= L['cleft'] * cl * np.exp(-(x / 0.3) ** 2) * front
+    return P
