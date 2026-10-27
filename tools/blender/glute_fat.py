@@ -98,6 +98,8 @@ def attach(V, N):
     d = p1 - p0
     t = np.clip(((np.stack([x, y], 1) - p0) @ d) / (d @ d), 0, 1)
     dist = np.linalg.norm(np.stack([x, y], 1) - (p0 + t[:, None] * d), axis=1)
+    # 恥骨上的橫摺：恥丘上緣，兩端接到兩條鼠蹊；很胖時下腹（之後是腹部垂肉）停在這條摺上，恥丘自成一塊
+    a *= 1 - 0.6 * np.exp(-((y - 84.0) / 1.2) ** 2) * np.exp(-(x / 7.0) ** 4) * front
     # 下段（胯下、大腿根）最強，往髂前上棘漸弱：很胖時深摺在下段，上段的脂肪連續披到兩側
     a *= 1 - 0.45 * np.exp(-(dist / 1.8) ** 2) * front * np.clip((90.0 - y) / 6.0, 0, 1)
     return a
@@ -226,6 +228,8 @@ AREA = areas(V0, Fc)
 base = V0 - T0[:, None] * N0
 # 下垂的分布：下腹前面加倍；越靠近上下邊界（98、69.5 cm 的切口）越小，邊界本身不動，之後才接得上腰和大腿
 SAG_MAP = 1 + (SAG_BELLY - 1) * np.clip(N0[:, 2], 0, 1) * np.exp(-((V0[:, 1] - 87.0) / 5.0) ** 2) * np.exp(-(V0[:, 0] / 9.0) ** 2)
+# 恥丘附著在恥骨上，變厚但不往下垂到胯下
+SAG_MAP *= 1 - 0.85 * np.clip(N0[:, 2], 0, 1) * np.clip((84.5 - V0[:, 1]) / 2.0, 0, 1) * np.exp(-(V0[:, 0] / 6.0) ** 2)
 SAG_MAP *= np.clip((98.0 - V0[:, 1]) / 3.0, 0, 1) * np.clip((V0[:, 1] - 69.5) / 4.0, 0, 1)
 print('中性脂肪厚度（公分）：最薄', round(float(T0.min()), 2), '最厚', round(float(T0.max()), 2))
 assert np.abs(shape(F0, base, N0, A0, mid, leg) - V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
