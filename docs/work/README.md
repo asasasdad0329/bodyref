@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | 基礎 | 分區與數據 | [00-foundation](00-foundation/README.md) | 進行中 | 研究 R1～R18 完成；分區帶入待做 |
 | 形狀 | C1 女性下半身（總覽） | [c1-lower-body](c1-lower-body/README.md) | 進行中 | |
-| 形狀 | C1-1 臀（試做） | [01-glute](c1-lower-body/01-glute.md) | 待作者看圖 | ① 獨立模第六版；② 脂肪線描述方式已定（#61、R20），下一步做脂肪線 |
+| 形狀 | C1-1 臀（試做） | [01-glute](c1-lower-body/01-glute.md) | 待作者看圖 | ② 純脂肪線第一版，待作者看圖（動畫） |
 | 形狀 | C1-2 腰 | [02-waist](c1-lower-body/02-waist.md) | 未開始 | |
 | 形狀 | C1-3 腹 | [03-abdomen](c1-lower-body/03-abdomen.md) | 未開始 | |
 | 形狀 | C1-4 大腿 | [04-thigh](c1-lower-body/04-thigh.md) | 未開始 | |
