@@ -154,9 +154,11 @@ def measure(P, E):
                                           depth=float(np.ptp(s[:, 1])), front=float(s[:, 1].max()), back=float(s[:, 1].min()))
     hipY = max(out, key=lambda y: out[y]['circ'] if 78 <= y <= 90 else 0)
     s = section(P, E, 72.5)
+    f = section(P, E, 75.0)   # ANSUR 的大腿圍量在臀溝最低點（中性型約 75 cm）
     res = dict(hipCirc=out[hipY]['circ'], hipCircY=hipY, hipBreadth=max(v['breadth'] for v in out.values()),
                buttockDepth=out[hipY]['depth'], mostPosteriorY=min(out, key=lambda y: out[y]['back']),
-               thighCirc=hull_perimeter(s[s[:, 0] > 0]), topCirc=out[98.0]['circ'] if 98.0 in out else None)
+               thighCirc=hull_perimeter(s[s[:, 0] > 0]), thighFurrowCirc=hull_perimeter(f[f[:, 0] > 0]),
+               topCirc=out[98.0]['circ'] if 98.0 in out else None)
     return {k: (round(v, 2) if isinstance(v, float) else v) for k, v in res.items()}, out
 
 
