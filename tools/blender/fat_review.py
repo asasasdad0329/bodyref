@@ -54,7 +54,6 @@ if frames:
     out_dir = d / 'anim'
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir()
-    imgs = []
     for i in frames:
         canvas = Image.new('RGB', (900, 940), (45, 45, 45))
         dr = ImageDraw.Draw(canvas)
@@ -66,12 +65,15 @@ if frames:
         x = 900 * (Ff[i] - Fs[0]) / (Fs[-1] - Fs[0])
         dr.rectangle([0, 936, x, 940], fill=(217, 130, 43))
         canvas.save(out_dir / f'{i:03d}.png')
-        imgs.append(canvas.resize((600, 627)))
-    seq = imgs + imgs[::-1]
-    seq[0].save(d / 'review-fat.gif', save_all=True, append_images=seq[1:], duration=120, loop=0, optimize=True)
+    # 瘦 → 胖 → 瘦來回播放：MP4 給電腦看，GIF 縮小、減色給手機看
     if shutil.which('ffmpeg'):
-        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-framerate', '8', '-i', str(out_dir / '%03d.png'),
-                        '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-pix_fmt', 'yuv420p', str(d / 'review-fat.mp4')], check=True)
+        src = ['-framerate', '8', '-i', str(out_dir / '%03d.png')]
+        pingpong = '[0]split[f][g];[g]reverse[r];[f][r]concat=n=2:v=1:a=0'
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', *src, '-filter_complex',
+                        pingpong + ',pad=ceil(iw/2)*2:ceil(ih/2)*2', '-pix_fmt', 'yuv420p', str(d / 'review-fat.mp4')], check=True)
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', *src, '-filter_complex',
+                        pingpong + ',scale=520:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96[p];'
+                        '[b][p]paletteuse=dither=bayer:bayer_scale=4', '-loop', '0', str(d / 'review-fat.gif')], check=True)
 
 # ---------- 量測曲線 ----------
 import logging  # noqa: E402
