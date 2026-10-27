@@ -263,7 +263,7 @@ describe('固定多圈增重的容量與失敗診斷', () => {
     expect(Object.values(out.tissues).every(v => v >= 0)).toBe(true);
     expect(meshVolume(neutral, engine.asset.quads)).toBeCloseTo(out.volume, 2);
     expect(out.volume / 1000).toBeCloseTo(out.tissues.fat / 0.9 + (out.tissues.muscle + out.tissues.otherLean) / 1.06, 3);
-  });
+  }, 30_000);  // 多圈增重要反覆求解，CI 機器上偶爾超過預設的 5 秒
 });
 
 
