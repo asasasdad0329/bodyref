@@ -96,7 +96,8 @@ def attach(V, N):
     d = p1 - p0
     t = np.clip(((np.stack([x, y], 1) - p0) @ d) / (d @ d), 0, 1)
     dist = np.linalg.norm(np.stack([x, y], 1) - (p0 + t[:, None] * d), axis=1)
-    a *= 1 - 0.45 * np.exp(-(dist / 1.8) ** 2) * front
+    # 下段（胯下、大腿根）最強，往髂前上棘漸弱：很胖時深摺在下段，上段的脂肪連續披到兩側
+    a *= 1 - 0.45 * np.exp(-(dist / 1.8) ** 2) * front * np.clip((90.0 - y) / 6.0, 0, 1)
     return a
 
 
@@ -157,6 +158,7 @@ def areas(V, Fc):
 
 
 def constrain(V, mid, leg):
+    V[:, 1] = np.maximum(V[:, 1], 69.5)  # 下垂不能越過大腿下緣的切口
     V[mid, 0] = 0
     V[leg, 0] = np.maximum(V[leg, 0], 0.1)  # 大腿內側最多貼合，不穿過正中
     return V
