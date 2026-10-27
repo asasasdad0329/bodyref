@@ -25,7 +25,7 @@ import bpy
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glute_cage import cage, crotch_detail, to_body, zones  # noqa: E402
+from glute_cage import cage, crotch_detail, sharp_points, to_body, zones  # noqa: E402
 import glute_scene as gs  # noqa: E402
 
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else ['.']
@@ -249,9 +249,9 @@ def detail_scale(F):
 def solve(F):
     """每個脂肪量都從設計點重新擬合（不接續上一個），結果只由 F 決定，和計算順序無關。"""
     V = shape(F, base, N0, A0, mid, leg)
-    C, err = gs.fit_cage(obj, V, Fc)
+    C, err = gs.fit_cage(obj, V, Fc, sharp=sharp_points())
     P, E, faces = gs.evaluated(obj)
-    P = crotch_detail(P, detail_scale(F))
+    P = crotch_detail(P, faces, detail_scale(F))
     m, prof = gs.measure(P, E)
     if display is not None:
         gs.show(display, P)
@@ -277,8 +277,9 @@ def viewer_mesh(F):
     dg.update()
     ev = obj.evaluated_get(dg)
     m = ev.to_mesh()
-    P = crotch_detail(to_body(np.array([v.co[:] for v in m.vertices])), detail_scale(F))
-    tris = [(p[0], p[i], p[i + 1]) for p in (q.vertices[:] for q in m.polygons) for i in range(1, len(p) - 1)]
+    polys = [q.vertices[:] for q in m.polygons]
+    P = crotch_detail(to_body(np.array([v.co[:] for v in m.vertices])), polys, detail_scale(F))
+    tris = [(p[0], p[i], p[i + 1]) for p in polys for i in range(1, len(p) - 1)]
     ev.to_mesh_clear()
     subd.levels = 3
     dg.update()

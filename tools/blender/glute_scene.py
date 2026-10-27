@@ -62,9 +62,10 @@ def set_cage(obj, C):
     obj.data.update()
 
 
-def fit_cage(obj, V, F, rounds=8, start=None):
+def fit_cage(obj, V, F, rounds=8, start=None, sharp=None):
     """細分會把凸的籠往內收（約 5%），所以反覆把籠往外補差值，讓曲面的尺寸接近設計點 V。
     差值先在籠上平滑過再補，只補大尺寸，不追細節，避免臀縫、臀溝附近起波紋。
+    sharp：刻意做的小起伏（胯下的大陰唇、股生殖摺）上的點，差值不平滑、直接補，形才做得出來。
     Blender 細分後的前 n 個頂點就是籠頂點的對應位置。回傳籠的座標與最大殘差。"""
     nb = neighbours(len(V), F)
     dg = bpy.context.evaluated_depsgraph_get()
@@ -78,7 +79,10 @@ def fit_cage(obj, V, F, rounds=8, start=None):
         S = to_body(np.array([v.co[:] for v in m.vertices[:len(V)]]))
         ev.to_mesh_clear()
         err = V - S
-        C += smooth(err, nb)
+        corr = smooth(err, nb)
+        if sharp is not None:
+            corr[sharp] = err[sharp]
+        C += corr
         C[mid, 0] = 0  # 正中頂點留在正中，鏡像才會合併
         C[~mid, 0] = np.maximum(C[~mid, 0], 0.02)  # 其他頂點不能碰到正中，否則會被鏡像合併，頂點數就變了
     set_cage(obj, C)

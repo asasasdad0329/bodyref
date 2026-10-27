@@ -14,7 +14,7 @@ import bpy
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glute_cage import LANDMARKS, TARGET, cage, crotch_detail, to_blender  # noqa: E402
+from glute_cage import LANDMARKS, TARGET, cage, crotch_detail, sharp_points, to_blender  # noqa: E402
 import glute_scene as gs  # noqa: E402
 
 OUT = Path(sys.argv[sys.argv.index('--') + 1]) if '--' in sys.argv else Path('.')
@@ -22,7 +22,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 Vc, Fc = cage()
 obj = gs.build(Vc, Fc)
-Vc_cage, err = gs.fit_cage(obj, Vc, Fc)
+Vc_cage, err = gs.fit_cage(obj, Vc, Fc, sharp=sharp_points())
 print('籠擬合殘差（公分）', round(err, 3))
 obj.shape_key_add(name='basis')
 for name, p in LANDMARKS.items():
@@ -35,7 +35,7 @@ for name, p in LANDMARKS.items():
         bpy.context.scene.collection.objects.link(e)
 
 P, E, F = gs.evaluated(obj)
-P = crotch_detail(P)
+P = crotch_detail(P, F)
 res, prof = gs.measure(P, E)
 print('量測', json.dumps(res, ensure_ascii=False))
 print('目標', json.dumps(TARGET, ensure_ascii=False))
