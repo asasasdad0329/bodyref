@@ -13,7 +13,7 @@
 
 開發與建置用的工具（Vite、TypeScript、Vitest 等）不包含在網站輸出裡，授權為 MIT、Apache-2.0 等寬鬆授權。
 
-離線研究工具（`tools/research/`）另外使用以下 Python 套件，只在開發時執行，不包含在網站輸出裡：NumPy、pandas、Matplotlib（BSD 系列授權）。造型工具（`tools/blender/`）在 [Blender](https://www.blender.org/) 4.2 LTS（GPL-3.0-or-later）裡執行，只用它內附的 Python 與 NumPy；Blender 本身不包含在本倉庫與網站輸出裡。研究另外使用 NHANES 2011–2018 四期（DEMO、BMX、DXX、DXXAG；公有領域）、NHANES III 1988–1994 體檢檔（exam.dat；公有領域）與已發表的文獻數字，原始資料不進倉庫。
+離線研究工具（`tools/research/`）另外使用以下 Python 套件，只在開發時執行，不包含在網站輸出裡：NumPy、pandas、Matplotlib（BSD 系列授權）。造型工具（`tools/blender/`）在 [Blender](https://www.blender.org/) 4.2 LTS（GPL-3.0-or-later）裡執行，只用它內附的 Python 與 NumPy；Blender 本身不包含在本倉庫與網站輸出裡。覆核圖（`tools/blender/fat_review.py`）另外用 Pillow（HPND 授權）、Matplotlib，影片用 ffmpeg（外部工具，LGPL／GPL），都不包含在本倉庫與網站輸出裡。研究另外使用 NHANES 2011–2018 四期（DEMO、BMX、DXX、DXXAG；公有領域）、NHANES III 1988–1994 體檢檔（exam.dat；公有領域）與已發表的文獻數字，原始資料不進倉庫。
 
 ## three.js
 
