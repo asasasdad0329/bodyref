@@ -38,9 +38,22 @@ EXPORT = 'export' in args  # 另存給網頁檢視器用的網格（細分 2 次
 # ---------- 軸 ----------
 # 中性型：160 cm、54.5 kg 的台灣年輕女性，DXA 體脂約 31%
 F0 = 17.0
-# 範圍：瘦端約 BMI 16.5（體脂約 21%）；胖端只靠脂肪約到 50 kg（再胖要靠肌肉線一起）
-FMIN, FMAX = 9.0, 50.0
-KEYS = [9.0, 13.0, 17.0, 25.0, 35.0, 50.0]
+# 範圍：瘦端約 BMI 16.5（體脂約 21%）；胖端到全身體重約 204 公斤那一級（作者 2026-10-27）。
+# R21：160 cm、204 kg 外推全身脂肪約 109 kg、去脂約 91 kg；純脂肪線做到 110 kg，其餘體重交給肌肉線
+FMIN, FMAX = 9.0, 110.0
+KEYS = [9.0, 17.0, 30.0, 50.0, 80.0, 110.0]
+# 中性以上的體積規律（R20、R21）：範圍內（臀＋大腿根＋下腹、腰側的一部分）每 kg 全身脂肪多約 0.2 kg 脂肪，
+# 到最胖都接近直線；每 STEP_F 公斤沿「當下」的表面法線充一次氣
+REGION_SLOPE = 0.2
+STEP_F = 0.5
+SPREAD_REF = 33.0   # 堆積範圍外擴的速率：每 33 kg 擴 sp 倍（第一版 17～50 kg 的設定）
+# 下垂：每次充氣時，厚的地方順便往下移 SAG × 這次加的厚度 × (已經比中性厚多少 ÷ 5 公分)；
+# 附著線上（鼠蹊、臀溝、臀縫）不動，所以下腹垂到鼠蹊上、臀垂到臀溝上
+SAG = 0.6
+# 下腹前面另外加倍（腹部垂肉往下蓋過鼠蹊與恥丘）
+SAG_BELLY = 2.0
+# 邊界：模型上緣（98 cm 的切口）附近增長放緩到 55%，切口順著下面的趨勢延伸，之後才接得上腰
+TOP_TAPER = (93.5, 98.0, 0.55)
 
 TMIN = 0.25   # 最瘦時的皮膚加最薄皮下脂肪（公分）
 GAIN = 0.9    # 全部堆積點的共同倍率；用「臀圍每 kg 全身脂肪 +0.7 公分」校準（見下方）
@@ -121,7 +134,7 @@ def maps(V, N, F):
             continue
         c, r, f = np.array(d['c']), np.array(d['r']), np.array(d['face'], float)
         f /= np.linalg.norm(f)
-        q = (V - c) / (r * (1 + d['sp'] * (F - F0) / (FMAX - F0)))
+        q = (V - c) / (r * (1 + d['sp'] * (F - F0) / SPREAD_REF))
         M[name] = np.exp(-0.5 * (q ** 2).sum(1)) * np.clip(N @ f, 0, 1)
     return M
 
@@ -143,11 +156,59 @@ def areas(V, Fc):
     return a
 
 
-def shape(F, base, N, A, mid, leg):
-    V = base + thickness(F, V0, N, A)[:, None] * N
+def constrain(V, mid, leg):
     V[mid, 0] = 0
     V[leg, 0] = np.maximum(V[leg, 0], 0.1)  # 大腿內側最多貼合，不穿過正中
     return V
+
+
+def closed_form(F, base, N, A, mid, leg):
+    """中性以下（變瘦）：底層＋厚度 × 中性法線。"""
+    return constrain(base + thickness(F, V0, N, A)[:, None] * N, mid, leg)
+
+
+def distribution(F, A):
+    """此刻新增的脂肪往哪裡去：各堆積點增長曲線的斜率 × 分布（用中性位置算，堆積點跟著組織走）。"""
+    M = maps(V0, N0, F)
+    w = np.zeros(len(A))
+    for name, d in DEPOTS.items():
+        w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
+    y0, y1, keep = TOP_TAPER
+    w *= 1 - (1 - keep) * np.clip((V0[:, 1] - y0) / (y1 - y0), 0, 1)
+    return w * A
+
+
+_states = {}
+
+
+def shape(F, base, N, A, mid, leg):
+    """任一全身脂肪量 F 的設計點。中性以下用公式；中性以上從中性一步步充氣：
+    每 STEP_F 公斤加 REGION_SLOPE × STEP_F 公斤的脂肪體積，照堆積點的分布沿當下的法線往外推。
+    結果只由 F 決定（每次都從中性、用同樣的步長走到 F）。"""
+    if F <= F0:
+        return closed_form(F, base, N, A, mid, leg)
+    n = int(round((F - F0) / STEP_F * 1e6)) // 1000000
+    k = max([j for j in _states if j <= n], default=0)
+    V = _states[k].copy() if k else V0.copy()
+    for j in range(k, n):
+        Fj = F0 + (j + 0.5) * STEP_F
+        V = inflate(V, Fj, STEP_F, A, mid, leg)
+        _states[j + 1] = V.copy()
+    rest = F - (F0 + n * STEP_F)
+    if rest > 1e-9:
+        V = inflate(V, F0 + n * STEP_F + rest / 2, rest, A, mid, leg)
+    return V
+
+
+def inflate(V, F, dF, A, mid, leg):
+    w = distribution(F, A)
+    area = areas(V, Fc)
+    vol = REGION_SLOPE * dF / 0.9 * 1000          # 公分³（脂肪密度 0.9）
+    dT = vol * w / (2 * (area * w).sum())         # 左右兩半
+    V = V + dT[:, None] * normals(V, Fc)
+    excess = np.linalg.norm(V - V0, axis=1)       # 已經比中性厚了多少（中性以上只有脂肪在變）
+    V[:, 1] -= SAG * dT * excess / 5.0 * A * SAG_MAP
+    return constrain(V, mid, leg)
 
 
 # ---------- 中性型拆層 ----------
@@ -159,6 +220,9 @@ leg = (V0[:, 1] < 77.6) & ~mid
 T0 = thickness(F0, V0, N0, A0)
 AREA = areas(V0, Fc)
 base = V0 - T0[:, None] * N0
+# 下垂的分布：下腹前面加倍；越靠近上下邊界（98、69.5 cm 的切口）越小，邊界本身不動，之後才接得上腰和大腿
+SAG_MAP = 1 + (SAG_BELLY - 1) * np.clip(N0[:, 2], 0, 1) * np.exp(-((V0[:, 1] - 87.0) / 5.0) ** 2) * np.exp(-(V0[:, 0] / 9.0) ** 2)
+SAG_MAP *= np.clip((98.0 - V0[:, 1]) / 3.0, 0, 1) * np.clip((V0[:, 1] - 69.5) / 4.0, 0, 1)
 print('中性脂肪厚度（公分）：最薄', round(float(T0.min()), 2), '最厚', round(float(T0.max()), 2))
 assert np.abs(shape(F0, base, N0, A0, mid, leg) - V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
 
@@ -201,8 +265,9 @@ for F in Fs:
     if EXPORT:
         view_meshes.append(viewer_mesh())
     meshes.append(P.astype(np.float32))
-    # 範圍內脂肪層多了多少公斤（左右兩半；脂肪密度 0.9）
-    m['fatKg'] = round(float(2 * (AREA * (thickness(F, V0, N0, A0) - T0)).sum() * 0.9 / 1000), 3)
+    # 範圍內脂肪層多了多少公斤（左右兩半；脂肪密度 0.9）。中性以上照體積規律，是設定值
+    m['fatKg'] = round(float(2 * (AREA * (thickness(F, V0, N0, A0) - T0)).sum() * 0.9 / 1000), 3) if F <= F0 \
+        else round(REGION_SLOPE * (F - F0), 3)
     rows.append(dict(F=float(F), **m))
     print(f'F {F:4.1f} kg  範圍內脂肪 {m["fatKg"]:+6.2f}  臀圍 {m["hipCirc"]:6.2f}  寬 {m["hipBreadth"]:5.2f}  厚 {m["buttockDepth"]:5.2f}  大腿圍 {m["thighCirc"]:5.2f}')
 hip = np.array([r['hipCirc'] for r in rows])
@@ -227,6 +292,8 @@ if EXPORT:
                         tris=view_meshes[0][1], F0=F0, hip=hip, thigh=np.array([r['thighCirc'] for r in rows]))
 if QUICK or EXPORT:
     sys.exit(0)
+# 所有關鍵形用同一個比例尺（放得下最胖的形），大小才能互相比較
+studio.cam.data.ortho_scale = max(46.0, max(r['hipBreadth'] for r in rows) + 14)
 for F in KEYS:
     solve(F)
     for view in gs.VIEWS:
