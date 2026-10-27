@@ -302,3 +302,30 @@ def crotch_detail(P, scale=1.0):
     cl = np.clip((L['cleft_top'] - y) / 0.8, 0, 1) * ramp((y - L['bottom']) / 1.0)
     P[:, 2] -= L['cleft'] * cl * np.exp(-(x / 0.3) ** 2) * front
     return P
+
+
+# ---------- 分區（作者 2026-10-27，DECISIONS #62） ----------
+# 臀負責的範圍 ≈ 平口褲覆蓋：上緣是「肚子分開的那條線」——背面、側面沿髂嵴（模型上緣），
+# 正面從髂前上棘沿鼠蹊往下，接到恥骨上的橫摺（高 84）；下緣是褲管（臀溝下 2～3 公分，高 73）。
+# 這條線以上、以前是下腹（交給腹部）；褲管以下是大腿。分界和脂肪線的附著線（鼠蹊、恥骨上橫摺）一致。
+ZONE = dict(fold_y=84.0, asis=(11.5, 92.0), crest=(13.5, 98.0), groin_low=(3.0, 79.0), hem_y=73.0)
+
+
+def belly_line_x(y):
+    """肚子分界線在高度 y 的正面外緣 x：橫摺高度以上，沿鼠蹊斜到髂前上棘、再到髂嵴。"""
+    Z = ZONE
+    gx = Z['groin_low'][0] + (Z['asis'][0] - Z['groin_low'][0]) * (y - Z['groin_low'][1]) / (Z['asis'][1] - Z['groin_low'][1])
+    up = Z['asis'][0] + (Z['crest'][0] - Z['asis'][0]) * (y - Z['asis'][1]) / (Z['crest'][1] - Z['asis'][1])
+    return np.where(y < Z['asis'][1], gx, up)
+
+
+def zones(P, N, soft=0.0):
+    """每個點屬於哪一區：0 臀（含恥丘、臀側、大腿根到褲管）、1 下腹（交給腹部）、2 褲管以下的大腿。
+    soft > 0 時回傳下腹的平滑權重（0～1，邊界寬 soft 公分），給脂肪線用。"""
+    x, y, z = np.abs(P[:, 0]), P[:, 1], P[:, 2]
+    front = np.clip(N[:, 2] * 4, 0, 1) if soft else (N[:, 2] > 0.2)
+    if soft:
+        s = lambda d: np.clip(0.5 + d / soft, 0, 1)
+        return s(y - ZONE['fold_y']) * s(belly_line_x(y) - x) * front
+    belly = (y > ZONE['fold_y']) & (x < belly_line_x(y)) & front
+    return np.where(belly, 1, np.where(y < ZONE['hem_y'], 2, 0)).astype(np.uint8)

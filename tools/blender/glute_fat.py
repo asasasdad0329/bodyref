@@ -25,7 +25,7 @@ import bpy
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glute_cage import cage, crotch_detail, to_body  # noqa: E402
+from glute_cage import cage, crotch_detail, to_body, zones  # noqa: E402
 import glute_scene as gs  # noqa: E402
 
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else ['.']
@@ -44,14 +44,14 @@ FMIN, FMAX = 9.0, 110.0
 KEYS = [9.0, 17.0, 30.0, 50.0, 80.0, 110.0]
 # 中性以上的體積規律（R20、R21）：範圍內（臀＋大腿根＋下腹、腰側的一部分）每 kg 全身脂肪多約 0.2 kg 脂肪，
 # 到最胖都接近直線；每 STEP_F 公斤沿「當下」的表面法線充一次氣
-REGION_SLOPE = 0.2
+REGION_SLOPE = 0.18   # 下腹交給腹部後（#62），臀負責範圍的部分
 STEP_F = 0.5
 SPREAD_REF = 33.0   # 堆積範圍外擴的速率：每 33 kg 擴 sp 倍（第一版 17～50 kg 的設定）
 # 下垂：每次充氣時，厚的地方順便往下移 SAG × 這次加的厚度 × (已經比中性厚多少 ÷ 5 公分)；
 # 附著線上（鼠蹊、臀溝、臀縫）不動，所以下腹垂到鼠蹊上、臀垂到臀溝上
 SAG = 0.6
-# 下腹前面另外加倍（腹部垂肉往下蓋過鼠蹊與恥丘）
-SAG_BELLY = 2.0
+# 下腹交給腹部（DECISIONS #62）：臀的樣本裡下腹只跟著鄰區平順地變（BELLY_FOLLOW），不自己堆積、不下垂
+BELLY_FOLLOW = 0.4
 # 邊界：模型上緣（98 cm 的切口）附近增長放緩到 55%，切口順著下面的趨勢延伸，之後才接得上腰
 TOP_TAPER = (93.5, 98.0, 0.55)
 
@@ -69,7 +69,6 @@ DEPOTS = {
     'hipDip':      dict(c=(15.5, 86.5, -4.5), r=(3.0, 3.0, 3.5), face=(1, 0, -0.6), amax=1.4, on=0.0, k=7.0, sp=0.0),
     'saddle':      dict(c=(15.5, 78.0, -1.0), r=(4.0, 4.5, 6.0), face=(1, 0, 0), amax=5.0, on=14.0, k=24.0, sp=0.7),
     'flank':       dict(c=(13.5, 100.5, -2.0), r=(5.0, 3.0, 6.0), face=(1, 0, 0), amax=6.0, on=18.0, k=45.0, sp=0.8),
-    'lowerBelly':  dict(c=(0.0, 88.0, 8.0), r=(8.0, 5.0, 5.0), face=(0, 0, 1), amax=4.5, on=10.0, k=35.0, sp=0.8),
     'mons':        dict(c=(0.0, 81.0, 7.0), r=(3.5, 2.0, 3.0), face=(0, 0, 1), amax=1.8, on=0.0, k=25.0, sp=0.3),
     'innerThigh':  dict(c=(3.5, 73.0, 1.0), r=(3.0, 4.0, 5.0), face=(-1, 0, 0), amax=2.2, on=8.0, k=25.0, sp=0.4),
     'backThigh':   dict(c=(8.0, 73.5, -9.0), r=(5.0, 3.0, 4.0), face=(0, 0, -1), amax=1.8, on=15.0, k=25.0, sp=0.5),
@@ -99,7 +98,8 @@ def attach(V, N):
     t = np.clip(((np.stack([x, y], 1) - p0) @ d) / (d @ d), 0, 1)
     dist = np.linalg.norm(np.stack([x, y], 1) - (p0 + t[:, None] * d), axis=1)
     # 恥骨上的橫摺：恥丘上緣，兩端接到兩條鼠蹊；很胖時下腹（之後是腹部垂肉）停在這條摺上，恥丘自成一塊
-    a *= 1 - 0.6 * np.exp(-((y - 84.0) / 1.2) ** 2) * np.exp(-(x / 7.0) ** 4) * front
+    # 下腹不在臀的樣本裡長，這條摺只留淺淺的；很胖時腹部垂肉蓋上來的深摺由腹部做
+    a *= 1 - 0.3 * np.exp(-((y - 84.0) / 1.5) ** 2) * np.exp(-(x / 7.0) ** 4) * front
     # 下段（胯下、大腿根）最強，往髂前上棘漸弱：很胖時深摺在下段，上段的脂肪連續披到兩側
     a *= 1 - 0.45 * np.exp(-(dist / 1.8) ** 2) * front * np.clip((90.0 - y) / 6.0, 0, 1)
     return a
@@ -169,8 +169,9 @@ def constrain(V, mid, leg):
 
 
 def closed_form(F, base, N, A, mid, leg):
-    """中性以下（變瘦）：底層＋厚度 × 中性法線。"""
-    return constrain(base + thickness(F, V0, N, A)[:, None] * N, mid, leg)
+    """中性以下（變瘦）：底層＋厚度 × 中性法線；下腹只跟著變一部分。"""
+    T = T0 + (thickness(F, V0, N, A) - T0) * (1 - (1 - BELLY_FOLLOW) * BELLY)
+    return constrain(base + T[:, None] * N, mid, leg)
 
 
 def distribution(F, A):
@@ -179,6 +180,7 @@ def distribution(F, A):
     w = np.zeros(len(A))
     for name, d in DEPOTS.items():
         w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
+    w = w * (1 - (1 - BELLY_FOLLOW) * BELLY)
     y0, y1, keep = TOP_TAPER
     w *= 1 - (1 - keep) * np.clip((V0[:, 1] - y0) / (y1 - y0), 0, 1)
     return w * A
@@ -221,13 +223,14 @@ def inflate(V, F, dF, A, mid, leg):
 V0, Fc = cage()
 N0 = normals(V0, Fc)
 A0 = attach(V0, N0)
+BELLY = zones(V0, N0, soft=5.0)   # 下腹區的平滑權重（交界帶約 5 公分，恥丘和下腹才接得順）
 mid = np.abs(V0[:, 0]) < 1e-6
 leg = (V0[:, 1] < 77.6) & ~mid
 T0 = thickness(F0, V0, N0, A0)
 AREA = areas(V0, Fc)
 base = V0 - T0[:, None] * N0
-# 下垂的分布：下腹前面加倍；越靠近上下邊界（98、69.5 cm 的切口）越小，邊界本身不動，之後才接得上腰和大腿
-SAG_MAP = 1 + (SAG_BELLY - 1) * np.clip(N0[:, 2], 0, 1) * np.exp(-((V0[:, 1] - 87.0) / 5.0) ** 2) * np.exp(-(V0[:, 0] / 9.0) ** 2)
+# 下垂的分布：下腹不垂（交給腹部）；越靠近上下邊界（98、69.5 cm 的切口）越小，邊界本身不動，之後才接得上腰和大腿
+SAG_MAP = 1 - BELLY
 # 恥丘附著在恥骨上，變厚但不往下垂到胯下
 SAG_MAP *= 1 - 0.85 * np.clip(N0[:, 2], 0, 1) * np.clip((84.5 - V0[:, 1]) / 2.0, 0, 1) * np.exp(-(V0[:, 0] / 6.0) ** 2)
 SAG_MAP *= np.clip((98.0 - V0[:, 1]) / 3.0, 0, 1) * np.clip((V0[:, 1] - 69.5) / 4.0, 0, 1)
