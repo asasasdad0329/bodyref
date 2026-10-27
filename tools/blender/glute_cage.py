@@ -340,10 +340,10 @@ CLEFT = dict(
 #   groove：邊緣外腹股溝的深度。
 # 目前 center 是中性型的絕對位置；脂肪線重跑前要改成相對於原本表面的位移，不然會把脂肪的增長壓回中性。
 MOUND = dict(
-    center=[(76.0, 4.7), (76.5, 5.55), (77.0, 6.15), (77.5, 6.6), (78.0, 7.0), (79.0, 7.55), (80.0, 7.98),
-            (81.0, 8.28), (82.0, 8.48), (83.0, 8.6), (84.5, 8.65)],
-    half=[(76.0, 1.7), (77.0, 1.9), (78.0, 2.4), (79.0, 3.0), (80.0, 3.5), (82.0, 4.8), (84.5, 7.0)],
-    groove=[(76.0, 0.35), (78.0, 0.35), (80.0, 0.25), (82.0, 0.08), (83.0, 0.0)],
+    center=[(76.0, 4.7), (76.5, 5.55), (77.0, 6.15), (77.5, 6.6), (78.0, 7.0), (79.0, 7.5), (80.0, 7.88),
+            (81.0, 8.17), (82.0, 8.38), (83.0, 8.52), (84.5, 8.6)],
+    half=[(76.0, 1.7), (77.0, 1.9), (78.0, 2.5), (79.0, 3.2), (80.0, 4.0), (82.0, 5.4), (84.5, 7.5)],
+    groove=[(76.0, 0.3), (78.0, 0.25), (80.0, 0.15), (82.0, 0.05), (83.0, 0.0)],
     top=84.0, bottom=77.6,   # bottom 以下（大陰唇往下、往後捲的那段）交給籠，隆起在這裡漸漸歸零
 )
 
@@ -365,14 +365,18 @@ def mound(P, faces):
     yb = np.arange(lo - 0.2, hi + 0.21, 0.2)
     hb = np.array([curve(M['half'], v) for v in yb])
     front = (z > 1.0) & (N[:, 2] > 0.0)
-    wb = np.exp(-((y[front][None, :] - yb[:, None]) / 0.3) ** 2 - ((x[front][None, :] - hb[:, None]) / 0.3) ** 2)
-    edge = np.interp(ys, yb, (wb * z[front][None, :]).sum(1) / np.maximum(wb.sum(1), 1e-9))
-    u = xs / h
-    target = c - (c - edge) * np.minimum(u, 1.0) ** 2.2
+    wb = np.exp(-((y[front][None, :] - yb[:, None]) / 0.6) ** 2 - ((x[front][None, :] - hb[:, None]) / 0.6) ** 2)
+    eb = (wb * z[front][None, :]).sum(1) / np.maximum(wb.sum(1), 1e-9)
+    for _ in range(4):   # 再沿高度平滑，網格一排排的取樣不在邊緣留下鋸齒
+        eb[1:-1] = 0.25 * eb[:-2] + 0.5 * eb[1:-1] + 0.25 * eb[2:]
+    edge = np.interp(ys, yb, eb)
+    u = np.minimum(xs / h, 1.0)
+    target = c - (c - edge) * u ** 2
+    # 往邊緣漸漸換回原本的表面：(1 − u²)² 在 u = 1 時值與斜率都是 0，交界不出折線
+    phi = (1 - u ** 2) ** 2
     ramp = lambda t: np.clip(t, 0, 1) ** 2 * (3 - 2 * np.clip(t, 0, 1))
-    inside = 1 - ramp((u - 0.9) / 0.4)
     W = ramp((ys - lo) / 1.2) * ramp((hi - ys) / 1.5) * ramp(N[sel, 2] / 0.5)
-    P[sel, 2] = zs + W * (inside * (target - zs) - g * np.exp(-((xs - h) / 0.7) ** 2))
+    P[sel, 2] = zs + W * (phi * (target - zs) - g * np.exp(-((xs - h) / 0.9) ** 2))
     return P
 
 
@@ -385,10 +389,48 @@ def vertex_normals(P, faces):
     return N / np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
 
 
+# 整體平滑（作者 2026-10-27：恥丘外移後和周圍的斷層、恥丘到大陰唇之間的凹、臀下的弧度都要順）：
+# 胯下正面與臀下兩區，在細分後的網格上做 Taubin 平滑（一步往鄰點平均、一步往回推，體積不會一直縮），
+# 消掉籠點與隆起層交界留下的小起伏；權重往區外漸漸歸零。中間的縫在平滑之後才刻，不會被抹掉。
+FAIR = dict(iters=80, lam=0.5, mu=-0.53,
+            front=dict(y=(75.0, 86.5), x=10.0), back=dict(y=(73.5, 83.5), x=11.0))
+
+
+def fair(P, faces):
+    P = np.array(P, float)
+    F = FAIR
+    E = set()
+    for f in faces:
+        for a, b in zip(f, list(f[1:]) + [f[0]]):
+            E.add((min(a, b), max(a, b)))
+    E = np.array(sorted(E))
+    cnt = np.zeros(len(P))
+    np.add.at(cnt, E[:, 0], 1)
+    np.add.at(cnt, E[:, 1], 1)
+    ramp = lambda t: np.clip(t, 0, 1) ** 2 * (3 - 2 * np.clip(t, 0, 1))
+    x, y, z = np.abs(P[:, 0]), P[:, 1], P[:, 2]
+    w = np.zeros(len(P))
+    for key, side in (('front', z > 0), ('back', z < 0)):
+        lo, hi = F[key]['y']
+        r = ramp((y - lo) / 1.5) * ramp((hi - y) / 1.5) * (1 - ramp((x - F[key]['x'] + 2.0) / 2.0))
+        w = np.maximum(w, r * side)
+    # 邊界（大腿下緣、上緣切口）不動
+    w *= ramp((y - 70.0) / 1.0) * ramp((97.0 - y) / 1.0)
+    mid = np.abs(P[:, 0]) < 1e-6
+    for _ in range(F['iters']):
+        for k in (F['lam'], F['mu']):
+            acc = np.zeros_like(P)
+            np.add.at(acc, E[:, 0], P[E[:, 1]])
+            np.add.at(acc, E[:, 1], P[E[:, 0]])
+            P += (k * w)[:, None] * (acc / cnt[:, None] - P)
+            P[mid, 0] = 0
+    return P
+
+
 def crotch_detail(P, faces=None, scale=1.0):
     P = np.array(P, float)
     if faces is not None:
-        P = mound(P, faces)
+        P = fair(mound(P, faces), faces)
     pts = np.array(CLEFT['path'], float)
     t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(pts[:, :2], axis=0), axis=1))]
     u = np.linspace(0, t[-1], 200)
