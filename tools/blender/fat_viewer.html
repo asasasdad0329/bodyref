@@ -9,15 +9,17 @@
     --fg: #22221f;          /* 文字 */
     --muted: #6d6b65;       /* 次要文字 */
     --accent: #c26a1a;      /* 脂肪曲線的橘（和研究圖同色系） */
-    --clay: #a8a7a2;        /* 灰模 */
+    --clay: #a8a7a2;        /* 灰模（臀負責的範圍） */
+    --belly: #b9c4cf;       /* 下腹：交給腹部 */
+    --thigh: #8f8e89;       /* 褲管以下的大腿 */
     --display: "Barlow Condensed", "Noto Sans TC", system-ui, sans-serif;
     --body: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; color-scheme: dark; }
+    :root:not([data-theme="light"]) { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; --belly: #8696a6; --thigh: #7c7b77; color-scheme: dark; }
   }
-  :root[data-theme="dark"] { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; color-scheme: dark; }
+  :root[data-theme="dark"] { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; --belly: #8696a6; --thigh: #7c7b77; color-scheme: dark; }
   html, body { height: 100%; }
   body { background: var(--stage); color: var(--fg); font-family: var(--body); }
   .stage { position: relative; height: 100%; }
@@ -35,6 +37,15 @@
     left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px));
   }
   .status { bottom: auto; top: 44px; font-size: .9rem; color: var(--fg); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .78rem; color: var(--muted); width: 100%; }
+  .legend i { display: inline-block; width: .8em; height: .8em; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .toggle {
+    position: absolute; bottom: 34px; right: max(16px, env(safe-area-inset-right, 0px));
+    font: inherit; font-size: .85rem; color: var(--fg); background: var(--stage);
+    border: 1px solid var(--muted); border-radius: 6px; padding: 7px 12px; cursor: pointer;
+  }
+  .toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 
 <div class="stage">
@@ -42,7 +53,9 @@
   <div class="label">
     <h1>臀・純脂肪線</h1>
     <div class="now" aria-live="off">全身脂肪 <b id="fat">17.0</b> kg・臀圍 <span id="hip">—</span> cm</div>
+    <div class="legend"><span><i id="sw0"></i>臀負責（平口褲範圍）</span><span><i id="sw1"></i>下腹（交給腹部）</span><span><i id="sw2"></i>褲管以下的大腿</span></div>
   </div>
+  <button class="toggle" id="thighs" type="button" aria-pressed="false">隱藏大腿</button>
   <div class="status" id="status">載入模型中…</div>
   <div class="hint" id="hint">拖曳旋轉・雙指或滾輪縮放</div>
 </div>
@@ -79,7 +92,17 @@ camera.add(key);
 const fill = new THREE.DirectionalLight(0xffffff, 0.35);
 fill.position.set(0.8, -0.1, 0.4);
 camera.add(fill);
-const material = new THREE.MeshStandardMaterial({ color: css('--clay'), roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
+// 分區用頂點顏色（DECISIONS #62）；「隱藏大腿」用切平面切在褲管高度
+const hem = new THREE.Plane(new THREE.Vector3(0, 1, 0), -meta.hem_y);
+const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide, clippingPlanes: [] });
+renderer.localClippingEnabled = true;
+$('thighs').addEventListener('click', (e) => {
+  const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+  e.currentTarget.textContent = on ? '顯示大腿' : '隱藏大腿';
+  material.clippingPlanes = on ? [hem] : [];
+  material.needsUpdate = true;
+});
 const target = new THREE.Vector3(0, 84, 0);
 const controls = new OrbitControls(camera, canvas);
 controls.target.copy(target);
@@ -87,9 +110,14 @@ controls.enableDamping = true;
 controls.minDistance = 45;
 controls.maxDistance = 260;
 
+let colors;
 function applyTheme() {
   scene.background = new THREE.Color(css('--stage'));
-  material.color.set(css('--clay'));
+  const pal = ['--clay', '--belly', '--thigh'].map((v) => new THREE.Color(css(v)));
+  pal.forEach((c, k) => { $('sw' + k).style.background = '#' + c.getHexString(); });
+  if (!colors) return;
+  for (let i = 0; i < meta.nv; i++) pal[zone[i]].toArray(colors, i * 3);
+  geometry.attributes.color.needsUpdate = true;
 }
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
@@ -112,7 +140,7 @@ function frame() {
   controls.update();
 }
 
-let frames, positions, geometry;
+let frames, positions, geometry, zone;
 function locate(F) {
   const t = Math.min(Math.max((F - Fmin) / meta.step_F, 0), meta.F.length - 1);
   const i = Math.min(Math.floor(t), meta.F.length - 2);
@@ -134,11 +162,16 @@ try {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   frames = new Int16Array(bytes.buffer, 0, meta.F.length * meta.nv * 3);
-  const index = new Uint32Array(bytes.buffer, frames.byteLength, meta.nt * 3);
+  const at = Math.ceil(frames.byteLength / 4) * 4;   // 頂點資料後補齊到 4 位元組
+  const index = new Uint32Array(bytes.buffer, at, meta.nt * 3);
   positions = new Float32Array(meta.nv * 3);
   geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(index, 1));
+  zone = new Uint8Array(bytes.buffer, at + index.byteLength, meta.nv);
+  colors = new Float32Array(meta.nv * 3);
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  applyTheme();
   scene.add(new THREE.Mesh(geometry, material));
   $('status').hidden = true;
 } catch (e) {
