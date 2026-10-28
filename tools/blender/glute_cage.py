@@ -60,11 +60,11 @@ FRONT = {
     'groin': [(76, 0.4), (79, 0.65), (84, 0.6), (89, 0.35), (92, 0.0)],
     # 恥丘下段溝底再加深一點：往下接大陰唇和大腿之間的摺（FOLD，約 0.7），溝深要一路漸增，
     # 不能在恥丘下緣突然變深（那會在大陰唇兩角勾一下）。只壓溝底附近，往恥丘那側收得窄，恥丘的弧不受影響。
-    'groin_low': [(79.0, 0.42), (80.6, 0.22), (82.5, 0.05), (84.0, 0.0)],
+    'groin_low': [(79.0, 0.15), (80.6, 0.08), (82.5, 0.0), (84.0, 0.0)],
     # 恥丘截面（鼠蹊溝以內）的方圓：2 是拋物線；下段稍飽，溝底加深（groin_low）時溝內側不會跟著塌
     'mons_p': [(79.0, 2.9), (80.6, 2.5), (82.5, 2.2), (84.0, 2.0)],
     # 恥丘正中的側影（往下接 CROTCH_FRONT、CHAIN）：每段斜率往下只增不減，是同一條同向彎的弧
-    'mid': [(77.4, 6.5), (78.0, 7.0), (79.0, 7.5), (80.0, 7.88), (81.0, 8.17), (82.0, 8.38), (83.0, 8.52),
+    'mid': [(77.0, 6.1), (77.4, 6.5), (78.0, 7.0), (79.0, 7.5), (80.0, 7.88), (81.0, 8.17), (82.0, 8.38), (83.0, 8.52),
             (84.5, 8.6), (86.0, 8.6)],
 }
 # 骨盆截面的後半：每一邊臀是一段圓弧（圓心 (xk, B + R)、半徑 R），從臀縫旁（x_in）繞到外後方，
@@ -72,8 +72,9 @@ FRONT = {
 BACK = {
     'xk': [(76, 6.2), (79, 6.5), (83, 6.7), (87, 6.3), (91, 5.2), (95, 4.2), (98, 3.8)],
     'R': [(76, 5.5), (79, 6.6), (83, 7.2), (87, 8.0), (91, 10.5), (95, 14.0), (98, 16.0)],
-    'x_in': [(77, 0.9), (85, 1.0), (92, 1.6), (98, 2.5)],
-    'cleft': [(77.5, 6.0), (79, 5.0), (82, 4.2), (86, 3.2), (90, 1.8), (93, 0.7), (96, 0.0)],
+    'x_in': [(77, 0.55), (80, 0.8), (85, 1.0), (92, 1.6), (98, 2.5)],
+    # 臀縫由上往下越深，最深處在肛門（R22，約 6～7 公分）
+    'cleft': [(77.5, 7.2), (79, 5.4), (82, 4.2), (86, 3.2), (90, 1.8), (93, 0.7), (96, 0.0)],
     'dimple': (0.35, 94.5, 1.8, 4.2, 1.3),   # 腰窩（髂後上棘）：深度、高度、上下寬、離正中、左右寬
     'pl': [(76, 1.85), (79, 2.0), (83, 2.4), (90, 2.2), (98, 2.0)],   # 外側到臀峰那段的方圓（2 是橢圓，越大越飽）
 }
@@ -84,10 +85,10 @@ LEG = {
     'cz': [(69.5, -0.7), (73, -0.9), (75, -1.1), (78, -1.4)],
     # 大腿前側最前面的位置；鼠蹊溝外側的骨盆截面也用這個形（大腿往上捲進鼠蹊溝，不是在髖前面橫出一道凹）
     'front': [(69.5, 7.2), (72, 7.3), (75, 7.4), (78, 7.6), (81, 7.55), (84, 7.35), (87, 7.05), (90, 6.8)],
-    'mf': [(69.5, 6.7), (73, 7.7), (75, 9.0), (78, 9.0)],
+    'mf': [(69.5, 6.7), (73, 7.6), (75, 8.7), (78, 8.7)],
     'mb': [(69.5, 6.8), (73, 7.9), (75, 9.0), (76.5, 9.3), (78, 9.3)],
     'pfm': [(69.5, 2.2), (73, 2.3), (75, 2.6), (78, 2.7)],
-    'torso': [(69.5, 0.0), (73.5, 0.0), (75.4, 0.12), (76.8, 0.45), (78.0, 0.85)],
+    'torso': [(69.5, 0.0), (73.5, 0.0), (75.4, 0.12), (76.8, 0.45), (78.0, 0.85), (79.4, 1.0)],
     'torso_lat': [(69.5, 0.0), (72.0, 0.0), (73.8, 0.3), (75.4, 0.7), (76.8, 0.92), (78.0, 1.0)],
     'torso_front': [(69.5, 0.0), (76.8, 0.0), (78.0, 0.3)],
     # 後內側的方圓：臀縫正下方要方一點，兩腿後內側往正中靠，臀縫底下只露一個往下張開的小三角；
@@ -98,23 +99,29 @@ LEG_P = dict(pl=2.2, pfl=2.2, pbl=2.2, phi_f=-40.0, phi_b=235.0)
 
 # ---------- 2. 層與拓撲 ----------
 N_HALF = 29          # 骨盆半圈的點數（含正前、正後兩個正中點）
-PELVIS_Y = [98.0, 96.0, 94.0, 92.0, 90.0, 88.0, 86.5, 85.0, 83.5, 82.0, 80.6, 79.4]
-LEG_Y = [78.0, 76.8, 75.4, 73.8, 71.8, 69.5]
-# 胯下：最後一層骨盆的正前、正後換成胯下正中的兩端；中間一串正中點（後 → 前）是會陰與大陰唇下緣，
-# 把左右腿分開。第一圈腿圈內側的點是大陰唇和大腿之間的摺。
-CROTCH_FRONT = (79.0, 7.5)    # (y, z) 恥丘往下收成大陰唇的地方（正中，在 FRONT['mid'] 上）
-CROTCH_BACK = (77.0, -6.4)    # 臀縫底：兩邊臀部一路貼到這裡才接會陰
-# 正中側影（會陰 → 大陰唇下端 → 恥丘）是一條同向彎的弧：往上每段的斜率只增不減（作者 2026-10-27）
-CHAIN = [(76.8, -4.4), (76.4, -2.0), (76.0, 0.4), (75.9, 2.8), (76.2, 4.9), (77.4, 6.5)]
-# 第一圈腿圈的內弧（後 → 前）：大陰唇和大腿之間的摺，往前、往上接鼠蹊溝。和最後一層骨盆＋會陰串的對應：
-#   FOLD[0] ↔ 臀縫底（CROTCH_BACK）；FOLD[1..] ↔ 會陰串各點；最後三點 ↔ CROTCH_FRONT、恥丘第 2、3 列。
-# 所以恥丘的縱列往下是接到大陰唇和它旁邊的摺，不是扭到大腿上（那會在恥丘下緣橫出一道摺）；
-# 腿圈的外弧從大腿前內側開始，對應骨盆的第 4 列（鼠蹊溝底）。
-FOLD = [(0.25, 77.2, -6.9), (0.85, 76.95, -4.8), (1.3, 76.8, -2.2), (1.6, 76.4, 0.4), (1.9, 76.4, 2.8), (2.1, 76.8, 4.9),
-        (2.25, 77.2, 5.5), (2.45, 77.7, 5.85), (2.6, 78.0, 6.0), (2.8, 78.4, 6.1)]
-FRONT_COLS = 3   # 骨盆最後一層前面幾列對到 FOLD 的尾端（恥丘的拋物線佔 0～2 列，第 3 列是鼠蹊溝底）
-N_OUTER = N_HALF - FRONT_COLS - 1
-N_INNER = len(CHAIN) + FRONT_COLS + 1
+PELVIS_Y = [98.0, 96.0, 94.0, 92.0, 90.0, 88.0, 86.5, 85.0, 83.5, 82.0, 80.6, 79.4, 78.6, 77.8]
+LEG_Y = [77.0, 75.9, 74.7, 73.3, 71.6, 69.5]
+# 胯下（R22、DECISIONS #67）：骨盆層往下延伸到大陰唇正面的下段與臀縫底，恥丘的縱列直直往下接大陰唇正面，
+# 臀縫的縱列往下接到肛門區。最後一層骨盆的正前、正後換成胯下正中的兩端；中間一串正中點（後 → 前）是
+# 會陰與大陰唇的底面，把左右腿分開。網格在這兩端各有一個六條邊的點（細分在那裡曲率會不連續），
+# 所以兩端放在看不到的地方：前端在大陰唇下緣往底下轉的地方，後端在肛門（臀縫最深處）。
+CROTCH_FRONT = (77.0, 6.1)    # (y, z) 大陰唇正面往底下轉的地方（正中）
+CROTCH_BACK = (77.75, -5.6)   # 臀縫底（最後一層骨盆的高度），往前下一點就是肛門
+# 正中（後 → 前）：肛門（臀縫最深處，不做洞，R22、#67）→ 會陰（約 3 公分）→ 大陰唇底面 → 大陰唇正面下緣
+CHAIN = [(77.3, -4.8), (77.0, -3.3), (76.6, -1.7), (76.15, 0.3), (75.95, 2.3), (76.1, 4.1), (76.45, 5.3)]
+# 大陰唇正面和大腿之間的摺（鼠蹊溝往下的延續），各高度的 (y, x, z)；骨盆層在 79.4 以下的截面用它
+FOLD_FRONT = [(76.5, 2.15, 5.1), (77.0, 2.35, 5.5), (77.8, 2.7, 5.9), (78.6, 3.0, 6.1), (79.4, 3.26, 6.42)]
+# 胯下的帶狀網格（STRIP 格寬）：最後一層骨盆前面的第 0～STRIP 列（大陰唇正面）直直往下、繞到底下，
+# 一路到後面接臀縫的最後 STRIP+1 列（臀縫內壁）：第 0 列是正中（CHAIN），第 STRIP 列是大陰唇／會陰和大腿
+# 之間的摺（FOLD），中間幾條在大陰唇底面是圓頂（strand_points）。腿圈從摺的外側開始。
+# 這樣大陰唇正面和底面的格數一樣，不會在大陰唇兩角轉彎（之前的唇邊與小勾）。網格的四個五條邊的點
+# 在摺的兩端（大陰唇下角、臀縫內壁下端），都在溝裡。
+STRIP = 3
+# 摺（後 → 前），和 CHAIN 一點對一點
+FOLD = [(0.4, 77.45, -5.5), (0.85, 77.0, -3.6), (1.15, 76.6, -1.9), (1.5, 76.15, 0.3), (1.8, 76.0, 2.3), (2.05, 76.2, 4.1),
+        (2.3, 76.65, 5.2)]
+N_OUTER = N_HALF - 2 * STRIP
+N_INNER = len(CHAIN)
 
 
 def curve(pts, y):
@@ -180,8 +187,44 @@ def groin_x(y):
     return 3.0 + 8.5 * min(max((y - 79.0) / 13.0, 0.0), 1.0)
 
 
+def edge_x(y):
+    """恥丘／大陰唇正面的外緣：79.4 以上是鼠蹊溝（groin_x），以下是大陰唇和大腿之間的摺（FOLD_FRONT）。"""
+    if y >= FOLD_FRONT[-1][0]:
+        return groin_x(y)
+    return float(np.interp(y, [f[0] for f in FOLD_FRONT], [f[1] for f in FOLD_FRONT]))
+
+
 def front_z(y, x):
-    """骨盆截面前半在 (y, x) 的前後位置：下腹弧面、恥丘、鼠蹊溝（沿用已確認過的正面造型）。"""
+    """骨盆截面前半在 (y, x) 的前後位置：下腹弧面、恥丘、鼠蹊溝；79.4 以下是大陰唇正面與旁邊的摺。"""
+    if y < FOLD_FRONT[-1][0]:
+        return labia_front_z(y, x)
+    if x >= groin_x(y):
+        return thigh_side_z(y, x)
+    return mons_front_z(y, x)
+
+
+def thigh_side_z(y, x):
+    """鼠蹊溝／摺外側（大腿那邊）的前後位置：骨盆截面的形，往下漸漸換成腿圈用的大腿截面（leg_curve），
+    在 80.6 以下開始換、到最後一層骨盆換完，大腿前面不會在骨盆層和腿圈之間鼓一圈或凹一道。"""
+    m, t = mons_front_z(y, x), thigh_front_z(y, x)
+    if not math.isfinite(t):
+        return m
+    u = min(max((80.6 - y) / (80.6 - PELVIS_Y[-1]), 0.0), 1.0)
+    return m + (t - m) * u * u * (3 - 2 * u)
+
+
+def labia_front_z(y, x):
+    """大陰唇正面（R22：恥丘往下的延續，前端最厚）：摺以內是從正中往摺收的拋物線，摺以外是大腿，
+    在摺上壓下去。"""
+    fy = [f[0] for f in FOLD_FRONT]
+    fx, fz = float(np.interp(y, fy, [f[1] for f in FOLD_FRONT])), float(np.interp(y, fy, [f[2] for f in FOLD_FRONT]))
+    if x < fx:
+        zm = curve(FRONT['mid'], y)
+        return zm - (zm - fz) * (x / fx) ** 2
+    return thigh_side_z(y, x) - (thigh_side_z(y, fx) - fz) * math.exp(-((x - fx) / 1.0) ** 2)
+
+
+def mons_front_z(y, x):
     W, zf, zc, pf = curve(PROFILE['W'], y), curve(PROFILE['F'], y), curve(FRONT['zc'], y), curve(FRONT['pf'], y)
     belly, groin = curve(FRONT['belly'], y), curve(FRONT['groin'], y)
     mons = 0.35 * math.exp(-((y - 81.2) / 1.4) ** 2)
@@ -228,7 +271,7 @@ def thigh_front_z(y, x):
 def front_handles(y):
     """骨盆截面前半的控制點（正前 → 側面）。前四點固定是 0、gx/3、2gx/3、gx（pelvis_section 讓籠的
     前四縱列正好落在這裡：溝底永遠在第 4 列上，不會斜斜穿過好幾列，細分後才不會在溝旁起伏）。"""
-    W, zc, gx = curve(PROFILE['W'], y), curve(FRONT['zc'], y), groin_x(y)
+    W, zc, gx = curve(PROFILE['W'], y), curve(FRONT['zc'], y), edge_x(y)
     xs = [0.0, gx / 3, 2 * gx / 3, gx]
     xs += [x for x in sorted({gx + 1.0} | {u * W for u in (0.28, 0.42, 0.56, 0.7, 0.82, 0.91)}) if x > gx + 0.45]
     xs = [x for i, x in enumerate(xs) if i < 4 or x - xs[i - 1] > 0.45]
@@ -327,14 +370,55 @@ def toward_pelvis(y, pts, wts):
 
 
 def leg_ring(y, k):
-    """第 k 圈腿圈：外弧（大腿前內 → 外側 → 後內）N_OUTER 點，對應骨盆最後一層第 3 列到臀縫前一列；
-    內弧（後 → 內側 → 前）N_INNER 點，第一圈是 FOLD，之後是大腿內側。上段腿圈依 torso 權重往骨盆截面靠，
+    """第 k 圈腿圈：外弧（大腿前內 → 外側 → 後內）N_OUTER 點，對應骨盆最後一層第 STRIP～N−1−STRIP 列；
+    內弧（後 → 內側 → 前）N_INNER 點，在摺（FOLD）的下方。上段腿圈依 torso 權重往骨盆截面靠，
     臀底才是從臀的圓弧換成大腿。"""
     f, b = LEG_P['phi_f'], LEG_P['phi_b']
     w = curve(LEG['torso'], y)
-    phis = np.linspace(f, b, 400)
-    outer = resample(np.c_[leg_curve(y, phis), phis], fractions(N_OUTER))
-    outer, phi = outer[:, :2], outer[:, 2]
+    outer = leg_outer(y)
+    # 內弧（後 → 前）：每一點在摺上對應那一點的下方（腿圈靠近胯下的那一側往下斜），不會比摺高
+    phi_in = np.linspace(b, f + 360, N_INNER + 2)[1:-1]
+    taper = np.cos(np.linspace(0, np.pi, N_INNER + 2)[1:-1]) ** 2     # 兩端接外弧，正內側不動
+    inner, ys = [], []
+    for j, (ph, (_, fy, _)) in enumerate(zip(phi_in, FOLD)):
+        yy = min(y, fy - 0.9 * (k + 1))
+        q = leg_curve(yy, [ph])
+        inner.append(toward_pelvis(yy, q, np.array([w * taper[j]]))[0])
+        ys.append(yy)
+    return [(x, y, z) for x, z in outer] + [(x, yy, z) for (x, z), yy in zip(inner, ys)]
+
+
+def column_angles():
+    """腿圈外弧各縱列的方向：骨盆層（79.4，大陰唇正面那幾層的上一層）第 STRIP～N−1−STRIP 列的點，
+    從大腿軸看過去的方位角（0° 正前、90° 外側、180° 正後）。腿圈都沿這些方向取點，縱列在骨盆層和腿圈之間
+    是同一條線，不會因為兩邊取點方式不同而左右錯開（那會在臀下、大腿上繞一圈起皺）。"""
+    y = FOLD_FRONT[-1][0]
+    S = pelvis_section(y)[STRIP:N_HALF - STRIP]
+    c = np.array([thigh_cx(y), curve(LEG['cz'], y)])
+    a = np.degrees(np.arctan2(S[:, 0] - c[0], S[:, 1] - c[1]))
+    return np.where(a < -90, a + 360, a)
+
+
+COLUMN_ANGLES = None
+
+
+def leg_outer(y):
+    """腿圈的外弧（大腿前內 → 外側 → 後內）N_OUTER 點：沿 column_angles 的方向打到大腿截面（leg_curve），
+    再依 torso 權重往骨盆截面靠。最後兩層骨盆（大陰唇正面那幾層）的外側也用這個。"""
+    global COLUMN_ANGLES
+    if COLUMN_ANGLES is None:
+        COLUMN_ANGLES = column_angles()
+    phi = COLUMN_ANGLES
+    w = curve(LEG['torso'], y)
+    c = np.array([thigh_cx(y), curve(LEG['cz'], y)])
+    C = leg_curve(y, np.linspace(-90.0, 270.0, 721))
+    C = np.vstack([C, C[:1]])
+    outer = []
+    for a in np.radians(phi):
+        d = np.array([math.sin(a), math.cos(a)])
+        r = ray_hit(C, c, d)
+        outer.append(c + d * r)
+    outer = np.array(outer)
     # 外側（大轉子那一面）比前後更早換成骨盆的形：臀溝只在後面、往外側漸淡，不橫切整個臀底
     # 前內側（恥丘旁）反過來比較晚換：大腿前內側要往正中後縮，大陰唇和大腿的交界才是斜下的 V，
     # 不然骨盆截面的寬平前面會一路延到胯下，交界變成一條橫線。
@@ -344,51 +428,65 @@ def leg_ring(y, k):
     front = 1 - ramp((phi + 10.0) / 50.0)
     wts = w + (max(wl, w) - w) * side
     wts = wts + (min(wf, w) - wts) * front
-    outer = toward_pelvis(y, outer, wts)
-    if k == 0:
-        inner = [(x, z) for x, _, z in FOLD]
-        ys = [yy for _, yy, _ in FOLD]
-    else:
-        inner = resample(leg_curve(y, np.linspace(b, f + 360, 200)), np.linspace(0, 1, N_INNER + 2))[1:-1]
-        taper = np.cos(np.linspace(0, np.pi, N_INNER + 2)[1:-1]) ** 2     # 兩端接外弧，正內側不動
-        inner = toward_pelvis(y, inner, w * taper)
-        ys = [y] * N_INNER
-    return [(x, y, z) for x, z in outer] + [(x, yy, z) for (x, z), yy in zip(inner, ys)]
+    return toward_pelvis(y, outer, wts)
+
+
+def strand_points(k):
+    """帶狀網格的第 k 條（0 正中、STRIP 摺）：從正中到摺之間，x 照比例，高度與前後用拋物線（圓頂）：
+    靠正中的地方比兩端連線更往外（底下往下、正面往前）。"""
+    t = k / STRIP
+    out = []
+    for (cy, cz), (fx, fy, fz) in zip(CHAIN, FOLD):
+        out.append((fx * t, cy + (fy - cy) * t * t, cz + (fz - cz) * t * t))
+    return out
 
 
 def cage():
     """左半籠的頂點與四邊形面（頂點座標用素體慣例）。"""
     V, F, rings = [], [], []
-    for y in PELVIS_Y:
+    secs = [np.c_[pelvis_section(y)[:, 0], np.full(N_HALF, y), pelvis_section(y)[:, 1]] for y in PELVIS_Y]
+    # 大陰唇正面那幾層（79.4 以下）的外側（摺外到臀縫旁）用腿圈的外弧，縱列方向和腿圈一致
+    for i, y in enumerate(PELVIS_Y):
+        if y < FOLD_FRONT[-1][0]:
+            g = leg_outer(y)
+            secs[i][STRIP + 1:N_HALF - STRIP - 1] = np.c_[g[1:-1, 0], np.full(N_OUTER - 2, y), g[1:-1, 1]]
+    for y, S in zip(PELVIS_Y, secs):
         rings.append(list(range(len(V), len(V) + N_HALF)))
-        V += [(x, y, z) for x, z in pelvis_section(y)]
+        V += [tuple(p) for p in S]
     last = rings[-1]
     V[last[0]] = (0.0, *CROTCH_FRONT)
     V[last[-1]] = (0.0, *CROTCH_BACK)
     for a, b in zip(rings, rings[1:]):
         for k in range(N_HALF - 1):
             F.append((a[k], a[k + 1], b[k + 1], b[k]))
-    chain = list(range(len(V), len(V) + len(CHAIN)))
-    V += [(0.0, y, z) for y, z in CHAIN]
-    loops = [last + chain]
+    # 胯下的帶：每條 strand 後 → 前，兩端接最後一層骨盆的前、後列
+    strands = []
+    for k in range(STRIP + 1):
+        idx = list(range(len(V), len(V) + len(CHAIN)))
+        V += [(0.0, y, z) for y, z in CHAIN] if k == 0 else strand_points(k)
+        strands.append([last[-1 - k]] + idx + [last[k]])
+    for a, b in zip(strands, strands[1:]):
+        for i in range(len(a) - 1):
+            F.append((a[i], a[i + 1], b[i + 1], b[i]))
+    # 腿：第一圈接「最後一層骨盆第 STRIP～N−1−STRIP 列＋摺」這一圈
+    top = last[STRIP:N_HALF - STRIP] + strands[-1][1:-1]
+    loops = [top]
     for k, y in enumerate(LEG_Y):
-        loops.append(list(range(len(V), len(V) + N_HALF + len(CHAIN))))
+        loops.append(list(range(len(V), len(V) + N_OUTER + N_INNER)))
         V += leg_ring(y, k)
-    for i, (a, b) in enumerate(zip(loops, loops[1:])):
+    for a, b in zip(loops, loops[1:]):
         n = len(a)
-        s = FRONT_COLS if i == 0 else 0      # 骨盆＋會陰串那一圈和第一圈腿圈錯開 FRONT_COLS 個對應（見 FOLD）
         for k in range(n):
-            F.append((a[k], a[(k + 1) % n], b[(k + 1 - s) % n], b[(k - s) % n]))
+            F.append((a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]))
     return np.array(V, float), F
 
 
 def sharp_points():
-    """擬合籠時差值不平滑、直接補的點（glute_scene.fit_cage 的 sharp）：胯下正中兩端、會陰串與第一圈腿圈的內弧
-    （大陰唇和大腿之間的摺、往上接的鼠蹊溝）。這幾點是刻意做的小起伏，平滑過的差值補不到。索引和 cage() 的頂點順序一致。"""
+    """擬合籠時差值不平滑、直接補的點（glute_scene.fit_cage 的 sharp）：胯下正中兩端與整條胯下的帶
+    （大陰唇底面、會陰、摺）。這幾點是刻意做的小形，平滑過的差值補不到。索引和 cage() 的頂點順序一致。"""
     start = N_HALF * len(PELVIS_Y)
-    ring0 = start + len(CHAIN)
     front, back = start - N_HALF, start - 1          # 最後一層骨盆換成胯下兩端的那兩點
-    return np.array([front, back] + list(range(start, ring0)) + list(range(ring0 + N_OUTER, ring0 + N_OUTER + N_INNER)))
+    return np.array([front, back] + list(range(start, start + (STRIP + 1) * len(CHAIN))))
 
 
 def to_blender(p):
@@ -421,8 +519,9 @@ LANDMARKS = {
 # 正面是一道淺凹痕，往下到胯下兩片緊貼、只剩一條線，往後到會陰前漸淡。不做小陰唇、陰蒂等裡面的形。
 # 縫沿著一條路徑（正中平面上，(高 y, 前後 z, 深度)）走，往路徑的內側壓；scale 隨脂肪量。
 CLEFT = dict(
-    path=[(80.6, 8.1, 0.0), (80.0, 7.9, 0.05), (79.5, 7.7, 0.14), (78.5, 7.2, 0.22), (77.5, 6.55, 0.25),
-          (76.8, 5.85, 0.25), (76.4, 4.9, 0.22), (76.1, 3.5, 0.18), (76.0, 2.0, 0.1), (76.4, 0.3, 0.0)],
+    # 作者 2026-10-28：中間的縫不一定要做；正面不刻，只在大陰唇下段往底下的地方留一點
+    path=[(77.4, 6.5, 0.0), (77.0, 6.1, 0.05), (76.45, 5.3, 0.12), (76.1, 4.1, 0.15), (75.95, 2.4, 0.12),
+          (76.1, 0.5, 0.05), (76.5, -1.5, 0.0)],
     # 縫的半寬隨深度：上端淺而寬，往下兩片貼緊、窄而清楚
     # 細分後大陰唇正面的頂點間距約 0.5～0.8 公分，縫要比這寬才刻得出一道順的凹，不會刻成一排排的線
     w=[(80.6, 1.2), (79.5, 1.15), (78.5, 1.1), (77.0, 1.0), (76.0, 0.9)],

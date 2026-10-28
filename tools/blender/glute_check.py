@@ -6,7 +6,8 @@
 3. 兩腿之間要有縫：站直不夾腿時，胯下以下的大腿內側離正中要大於 0。
 4. 鼠蹊溝往下接大陰唇旁的摺，溝深漸變（不在大陰唇兩角勾一下）。
 5. 臀縫底從正後方看是往下張開的小三角，不先鼓成圓口或兩瓣。
-6. 臀圍、大腿圍（只回報，這一步先塑形，不設門檻）。
+6. 胯下正面與臀縫底沒有曲率突變（細分網格的不規則點附近會起稜、起皺）。
+7. 臀圍、大腿圍（只回報，這一步先塑形，不設門檻）。
 
 用法：glute_model.py 跑完會自動檢查一次；也可以單獨對它輸出的 glute_model.npz（或任何含 P、T 的 npz）跑：
     python3 tools/blender/glute_check.py 輸出資料夾/glute_model.npz
@@ -32,6 +33,7 @@ CHECK = dict(
     opening_y=(75.5, 79.01),   # 檢查臀縫底開口的高度範圍
     crease_y=(77.5, 84.01),    # 檢查鼠蹊溝深度連續的高度範圍（大陰唇旁的摺往上到恥丘旁）
     crease_step=0.12,          # 鼠蹊溝相鄰 0.5 公分的深度差上限（公分）
+    jump_tol=0.8,              # 曲率突變上限（curvature_jump；平順的地方 < 0.3）
     opening_tol=0.15,          # 臀縫底開口往下變窄的容許量（公分）
     vertical_tol=0.08,         # 縱向側影的凹深容許量（弦長 3 公分；0.08 ≈ 半徑 14 公分的淺凹）
 )
@@ -311,6 +313,42 @@ def check_crease(P, T):
     return bad, c
 
 
+def curvature_jump(P, T):
+    """平均曲率和它周圍（鄰點平均三次）的差：曲率在一兩個網格內突然跳（細分網格不規則點附近的稜、皺褶）。"""
+    E = np.unique(edges_of(T), axis=0)
+    N = vertex_normals_tri(P, T)
+    acc, cnt = np.zeros_like(P), np.zeros(len(P))
+    for a, b in ((0, 1), (1, 0)):
+        np.add.at(acc, E[:, a], P[E[:, b]])
+        np.add.at(cnt, E[:, a], 1)
+    el = np.linalg.norm(P[E[:, 0]] - P[E[:, 1]], axis=1)
+    h = np.zeros(len(P))
+    np.add.at(h, E[:, 0], el)
+    np.add.at(h, E[:, 1], el)
+    h /= 2 * cnt
+    H = -((acc / cnt[:, None] - P) * N).sum(1) / (h * h)
+    Hs = H.copy()
+    for _ in range(3):
+        s_ = np.zeros(len(P))
+        np.add.at(s_, E[:, 0], Hs[E[:, 1]])
+        np.add.at(s_, E[:, 1], Hs[E[:, 0]])
+        Hs = 0.5 * Hs + 0.5 * s_ / cnt
+    return np.abs(H - Hs)
+
+
+def check_jump(P, T):
+    """胯下正面（恥丘下緣、大陰唇、摺）與臀縫底的曲率突變不超過 jump_tol。正中線（大陰唇的縫、臀縫底本來
+    就是摺）不算。門檻依作者指出的兩處定：精修後那版大陰唇兩角 1.4、臀縫內側斜稜 0.88，都要抓得到。"""
+    J = curvature_jump(P, T)
+    x, y, z = np.abs(P[:, 0]), P[:, 1], P[:, 2]
+    out = []
+    for name, m in (('恥丘下緣到大陰唇', (x > 0.3) & (x < 4.5) & (y > 76.3) & (y < 81.5) & (z > 3)),
+                    ('臀縫底', (x > 0.3) & (x < 3.0) & (y > 76.0) & (y < 79.5) & (z < -3))):
+        i = np.argmax(np.where(m, J, -1))
+        out.append((name, float(J[i]), P[i]))
+    return [o for o in out if o[1] > CHECK['jump_tol']], out
+
+
 def check_gap(P, T):
     out = []
     for y in np.arange(*CHECK['gap_y'], 0.5):
@@ -373,6 +411,9 @@ def main(path):
     if ob:
         print('  往下變窄：' + '、'.join(f'y={y}（窄了 {d}）' for y, d in ob))
     ok &= not ob
+    jb, jw = check_jump(P, T)
+    print('曲率突變：' + '  '.join(f'{n} {v:.2f}' for n, v, _ in jw) + f'（上限 {CHECK["jump_tol"]}）')
+    ok &= not jb
     gap = check_gap(P, T)
     print('腿縫（大腿內側離正中，cm）：' + '  '.join(f'{y}:{g}' for y, g in gap))
     ok &= all(g > 0.15 for y, g in gap if y < 75.0)
