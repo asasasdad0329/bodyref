@@ -251,7 +251,7 @@ def solve(F):
     V = shape(F, base, N0, A0, mid, leg)
     C, err = gs.fit_cage(obj, V, Fc, sharp=sharp_points())
     P, E, faces = gs.evaluated(obj)
-    P = crotch_detail(P, faces, detail_scale(F))
+    P = crotch_detail(P, detail_scale(F))
     m, prof = gs.measure(P, E)
     if display is not None:
         gs.show(display, P)
@@ -278,7 +278,7 @@ def viewer_mesh(F):
     ev = obj.evaluated_get(dg)
     m = ev.to_mesh()
     polys = [q.vertices[:] for q in m.polygons]
-    P = crotch_detail(to_body(np.array([v.co[:] for v in m.vertices])), polys, detail_scale(F))
+    P = crotch_detail(to_body(np.array([v.co[:] for v in m.vertices])), detail_scale(F))
     tris = [(p[0], p[i], p[i + 1]) for p in polys for i in range(1, len(p) - 1)]
     ev.to_mesh_clear()
     subd.levels = 3

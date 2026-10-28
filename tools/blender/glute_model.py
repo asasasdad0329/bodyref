@@ -4,7 +4,8 @@ blender -b -noaudio --python tools/blender/glute_model.py -- <輸出資料夾>
 
 幾何在 glute_cage.py；建物件、擬合、量測、算圖在 glute_scene.py。
 輸出 .blend（籠與修改器都保留，可以在 Blender 介面裡直接調點）、glute_model.npz（設計點、擬合後的籠、
-細分後的網格加細部層、骨點）、glute_measure.json（各高度的圍、寬、厚）與灰模多視圖。
+細分後的網格加細部層、骨點）、glute_measure.json（各高度的圍、寬、厚）與灰模多視圖；
+最後跑一次 glute_check（截面凹處、恥丘側影、腿縫，DECISIONS #64）。
 """
 import json
 from pathlib import Path
@@ -35,7 +36,7 @@ for name, p in LANDMARKS.items():
         bpy.context.scene.collection.objects.link(e)
 
 P, E, F = gs.evaluated(obj)
-P = crotch_detail(P, F)
+P = crotch_detail(P)
 res, prof = gs.measure(P, E)
 print('量測', json.dumps(res, ensure_ascii=False))
 print('目標', json.dumps(TARGET, ensure_ascii=False))
@@ -43,6 +44,8 @@ print('目標', json.dumps(TARGET, ensure_ascii=False))
 np.savez(OUT / 'glute_model.npz', design=Vc, cage=Vc_cage, positions=P, faces=np.array(F, dtype=np.int32),
          landmarks=json.dumps(LANDMARKS))
 bpy.ops.wm.save_as_mainfile(filepath=str((OUT / 'glute_model.blend').resolve()))
+import glute_check  # noqa: E402
+glute_check.main(OUT / 'glute_model.npz')
 
 studio = gs.Studio(gs.display_object(obj, P, F))
 for view in gs.VIEWS:

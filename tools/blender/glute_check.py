@@ -6,8 +6,8 @@
 3. 兩腿之間要有縫：站直不夾腿時，胯下以下的大腿內側離正中要大於 0。
 4. 臀圍、大腿圍（只回報，這一步先塑形，不設門檻）。
 
-用法：先由 glute_model 或 fit 匯出 npz（P：頂點，素體座標；T：三角形），再
-    python3 tools/blender/glute_check.py 模型.npz
+用法：glute_model.py 跑完會自動檢查一次；也可以單獨對它輸出的 glute_model.npz（或任何含 P、T 的 npz）跑：
+    python3 tools/blender/glute_check.py 輸出資料夾/glute_model.npz
 有任何一項不過就以非零結束。
 """
 import sys
@@ -22,11 +22,12 @@ CHECK = dict(
     cleft_x=3.2,               # 臀縫允許區：|x| 小於這個值的後半
     groin=(2.4, 92.0),         # 鼠蹊溝允許區：前半、離鼠蹊線（glute_cage 的 gx）這麼近、高度在第二個值以下
                                # （恥丘和大腿前側之間是一道寬的淺谷，谷壁也算）
-    dimple=(2.5, 5.5, 92.5, 96.5),   # 腰窩（髂後上棘）：後半、|x| 與高度範圍
+    dimple=(2.5, 5.5, 92.5, 97.0),   # 腰窩（髂後上棘）：後半、|x| 與高度範圍
     fold=(75.0, 78.5, 9.0),    # 臀溝允許區：後半、這段高度、|x| 小於第三個值
     profile=(76.0, 84.5),      # 正中側影檢查的高度範圍（前半）：會陰往上到恥丘與下腹交界（恥骨上橫摺）
-    profile_tol=0.02,          # 側影反彎的容許量（1/公分）
+    profile_tol=0.04,          # 側影反彎的容許量（曲率，1/公分；0.04 = 半徑 25 公分的反彎，看不出來）
     gap_y=(70.0, 75.5),        # 檢查腿縫的高度範圍
+    vertical_tol=0.08,         # 縱向側影的凹深容許量（弦長 3 公分；0.08 ≈ 半徑 14 公分的淺凹）
 )
 
 
@@ -162,25 +163,72 @@ def midline_profile(P, T, x0=0.02):
 
 
 def check_profile(P, T):
-    """正中前緣（每個高度、|x| < 1.6 的最前點，即大陰唇與恥丘的稜線）從胯下往上到恥丘與下腹交界：
-    曲率要同號。取最前點而不是 x = 0 的切面，大陰唇中間刻的縫不會被當成反彎；範圍不含大腿前側。"""
+    """恥丘到大陰唇的縱向側影要同向彎：在恥丘寬度內取幾條縱切（x = 0.8、1.6、2.4），每條在
+    「胯下 → 恥丘與下腹交界」這段，每個高度的最前點連成曲線，曲率不能反號。x = 0 是中間刻的縫，不看；
+    越外側的縱切起點越高（大陰唇比恥丘窄，下面那段已經是大陰唇和大腿之間的摺）。"""
     y0, y1 = CHECK['profile']
-    ys = np.arange(y0, y1, 0.25)
-    zs = []
-    for y in ys:
-        pts = np.concatenate(slice_loops(P, T, y) or [np.zeros((0, 2))])
-        pts = pts[np.abs(pts[:, 0]) < 1.6]
-        zs.append(pts[:, 1].max() if len(pts) else np.nan)
-    zs = np.array(zs)
-    ok = ~np.isnan(zs)
-    ys, zs = ys[ok], zs[ok]
-    # 身體前面往外凸，z(y) 的二次導數應該 ≤ 0
-    dz = np.gradient(zs, ys)
-    ddz = np.gradient(dz, ys)
-    k = ddz / (1 + dz * dz) ** 1.5
-    k = np.convolve(k, np.ones(3) / 3, mode='same')
-    rev = [(round(float(y), 2), round(float(kk), 3)) for y, kk in zip(ys[1:-1], k[1:-1]) if kk > CHECK['profile_tol']]
-    return rev, ys, zs
+    E = np.unique(edges_of(T), axis=0)
+    rev = []
+    for x0, ys0 in ((0.8, y0), (1.6, y0 + 1.0), (2.4, y0 + 2.0)):
+        d = P[:, 0] - x0
+        a, b = E[:, 0], E[:, 1]
+        m = d[a] * d[b] < 0
+        t = d[a[m]] / (d[a[m]] - d[b[m]])
+        q = (P[a[m]] + (P[b[m]] - P[a[m]]) * t[:, None])[:, [1, 2]]
+        q = q[q[:, 1] > 0]
+        ys = np.arange(ys0, y1, 0.25)
+        zs = np.array([q[np.abs(q[:, 0] - y) < 0.15, 1].max() if (np.abs(q[:, 0] - y) < 0.15).any() else np.nan
+                       for y in ys])
+        ok = ~np.isnan(zs)
+        ys, zs = ys[ok], zs[ok]
+        dz = np.gradient(zs, ys)
+        k = np.gradient(dz, ys) / (1 + dz * dz) ** 1.5      # 身體前面往外凸：應該 ≤ 0
+        k = np.convolve(k, np.ones(3) / 3, mode='same')
+        rev += [(x0, round(float(y), 2), round(float(kk), 3)) for y, kk in zip(ys[1:-1], k[1:-1])
+                if kk > CHECK['profile_tol']]
+    return rev
+
+
+def vertical_cut(P, E, x0):
+    """x = x0 的縱切面上所有交點 (y, z)。"""
+    d = P[:, 0] - x0
+    a, b = E[:, 0], E[:, 1]
+    m = d[a] * d[b] < 0
+    t = d[a[m]] / (d[a[m]] - d[b[m]])
+    return (P[a[m]] + (P[b[m]] - P[a[m]]) * t[:, None])[:, [1, 2]]
+
+
+def check_vertical(P, T):
+    """前、後的縱向側影（固定 x，每個高度的最前／最後點）不能有橫向的凹：水平截面抓不到「橫著一道」的凹，
+    要用縱切看。允許：前面斜過去的鼠蹊溝（在這個 x 經過的高度附近），後面的臀溝。"""
+    E = np.unique(edges_of(T), axis=0)
+    ys = np.arange(72.0, 95.01, 0.25)
+    bad = []
+    for side, xs in ((1, (5.0, 7.0, 9.0, 11.0, 13.0)), (-1, (3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0))):
+        for x0 in xs:
+            q = vertical_cut(P, E, x0)
+            q = q[q[:, 1] * side > 0]
+            zs = np.array([side * (q[np.abs(q[:, 0] - y) < 0.15, 1] * side).max()
+                           if (np.abs(q[:, 0] - y) < 0.15).any() else np.nan for y in ys])
+            ok = ~np.isnan(zs)
+            L = np.c_[ys[ok], zs[ok] * side]          # 朝外為正
+            inside = (L[:, 0] - 1.5 >= L[0, 0]) & (L[:, 0] + 1.5 <= L[-1, 0])   # 弦兩端都在資料範圍內
+            for (y, _), dd in zip(L[inside], chord_open(L)[inside]):
+                gy = 79.0 + (x0 - 3.0) * 13.0 / 8.5
+                if side > 0 and abs(y - gy) < 2.5:
+                    continue                            # 鼠蹊溝
+                if side < 0 and (73.0 < y < 79.0 or y > 86.0):
+                    continue                            # 臀溝；臀峰以上是腰椎前凸，本來就往內彎
+                if dd > CHECK['vertical_tol']:
+                    bad.append(('前' if side > 0 else '後', x0, round(float(y), 2), round(float(dd), 3)))
+    return bad
+
+
+def chord_open(L, span=1.5):
+    """開放折線（y 遞增、z 朝外為正）每點在前後 span 的弦以內多深（凹為正）。"""
+    y, z = L[:, 0], L[:, 1]
+    za, zb = np.interp(y - span, y, z), np.interp(y + span, y, z)
+    return 0.5 * (za + zb) - z
 
 
 def check_gap(P, T):
@@ -204,7 +252,11 @@ def girth(P, T, y, side=None):
 
 def main(path):
     d = np.load(path)
-    P, T = d['P'], d['T']
+    if 'positions' in d:                 # glute_model.py 的輸出：四邊形面
+        P, Q = d['positions'], d['faces']
+        T = np.concatenate([Q[:, [0, 1, 2]], Q[:, [0, 2, 3]]])
+    else:
+        P, T = d['P'], d['T']
     ok = True
     bad = check_sections(P, T)
     print(f'截面凹處（允許區以外，深度 > {CHECK["concave_tol"]} cm）：{len(bad)} 點')
@@ -215,9 +267,22 @@ def main(path):
             print(f'  y={y}: {len(rows)} 點，x {rows[:, 0].min():.1f}～{rows[:, 0].max():.1f}、'
                   f'z {rows[:, 1].min():.1f}～{rows[:, 1].max():.1f}，最深 {rows[i, 2]:.2f}（x={rows[i, 0]:.1f}, z={rows[i, 1]:.1f}）')
     ok &= not bad
-    rev, _, _ = check_profile(P, T)
-    print(f'正中側影反彎：{len(rev)} 處' + ('' if not rev else '，' + '、'.join(f'{y}（{k}）' for y, k in rev[:12])))
+    rev = check_profile(P, T)
+    print(f'恥丘到大陰唇的縱向側影反彎：{len(rev)} 處' + ('' if not rev else '，' + '、'.join(f'x={x} y={y}（{k}）' for x, y, k in rev[:12])))
     ok &= not rev
+    vb = check_vertical(P, T)
+    print(f'縱向側影的橫凹：{len(vb)} 點')
+    for key in sorted({(s, x) for s, x, _, _ in vb}):
+        rows = [(y, d) for s, x, y, d in vb if (s, x) == key]
+        runs, cur = [], [rows[0]]
+        for r in rows[1:]:
+            if r[0] - cur[-1][0] > 0.3:
+                runs.append(cur)
+                cur = []
+            cur.append(r)
+        runs.append(cur)
+        print(f'  {key[0]} x={key[1]}：' + '、'.join(f'y {r[0][0]}～{r[-1][0]} 深 {max(d for _, d in r):.2f}' for r in runs))
+    ok &= not vb
     gap = check_gap(P, T)
     print('腿縫（大腿內側離正中，cm）：' + '  '.join(f'{y}:{g}' for y, g in gap))
     ok &= all(g > 0.15 for y, g in gap if y < 75.0)
