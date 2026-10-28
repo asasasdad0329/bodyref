@@ -44,9 +44,13 @@ def thigh_cx(y):
 PROFILE = {
     'W': [(69.5, 16.6), (72, 16.9), (75, 17.25), (78, 17.65), (80.5, 17.9), (83, 17.9), (86, 17.45), (90, 16.5),
           (94, 15.2), (98, 13.9)],
-    'F': [(69.5, 7.2), (72, 7.3), (75, 7.4), (78, 7.6), (80, 8.05), (83, 8.55), (86, 8.6), (90, 8.1), (94, 7.6), (98, 6.9)],
-    'B': [(69.5, -9.5), (73, -10.0), (75, -10.5), (76.3, -11.2), (77.3, -12.3), (78.5, -13.1), (80.5, -13.6),
-          (82.5, -13.7), (84.5, -13.35), (87, -12.15), (90, -10.6), (94, -8.6), (98, -7.4)],
+    # F 在 79 以上是正中（恥丘）的側影，和 CHAIN、CROTCH_FRONT 接成同一條弧；78 以下是大腿前側。
+    'F': [(69.5, 7.2), (72, 7.3), (75, 7.4), (78, 7.6), (79.4, 7.66), (80.6, 8.0), (82, 8.36), (83, 8.5), (84.5, 8.6),
+          (86, 8.6), (90, 8.1), (94, 7.6), (98, 6.9)],
+    # 臀峰以下是一段圓弧（半徑約 8 公分）收到臀溝，不是飽滿到底再急轉：急轉會在臀底橫出一道硬摺
+    'B': [(69.5, -9.5), (73, -10.0), (75, -10.5), (75.8, -10.75), (76.5, -11.05), (77.3, -11.8), (78.0, -12.3),
+          (79.0, -12.9), (80.5, -13.45), (82.5, -13.7), (84.5, -13.35), (87, -12.15), (90, -10.6), (94, -8.6),
+          (98, -7.4)],
 }
 # 骨盆截面的前半：zc 最寬處的前後位置；pf 前半的方圓程度（2 是橢圓）；belly 下腹弧面、groin 鼠蹊溝深度
 FRONT = {
@@ -63,6 +67,7 @@ BACK = {
     'x_in': [(77, 0.9), (85, 1.0), (92, 1.6), (98, 2.5)],
     'cleft': [(77.5, 6.0), (79, 5.0), (82, 4.2), (86, 3.2), (90, 1.8), (93, 0.7), (96, 0.0)],
     'dimple': (0.35, 94.5, 1.8, 4.2, 1.3),   # 腰窩（髂後上棘）：深度、高度、上下寬、離正中、左右寬
+    'pl': [(76, 1.85), (79, 2.0), (83, 2.4), (90, 2.2), (98, 2.0)],   # 外側到臀峰那段的方圓（2 是橢圓，越大越飽）
 }
 # 大腿截面（繞著大腿軸 thigh_cx）：cz 中心的前後位置；mf、mb 前內側、後內側從大腿軸往內伸多遠
 # （大腿本身的形；離正中的距離 = 大腿軸 − 這個量，由胯寬推出來，#63）；p* 各象限的方圓程度；
@@ -71,10 +76,11 @@ LEG = {
     'cz': [(69.5, -0.7), (73, -0.9), (75, -1.1), (78, -1.4)],
     'mf': [(69.5, 6.7), (73, 7.7), (75, 9.0), (78, 9.0)],
     'mb': [(69.5, 6.8), (73, 7.8), (75, 8.7), (78, 8.7)],
-    'pfm': [(69.5, 2.4), (73, 2.4), (75, 3.0), (78, 2.6)],
+    'pfm': [(69.5, 2.2), (73, 2.2), (75, 2.3), (78, 2.3)],
     'torso': [(69.5, 0.0), (73.5, 0.0), (75.4, 0.12), (76.8, 0.45), (78.0, 0.85)],
+    'torso_lat': [(69.5, 0.0), (72.0, 0.0), (73.8, 0.3), (75.4, 0.7), (76.8, 0.92), (78.0, 1.0)],
 }
-LEG_P = dict(pl=2.2, pfl=2.2, pbl=2.2, pbm=3.0, phi_f=-40.0, phi_b=220.0)
+LEG_P = dict(pl=2.2, pfl=2.2, pbl=2.2, pbm=2.4, phi_f=-40.0, phi_b=235.0)
 
 # ---------- 2. 層與拓撲 ----------
 N_HALF = 25          # 骨盆半圈的點數（含正前、正後兩個正中點）
@@ -82,10 +88,15 @@ PELVIS_Y = [98.0, 96.0, 94.0, 92.0, 90.0, 88.0, 86.5, 85.0, 83.5, 82.0, 80.6, 79
 LEG_Y = [78.0, 76.8, 75.4, 73.8, 71.8, 69.5]
 # 胯下：最後一層骨盆的正前、正後換成胯下正中的兩端；中間一串正中點（後 → 前）是會陰與大陰唇下緣，
 # 把左右腿分開。第一圈腿圈內側的點是大陰唇和大腿之間的摺。
-CROTCH_FRONT = (79.0, 7.55)   # (y, z) 恥丘往大陰唇的過渡（正中）
+CROTCH_FRONT = (79.0, 7.5)    # (y, z) 恥丘往下收成大陰唇的地方（正中）
 CROTCH_BACK = (77.5, -6.0)    # 臀縫底：兩邊臀部一路貼到這裡才接會陰
-CHAIN = [(77.0, -4.2), (76.4, -2.0), (76.0, 0.4), (76.0, 2.8), (76.5, 5.0)]
-LABIA_EDGE = [(1.0, 77.3, -4.6), (1.3, 76.8, -2.2), (1.6, 76.4, 0.4), (1.9, 76.5, 3.0), (2.1, 77.2, 5.4)]
+# 正中側影（會陰 → 大陰唇下端 → 恥丘）是一條同向彎的弧：往上每段的斜率只增不減（作者 2026-10-27）
+CHAIN = [(77.0, -4.2), (76.4, -2.0), (76.0, 0.4), (75.9, 2.8), (76.2, 4.9), (77.4, 6.5)]
+# 第一圈腿圈外弧最前面幾點往後收：大陰唇和大腿之間的鼠蹊摺（恥丘與腿交界的 V 往下延伸），
+# 不然大腿前內側會擋在大陰唇前面，胯下變成一個凹袋。(外弧上的序號, 往後收多少 cm)
+CREASE0 = [(0, 0.5), (1, 0.15)]
+LABIA_EDGE = [(1.0, 77.3, -4.6), (1.3, 76.8, -2.2), (1.6, 76.4, 0.4), (1.9, 76.4, 2.8), (2.1, 76.8, 4.9),
+              (2.3, 77.7, 6.1)]
 
 
 def curve(pts, y):
@@ -159,37 +170,59 @@ def front_handles(y):
         z = zc + (base - zc) * (1 - u ** pf) ** (1 / pf)
         z += belly * math.exp(-(x / (0.85 * gx)) ** 2) + mons * math.exp(-(x / 3.2) ** 2)
         return z - groin * math.exp(-((x - gx) / 1.3) ** 2)
-    pts = [(u * W, fz(u * W)) for u in (0.0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.82, 0.91)]
-    return pts + [(W, zc)]
+    # 均勻取點，另在鼠蹊溝兩側和溝底各加一點：溝只有 1～2 公分寬，點太稀時曲線會把溝畫歪、畫到旁邊
+    xs = {round(u * W, 3) for u in (0.0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.82, 0.91)}
+    xs = sorted(xs | {gx - 1.0, gx, gx + 1.0})
+    xs = [x for i, x in enumerate(xs) if i == 0 or x - xs[i - 1] > 0.45]
+    return [(x, fz(x)) for x in xs] + [(W, zc)]
 
 
 def back_handles(y):
-    """骨盆截面後半的控制點（側面 → 臀縫）：外後方、臀的圓弧、臀縫。"""
+    """骨盆截面後半的控制點（側面 → 臀縫）。外側到臀峰是一段圓角的四分之一（超橢圓，指數 pl），
+    臀峰往內是半徑 R 的圓弧捲進臀縫；兩段在臀峰都是水平切線，接起來整條都往外凸，只有臀縫凹。"""
     W, zc, B = curve(PROFILE['W'], y), curve(FRONT['zc'], y), curve(PROFILE['B'], y)
     xk, R, x_in, dc = curve(BACK['xk'], y), curve(BACK['R'], y), curve(BACK['x_in'], y), curve(BACK['cleft'], y)
-    z0 = B + R                                   # 圓心；圓弧最後面的點剛好在 B
-    a_in = -math.asin(min((xk - x_in) / R, 0.99))
-    a_out = math.asin(min((0.78 * W - xk) / R, 0.97))
-    arc = [(xk + R * math.sin(a), z0 - R * math.cos(a)) for a in np.linspace(a_out, a_in, 7)]
-    lat = (0.5 * (W + arc[0][0]) + 0.35, 0.5 * (zc + arc[0][1]) - 0.6)   # 外後方：臀弧順到側面
+    pl = curve(BACK['pl'], y)
+    lat = []
+    for t in np.radians([22.0, 40.0, 56.0, 70.0, 82.0]):          # 0 = 側面、90 = 臀峰
+        lat.append((xk + (W - xk) * math.cos(t) ** (2 / pl), zc - (zc - B) * math.sin(t) ** (2 / pl)))
+    a_in = math.asin(min((xk - x_in) / R, 0.99))
+    arc = [(xk - R * math.sin(a), B + R - R * math.cos(a)) for a in np.linspace(0.0, a_in, 5)]
     zin, zcl = arc[-1][1], B + dc
     cleft = [(0.4 * x_in, zin + 0.3 * (zcl - zin)), (0.0, zcl)]
-    return [lat] + arc + cleft
+    return lat + arc + cleft
 
 
-def pelvis_section(y):
-    """骨盆層的左半截面（正前 → 正後），N_HALF 點，回傳 (x, z)。"""
+def pelvis_curve(y):
+    """骨盆層左半的密集截面曲線（正前 → 正後），(x, z)。"""
     half = front_handles(y) + back_handles(y)
     full = half + [(-x, z) for x, z in half[-2:0:-1]]          # 鏡像補右半，正中兩點共用
     C = catmull_rom_closed(full)
     k = len(half) - 1                                           # 正後（臀縫）在密集曲線上的位置
-    C = C[: k * 40 + 1]
-    S = resample(C, fractions(N_HALF))
+    return C[: k * 40 + 1]
+
+
+def pelvis_section(y):
+    """骨盆層的左半截面（正前 → 正後），N_HALF 點，回傳 (x, z)。"""
+    S = resample(pelvis_curve(y), fractions(N_HALF))
     S[0, 0] = S[-1, 0] = 0.0
     d, yd, wd, xd, sd = BACK['dimple']
     back = S[:, 1] < curve(FRONT['zc'], y)
     S[back, 1] += d * math.exp(-((y - yd) / wd) ** 2) * np.exp(-((S[back, 0] - xd) / sd) ** 2)
     return S
+
+
+def ray_hit(C, c, d):
+    """從 c 沿方向 d 的射線打到折線 C 的距離（打不到回傳 None）。"""
+    A, B = C[:-1], C[1:]
+    e = B - A
+    den = d[0] * e[:, 1] - d[1] * e[:, 0]
+    ok = np.abs(den) > 1e-12
+    w = A - c
+    t = np.where(ok, (w[:, 0] * e[:, 1] - w[:, 1] * e[:, 0]) / np.where(ok, den, 1), -1)
+    u = np.where(ok, (w[:, 0] * d[1] - w[:, 1] * d[0]) / np.where(ok, den, 1), -1)
+    hit = ok & (t > 0) & (u >= 0) & (u <= 1)
+    return float(t[hit].min()) if hit.any() else None
 
 
 def leg_curve(y, phis):
@@ -213,25 +246,49 @@ def leg_curve(y, phis):
     return np.array(out)
 
 
+def toward_pelvis(y, pts, wts):
+    """把大腿截面上的點沿「大腿軸 → 點」的方向，按權重往骨盆截面移（上段腿圈的臀底還是臀的圓弧）。
+    沿射線混合而不是按順序混合：兩條曲線的取點方式不同，按順序混合會在臀底內側擠出一道凹。"""
+    if not np.any(wts > 0):
+        return pts
+    C = pelvis_curve(y)
+    c = np.array([thigh_cx(y), curve(LEG['cz'], y)])
+    out = np.array(pts, float)
+    for i, (p, w) in enumerate(zip(out, wts)):
+        if w <= 0:
+            continue
+        d = p - c
+        r = np.linalg.norm(d)
+        hit = ray_hit(C, c, d / r)
+        if hit is not None:
+            out[i] = c + d / r * (r + w * (hit - r))
+    return out
+
+
 def leg_ring(y, k):
     """第 k 圈腿圈：外弧（前內 → 外側 → 後內）N_HALF 點，對應骨盆半圈；內弧（後內 → 內側 → 前內）
-    len(CHAIN) 點，對應會陰串。外弧上段依 torso 沿用骨盆截面的外圈，臀底才是從臀的圓弧換成大腿。"""
+    len(CHAIN) 點，對應會陰串。上段腿圈依 torso 權重往骨盆截面靠，臀底才是從臀的圓弧換成大腿。"""
     f, b = LEG_P['phi_f'], LEG_P['phi_b']
-    outer = resample(leg_curve(y, np.linspace(f, b, 400)), fractions(N_HALF))
     w = curve(LEG['torso'], y)
-    if w > 0:
-        T = pelvis_section(y)
-        j = np.linspace(0, 1, N_HALF)
-        wj = w * np.sin(np.pi * j)
-        outer = wj[:, None] * T + (1 - wj[:, None]) * outer
+    phis = np.linspace(f, b, 400)
+    outer = resample(np.c_[leg_curve(y, phis), phis], fractions(N_HALF))
+    outer, phi = outer[:, :2], outer[:, 2]
+    # 外側（大轉子那一面）比前後更早換成骨盆的形：臀溝只在後面、往外側漸淡，不橫切整個臀底
+    wl = curve(LEG['torso_lat'], y)
+    side = np.clip((phi - 20.0) / 30.0, 0, 1) * np.clip((170.0 - phi) / 60.0, 0, 1)
+    side = side * side * (3 - 2 * side)
+    outer = toward_pelvis(y, outer, w + (max(wl, w) - w) * side)
     if k == 0:
+        for j, dz in CREASE0:
+            outer[j, 1] -= dz
         inner = [(x, z) for x, _, z in LABIA_EDGE]
         ys = [yy for _, yy, _ in LABIA_EDGE]
     else:
         inner = resample(leg_curve(y, np.linspace(b, f + 360, 200)), np.linspace(0, 1, len(CHAIN) + 2))[1:-1]
+        taper = np.cos(np.linspace(0, np.pi, len(CHAIN) + 2)[1:-1]) ** 2     # 兩端接外弧，正內側不動
+        inner = toward_pelvis(y, inner, w * taper)
         ys = [y] * len(CHAIN)
-    pts = [(x, y, z) for x, z in outer] + [(x, yy, z) for (x, z), yy in zip(inner, ys)]
-    return pts
+    return [(x, y, z) for x, z in outer] + [(x, yy, z) for (x, z), yy in zip(inner, ys)]
 
 
 def cage():
@@ -260,11 +317,12 @@ def cage():
 
 
 def sharp_points():
-    """擬合籠時差值不平滑、直接補的點（glute_scene.fit_cage 的 sharp）：會陰串與第一圈腿圈的內弧
+    """擬合籠時差值不平滑、直接補的點（glute_scene.fit_cage 的 sharp）：胯下正中兩端、會陰串與第一圈腿圈的內弧
     （大陰唇和大腿之間的摺）。這幾點是刻意做的小起伏，平滑過的差值補不到。索引和 cage() 的頂點順序一致。"""
     start = N_HALF * len(PELVIS_Y)
     ring0 = start + len(CHAIN)
-    return np.array(list(range(start, ring0)) + list(range(ring0 + N_HALF, ring0 + N_HALF + len(CHAIN))))
+    front, back = start - N_HALF, start - 1          # 最後一層骨盆換成胯下兩端的那兩點
+    return np.array([front, back] + list(range(start, ring0)) + list(range(ring0 + N_HALF, ring0 + N_HALF + len(CHAIN))))
 
 
 def to_blender(p):
