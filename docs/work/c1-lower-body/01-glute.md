@@ -444,6 +444,33 @@
 - 判斷：問題在「錯開的列在看得到的正面轉」。下一步要把這個轉折移到看不到的地方（大陰唇的縫底或會陰中段），讓恥丘的縱列直直地往下接大陰唇正面。這是胯下拓撲的再一次調整，要先和作者確認時程（現在做，或和脂肪線一起做）。
 - 中間的縫：作者說不一定要做；改成只在大陰唇下段、底下留一點，正面不刻（待下一版一起做）。
 
+### 胯下的表面構造（R22，2026-10-28）
+
+作者問：要不要研究一下人體構造應該長怎樣？之前胯下的數字多半是看圖調的，只有大方向有根據。查到的（只用數字與文字描述，沒有圖）：
+
+| 項目 | 內容 | 來源 |
+|---|---|---|
+| 恥丘 | 恥骨聯合前方由脂肪形成的圓隆起 | Gray's Anatomy 1918（公有領域） |
+| 大陰唇和恥丘 | 大陰唇是從恥丘往下、往後延伸的兩道皮膚褶，**前端最厚**，兩邊在恥丘正下方會合（前聯合）；後端不真正相接，**漸漸消失在會陰的皮膚裡** | Gray's 1918；Radiopaedia |
+| 大陰唇長度 | 平均 9.3 cm（7～12，n = 50）；和 BMI 正相關 | Lloyd 2005（BJOG）；Kreklau 2018（BJOG，n = 657） |
+| 會陰長度（後聯合到肛門） | 平均 3.1 cm（1.5～5.5）；Gray's 寫約 2.5～3 cm；隨年齡略短 | Lloyd 2005；Kreklau 2018；Gray's |
+| 臀縫深度 | 由上往下越深，**最深處就在肛門**（平均約 6.3 cm，含各種體型） | 臀縫深度研究（Turk J Surg 2025） |
+| 臀溝 | 是一條從坐骨、薦骨尖、尾骨拉到皮膚的纖維帶，只附著在臀溝**內側三分之一**的真皮，所以內側是真的摺、往外漸淡 | Stivala 等 2021（Surg Radiol Anat） |
+
+和模型對照，看出兩個方向性的錯：
+
+1. **大陰唇做成「掛在恥丘下面、比較薄的一塊」**。構造上它是恥丘往下的延續，前端最厚，所以恥丘下緣不該有任何邊界；它往後才變薄、淡進會陰。這正好是唇邊與兩角的根源（形的設計錯，不只是網格接縫）。
+2. **胯下底面太長、會陰後段是空的**。模型正中從恥丘下緣（79 cm）沿底下到臀縫底是 15.3 cm；構造上大陰唇 9.3 cm＋會陰 3.1 cm 後就是肛門，而肛門就在臀縫最深處，兩邊臀部在那裡貼合。模型的會陰後段多出約 2～3 cm 敞開的底面，從後面看就是臀縫底那塊三角和斜稜。要不是大陰唇的起點（前聯合）要再高一點，就是會陰後段要縮短、臀部提早貼合；前聯合的高度要再對照作者的參考圖確認。
+
+下一版的設計曲面照這些構造做：恥丘到大陰唇是一整塊、前厚後薄；會陰約 3 cm；臀縫最深處在會陰後端、兩邊臀部從那裡往上貼合；臀溝只在內側三分之一是摺（目前已是）。
+
+來源：
+- Gray's Anatomy of the Human Body, 20th ed. (1918), p. 1265（公有領域；經 [Wikipedia: Labia majora](https://en.wikipedia.org/wiki/Labia_majora) 與 [Radiopaedia](https://radiopaedia.org/articles/labia-majora) 轉引）
+- Lloyd J et al. Female genital appearance: 'normality' unfolds. BJOG 2005;112:643–646（數值經 [Wikipedia: Labia minora](https://en.wikipedia.org/wiki/Labia_minora) 轉引，未看到原文）
+- Kreklau A et al. Measurements of a 'normal vulva' in women aged 15–84. BJOG 2018;125:1656–1661（[PubMed](https://pubmed.ncbi.nlm.nih.gov/29940085/)，只看到摘要）
+- Intergluteal fold depth has no influence on pilonidal sinus disease development. Turk J Surg 2025（[PubMed](https://pubmed.ncbi.nlm.nih.gov/40151010/)，只看到摘要）
+- Stivala A, di Summa PG et al. The infragluteal fold: an appraisal by MRI combined with an anatomic study. Surg Radiol Anat 2021（[Springer](https://link.springer.com/article/10.1007/s00276-020-02636-y)，只看到摘要）
+
 ### 目前還開著的問題（2026-10-27）
 
 - 褲管高度 73 cm（臀溝下 2～3 公分）是假設，作者還沒確認。
