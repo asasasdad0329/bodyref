@@ -22,7 +22,7 @@
 1. 從最新的 `main` 開分支，命名 `<代理名>/<主題>`，例如 `claude/breast-types`、`codex/glb-export`。
 2. 做到一個段落就 commit 並 push：容器隨時會被回收，不要把成果留在容器裡。
 3. 完成後開 PR。PR 說明寫：做了什麼、為什麼、怎麼驗證；外觀的改動附截圖（貼在 PR 裡，不 commit）。
-4. CI（型別檢查、測試、建置）通過後，用 **squash 合併**：一個任務等於 `main` 上的一個 commit，日後要退回只退那一筆。不需要作者逐一審查。只改 `docs/`、`tools/blender/`、`tools/research/` 或 `.md` 的 PR 不會跑 CI（見 `.github/workflows/ci.yml`），確認沒動到網站程式就可以直接合併。
+4. CI（型別檢查、測試、建置）通過後，用 **squash 合併**：一個任務等於 `main` 上的一個 commit，日後要退回只退那一筆。不需要作者逐一審查。只改 `docs/`、`tools/blender/`、`tools/research/` 或 `.md` 的 PR，CI 會跳過測試與建置、幾秒內回報通過（見 `.github/workflows/ci.yml`），通過後一樣照常合併。
 5. commit 訊息說明「為什麼」，結尾加一行 `Agent: <代理名>`，看紀錄就知道誰做的。
 
 ## 切換代理時的檢查點
