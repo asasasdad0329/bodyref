@@ -4,7 +4,9 @@
 1. 水平截面在不該凹的地方凹（臀的圓弧、大腿、側面）；只有臀縫、鼠蹊溝、胯下和腿縫可以凹。
 2. 正中側影（會陰 → 大陰唇 → 恥丘 → 下腹）要是一條同向彎的弧：曲率可以不平均，但不能反彎。
 3. 兩腿之間要有縫：站直不夾腿時，胯下以下的大腿內側離正中要大於 0。
-4. 臀圍、大腿圍（只回報，這一步先塑形，不設門檻）。
+4. 鼠蹊溝往下接大陰唇旁的摺，溝深漸變（不在大陰唇兩角勾一下）。
+5. 臀縫底從正後方看是往下張開的小三角，不先鼓成圓口或兩瓣。
+6. 臀圍、大腿圍（只回報，這一步先塑形，不設門檻）。
 
 用法：glute_model.py 跑完會自動檢查一次；也可以單獨對它輸出的 glute_model.npz（或任何含 P、T 的 npz）跑：
     python3 tools/blender/glute_check.py 輸出資料夾/glute_model.npz
@@ -27,6 +29,10 @@ CHECK = dict(
     profile=(76.0, 84.5),      # 正中側影檢查的高度範圍（前半）：會陰往上到恥丘與下腹交界（恥骨上橫摺）
     profile_tol=0.04,          # 側影反彎的容許量（曲率，1/公分；0.04 = 半徑 25 公分的反彎，看不出來）
     gap_y=(70.0, 75.5),        # 檢查腿縫的高度範圍
+    opening_y=(75.5, 79.01),   # 檢查臀縫底開口的高度範圍
+    crease_y=(77.5, 84.01),    # 檢查鼠蹊溝深度連續的高度範圍（大陰唇旁的摺往上到恥丘旁）
+    crease_step=0.12,          # 鼠蹊溝相鄰 0.5 公分的深度差上限（公分）
+    opening_tol=0.15,          # 臀縫底開口往下變窄的容許量（公分）
     vertical_tol=0.08,         # 縱向側影的凹深容許量（弦長 3 公分；0.08 ≈ 半徑 14 公分的淺凹）
 )
 
@@ -170,6 +176,9 @@ def check_profile(P, T):
     E = np.unique(edges_of(T), axis=0)
     rev = []
     for x0, ys0 in ((0.8, y0), (1.6, y0 + 1.0), (2.4, y0 + 2.0)):
+        # 縱切離鼠蹊溝底（glute_cage.groin_x：3 + 8.5·(y − 79)/13）至少 1.2 公分才算恥丘：
+        # 太靠近溝的話量到的是溝壁，溝壁本來就往內彎
+        ys0 = max(ys0, 79.0 + max(x0 + 1.2 - 3.0, 0.0) * 13.0 / 8.5)
         d = P[:, 0] - x0
         a, b = E[:, 0], E[:, 1]
         m = d[a] * d[b] < 0
@@ -231,6 +240,77 @@ def chord_open(L, span=1.5):
     return 0.5 * (za + zb) - z
 
 
+def vertex_normals_tri(P, T):
+    N = np.zeros_like(P)
+    n = np.cross(P[T[:, 1]] - P[T[:, 0]], P[T[:, 2]] - P[T[:, 0]])
+    for k in range(3):
+        np.add.at(N, T[:, k], n)
+    N /= np.linalg.norm(N, axis=1, keepdims=True) + 1e-12
+    if N[P[:, 2].argmin(), 2] > 0:           # 最後面的點法線要朝後
+        N = -N
+    return N
+
+
+def cleft_bottom_opening(P, T):
+    """從正後方看臀縫底：每個高度、每個 x 取最後面的頂點，法線朝後不到一半的算「暗」（臀縫、臀溝內側、
+    會陰、看穿的腿縫）。回傳各高度暗區的半寬（從正中往外第一個亮的 x）。"""
+    N = vertex_normals_tri(P, T)
+    xs = np.arange(0.0, 3.01, 0.1)
+    out = []
+    for y in np.arange(*CHECK['opening_y'], 0.25):
+        m = (np.abs(P[:, 1] - y) < 0.12) & (P[:, 2] < -2) & (np.abs(P[:, 0]) < 3.2)
+        Q, M = P[m], N[m]
+        ax = np.abs(Q[:, 0])
+        dark = []
+        for x in xs:
+            k = np.abs(ax - x) < 0.06
+            dark.append(True if not k.any() else -M[k][Q[k, 2].argmin(), 2] < 0.5)
+        dark = np.array(dark)
+        # 第一個「連續 0.3 公分都亮」的 x：正中單獨一個朝後的頂點（臀縫底那點）不算
+        lit = [i for i in range(len(xs) - 2) if not dark[i:i + 3].any()]
+        out.append((round(float(y), 2), float(xs[lit[0]]) if lit else float('nan')))
+    return out
+
+
+def check_opening(P, T):
+    """臀縫底往下應該是一個往下張開的小三角：暗區半寬由上往下只增不減（容許 opening_tol）。
+    先變寬再變窄，就是臀縫底張成一個圓口或兩邊各鼓一個瓣（第十一版、重建版第一次都有）。"""
+    w = cleft_bottom_opening(P, T)[::-1]     # 由上往下
+    bad, top = [], 0.0
+    for y, e in w:
+        top = max(top, e)
+        if top - e > CHECK['opening_tol']:
+            bad.append((y, round(top - e, 2)))
+    return bad, w
+
+
+def groin_crease(P, T):
+    """鼠蹊溝與大陰唇旁的摺：每個高度在 x∈[1.3, 6.2] 的前緣找最深的溝（兩側各 1.2 公分的弦），回傳 (y, x, 深)。"""
+    out = []
+    xs = np.arange(0.6, 7.6, 0.05)
+    for y in np.arange(*CHECK['crease_y'], 0.25):
+        L = np.concatenate(slice_loops(P, T, y))
+        L = L[(L[:, 0] > 0.5) & (L[:, 0] < 8) & (L[:, 1] > 3)]
+        zs = np.array([L[np.abs(L[:, 0] - x) < 0.06, 1].max() if (np.abs(L[:, 0] - x) < 0.06).any() else np.nan
+                       for x in xs])
+        ok = ~np.isnan(zs)
+        x2, z2 = xs[ok], zs[ok]
+        dep = 0.5 * (np.interp(x2 - 1.2, x2, z2) + np.interp(x2 + 1.2, x2, z2)) - z2
+        m = (x2 > 1.3) & (x2 < 6.2)
+        i = np.argmax(np.where(m, dep, -9))
+        out.append((round(float(y), 2), float(x2[i]), float(dep[i])))
+    return out
+
+
+def check_crease(P, T):
+    """鼠蹊溝往下接大陰唇旁的摺，溝深要漸變：相鄰 0.5 公分的深度差不超過 crease_step。
+    恥丘下緣溝突然變深，正面看就是大陰唇兩角「勾一下」。"""
+    c = groin_crease(P, T)
+    bad = [(c[i][0], round(c[i][2] - c[i + 2][2], 2)) for i in range(len(c) - 2)
+           if abs(c[i][2] - c[i + 2][2]) > CHECK['crease_step']]
+    return bad, c
+
+
 def check_gap(P, T):
     out = []
     for y in np.arange(*CHECK['gap_y'], 0.5):
@@ -283,6 +363,16 @@ def main(path):
         runs.append(cur)
         print(f'  {key[0]} x={key[1]}：' + '、'.join(f'y {r[0][0]}～{r[-1][0]} 深 {max(d for _, d in r):.2f}' for r in runs))
     ok &= not vb
+    cb, cw = check_crease(P, T)
+    print('鼠蹊溝深（由下往上）：' + '  '.join(f'{y}:{d:.2f}' for y, _, d in cw[::2]))
+    if cb:
+        print('  深度跳動：' + '、'.join(f'y={y}（差 {d}）' for y, d in cb))
+    ok &= not cb
+    ob, ow = check_opening(P, T)
+    print('臀縫底開口（從正後方看暗區的半寬，由上往下）：' + '  '.join(f'{y}:{e:.1f}' for y, e in ow))
+    if ob:
+        print('  往下變窄：' + '、'.join(f'y={y}（窄了 {d}）' for y, d in ob))
+    ok &= not ob
     gap = check_gap(P, T)
     print('腿縫（大腿內側離正中，cm）：' + '  '.join(f'{y}:{g}' for y, g in gap))
     ok &= all(g > 0.15 for y, g in gap if y < 75.0)
