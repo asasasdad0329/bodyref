@@ -30,11 +30,11 @@ CHECK = dict(
     profile=(76.0, 84.5),      # 正中側影檢查的高度範圍（前半）：會陰往上到恥丘與下腹交界（恥骨上橫摺）
     profile_tol=0.04,          # 側影反彎的容許量（曲率，1/公分；0.04 = 半徑 25 公分的反彎，看不出來）
     gap_y=(70.0, 75.5),        # 檢查腿縫的高度範圍
-    opening_y=(75.5, 79.01),   # 檢查臀縫底開口的高度範圍
     crease_y=(77.5, 84.01),    # 檢查鼠蹊溝深度連續的高度範圍（大陰唇旁的摺往上到恥丘旁）
     crease_step=0.12,          # 鼠蹊溝相鄰 0.5 公分的深度差上限（公分）
     jump_tol=0.8,              # 曲率突變上限（curvature_jump；平順的地方 < 0.3）
-    opening_tol=0.15,          # 臀縫底開口往下變窄的容許量（公分）
+    opening_top=0.2,           # 背面看腿縫尖端的半寬上限（公分，投影到 z=2 的平面）
+    opening_tol=0.05,          # 腿縫尖端往下 2 公分內，半寬往下變窄的容許量（公分）
     vertical_tol=0.08,         # 縱向側影的凹深容許量（弦長 3 公分；0.08 ≈ 半徑 14 公分的淺凹）
 )
 
@@ -253,37 +253,61 @@ def vertex_normals_tri(P, T):
     return N
 
 
-def cleft_bottom_opening(P, T):
-    """從正後方看臀縫底：每個高度、每個 x 取最後面的頂點，法線朝後不到一半的算「暗」（臀縫、臀溝內側、
-    會陰、看穿的腿縫）。回傳各高度暗區的半寬（從正中往外第一個亮的 x）。"""
-    N = vertex_normals_tri(P, T)
-    xs = np.arange(0.0, 3.01, 0.1)
-    out = []
-    for y in np.arange(*CHECK['opening_y'], 0.25):
-        m = (np.abs(P[:, 1] - y) < 0.12) & (P[:, 2] < -2) & (np.abs(P[:, 0]) < 3.2)
-        Q, M = P[m], N[m]
-        ax = np.abs(Q[:, 0])
-        dark = []
-        for x in xs:
-            k = np.abs(ax - x) < 0.06
-            dark.append(True if not k.any() else -M[k][Q[k, 2].argmin(), 2] < 0.5)
-        dark = np.array(dark)
-        # 第一個「連續 0.3 公分都亮」的 x：正中單獨一個朝後的頂點（臀縫底那點）不算
-        lit = [i for i in range(len(xs) - 2) if not dark[i:i + 3].any()]
-        out.append((round(float(y), 2), float(xs[lit[0]]) if lit else float('nan')))
-    return out
+def back_view(P, T, cam=(81.5, -79.0), win=(-2.0, 2.0, 72.5, 79.0), res=0.04):
+    """從檢視頁「背面」的相機（正後方、高 cam[0]、前後 cam[1]，透視）看過去，投影到 z=2 的平面，
+    每個像素最近的面的 z（看穿＝inf）。回傳 (Z, 各列的 y, 各行的 x)。"""
+    yc, zc = cam
+    s = (2.0 - zc) / (P[:, 2] - zc)
+    Q = np.c_[P[:, 0] * s, yc + (P[:, 1] - yc) * s, P[:, 2]]
+    x0, x1, y0, y1 = win
+    xs, ys = np.arange(x0, x1 + 1e-9, res), np.arange(y0, y1 + 1e-9, res)
+    Z = np.full((len(ys), len(xs)), np.inf)
+    A = Q[T]
+    m = (A[:, :, 0].max(1) > x0) & (A[:, :, 0].min(1) < x1) & (A[:, :, 1].max(1) > y0) & (A[:, :, 1].min(1) < y1)
+    for (ax, ay, az), (bx, by, bz), (cx, cy, cz) in A[m]:
+        den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(den) < 1e-12:
+            continue
+        i0, i1 = np.searchsorted(xs, min(ax, bx, cx)), np.searchsorted(xs, max(ax, bx, cx))
+        j0, j1 = np.searchsorted(ys, min(ay, by, cy)), np.searchsorted(ys, max(ay, by, cy))
+        if i1 <= i0 or j1 <= j0:
+            continue
+        X, Y = np.meshgrid(xs[i0:i1], ys[j0:j1])
+        l1 = ((by - cy) * (X - cx) + (cx - bx) * (Y - cy)) / den
+        l2 = ((cy - ay) * (X - cx) + (ax - cx) * (Y - cy)) / den
+        ins = (l1 >= 0) & (l2 >= 0) & (l1 + l2 <= 1)
+        z = l1 * az + l2 * bz + (1 - l1 - l2) * cz
+        sub = Z[j0:j1, i0:i1]
+        upd = ins & (z < sub)
+        sub[upd] = z[upd]
+    return Z, ys, xs
 
 
 def check_opening(P, T):
-    """臀縫底往下應該是一個往下張開的小三角：暗區半寬由上往下只增不減（容許 opening_tol）。
-    先變寬再變窄，就是臀縫底張成一個圓口或兩邊各鼓一個瓣（第十一版、重建版第一次都有）。"""
-    w = cleft_bottom_opening(P, T)[::-1]     # 由上往下
-    bad, top = [], 0.0
-    for y, e in w:
-        top = max(top, e)
-        if top - e > CHECK['opening_tol']:
-            bad.append((y, round(top - e, 2)))
-    return bad, w
+    """從檢視頁的背面看，臀縫底下的腿縫要從一個尖點往下張開（倒 V）：
+    尖端（最上面看穿的那一列）的半寬不超過 opening_top；往下每一列的半寬只增不減（容許 opening_tol）。
+    尖端是平頂的寬口（看得到會陰、肛門區的底面，「胯下重做」第一版的黑口）、或先寬後窄的鑰匙孔、瓶頸，都不通過。
+    回傳 (問題, 由上往下各列 (y, 看穿的半寬))。"""
+    Z, ys, xs = back_view(P, T)
+    c = int(np.argmin(np.abs(xs)))
+    w = []
+    for j in range(len(ys) - 1, -1, -1):
+        row = Z[j, c:]
+        k = int(np.argmax(np.isfinite(row))) if np.isfinite(row).any() else len(row)
+        w.append((round(float(ys[j]), 2), round(float(xs[c + k] - xs[c]) if k else 0.0, 2)))
+    w = [(y, e) for y, e in w if y <= 77.5]
+    top = next((i for i, (_, e) in enumerate(w) if e > 0), None)
+    bad = []
+    if top is None:
+        return [('看不到腿縫', 0)], w
+    if w[top][1] > CHECK['opening_top']:
+        bad.append((w[top][0], f'尖端半寬 {w[top][1]}'))
+    widest = 0.0
+    for y, e in w[top:top + int(2.0 / 0.04)]:       # 尖端往下 2 公分
+        widest = max(widest, e)
+        if widest - e > CHECK['opening_tol']:
+            bad.append((y, f'變窄 {round(widest - e, 2)}'))
+    return bad, w[top:top + int(2.0 / 0.04):5]
 
 
 def groin_crease(P, T):
@@ -407,9 +431,9 @@ def main(path):
         print('  深度跳動：' + '、'.join(f'y={y}（差 {d}）' for y, d in cb))
     ok &= not cb
     ob, ow = check_opening(P, T)
-    print('臀縫底開口（從正後方看暗區的半寬，由上往下）：' + '  '.join(f'{y}:{e:.1f}' for y, e in ow))
+    print('腿縫尖端（背面看，看穿的半寬，由上往下）：' + '  '.join(f'{y}:{e:.2f}' for y, e in ow))
     if ob:
-        print('  往下變窄：' + '、'.join(f'y={y}（窄了 {d}）' for y, d in ob))
+        print('  ' + '、'.join(f'y={y}（{d}）' for y, d in ob))
     ok &= not ob
     jb, jw = check_jump(P, T)
     print('曲率突變：' + '  '.join(f'{n} {v:.2f}' for n, v, _ in jw) + f'（上限 {CHECK["jump_tol"]}）')
