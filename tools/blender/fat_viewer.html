@@ -52,7 +52,7 @@
   <canvas id="view" aria-label="可旋轉的臀部灰模，自動在瘦與胖之間循環"></canvas>
   <div class="label">
     <h1>臀・純脂肪線</h1>
-    <div class="now" aria-live="off">全身脂肪 <b id="fat">17.0</b> kg・臀圍 <span id="hip">—</span> cm</div>
+    <div class="now" aria-live="off"><span id="axis">全身脂肪</span> <b id="fat">17.0</b> kg・臀圍 <span id="hip">—</span> cm</div>
     <div class="legend"><span><i id="sw0"></i>臀負責（平口褲範圍）</span><span><i id="sw1"></i>下腹（交給腹部）</span><span><i id="sw2"></i>褲管以下的大腿</span></div>
   </div>
   <button class="toggle" id="thighs" type="button" aria-pressed="false">隱藏大腿</button>
@@ -77,7 +77,9 @@ const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const Fmin = meta.F[0], Fmax = meta.F[meta.F.length - 1];
 const PERIOD = 16;   // 秒：瘦 → 胖 → 瘦一趟
-$('hint').textContent += `・全身脂肪 ${Fmin} → ${Fmax} → ${Fmin} kg 循環`;
+if (meta.title) { document.title = meta.title; document.querySelector('h1').textContent = meta.title; }
+if (meta.axis) $('axis').textContent = meta.axis;
+$('hint').textContent += `・${meta.axis || '全身脂肪'} ${Fmin} → ${Fmax} → ${Fmin} kg 循環`;
 
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });

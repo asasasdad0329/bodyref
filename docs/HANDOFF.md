@@ -18,7 +18,7 @@
 - 做了：
   - 作者看「臀縫底修正」：大腿頂端內側鼓成兩顆、恥丘下方有橫線。試做「軀幹和大腿分開、交界擠壓」的預覽（只在暫存區，沒進倉庫），作者否決：部位接邊繃，檢視頁已回滾。
   - 和作者檢討後定 DECISIONS #68：中性型先對齊目標再重做形。目標頁已寫進 [01-glute](work/c1-lower-body/01-glute.md)「中性型的目標」。
-- 下一步：中性型定為 MakeHuman 起點（#71），控制線已標；純脂肪線搬到新網格（`tools/blender/glute_mh_fat.py`）第一版等作者看，檢視頁 https://claude.ai/artifact/3uNDH3rMyjMK3oQVxffJ82 。之後依作者意見修，再做肌肉線。
+- 下一步：中性型定為 MakeHuman 起點（#71），控制線已標；純脂肪線（`glute_mh_fat.py`，https://claude.ai/artifact/3uNDH3rMyjMK3oQVxffJ82）與純肌肉線第一版（`glute_mh_muscle.py`，https://claude.ai/artifact/ANroNpVuySvP293aWjy8ek）等作者看。脂肪 110 kg 時臀圍比舊版少約 7 公分，作者決定等肌肉線做完再一起校。之後做組成線、骨架線。
 - 未決：分支 `claude/glute-rebuild` 的程式要不要沿用、從哪一版當起點，等第 3 步一起決定。
 
 ### 2026-10-28 · Claude

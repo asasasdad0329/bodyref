@@ -20,7 +20,7 @@ from glute_cage import ZONE, zones  # noqa: E402  （glute_mh_fat.py 的輸出�
 src, out = Path(sys.argv[1]), Path(sys.argv[2])
 out.mkdir(parents=True, exist_ok=True)
 d = np.load(src / 'fat_viewer.npz')
-info = json.loads((src / 'fat_line.json').read_text())
+info = json.loads(next(src.glob('*_line.json')).read_text())
 
 STEP = 0.002
 ORIGIN = np.array([0.0, 84.0, 0.0])
@@ -48,7 +48,8 @@ onsets = sorted(({'F': v['on'], 'label': LABELS[k]} for k, v in info['depots'].i
 F = d['F'].tolist()
 meta = dict(nv=int(P.shape[1]), nt=int(len(tris)), F=F, step_F=F[1] - F[0], F0=float(d['F0']),
             hip=[round(float(v), 2) for v in d['hip']], thigh=[round(float(v), 2) for v in d['thigh']],
-            step=STEP, origin=ORIGIN.tolist(), onsets=onsets, hem_y=ZONE['hem_y'])
+            step=STEP, origin=ORIGIN.tolist(), onsets=onsets, hem_y=ZONE['hem_y'],
+            title=str(d['title']) if 'title' in d.files else None, axis=str(d['axis']) if 'axis' in d.files else None)
 html = (Path(__file__).parent / 'fat_viewer.html').read_text()
 html = html.replace('/*__META__*/null', json.dumps(meta, ensure_ascii=False))
 (out / 'index.html').write_text(html.replace('/*__DATA__*/', base64.b64encode(data).decode()))
