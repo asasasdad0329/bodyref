@@ -2,9 +2,11 @@
 
 python3 tools/blender/glute_mh_muscle.py <輸出資料夾> [viewer]
 
-在中性型上只加減肌肉（去脂），脂肪層的厚度不變：
+在中性型上只加減肌肉（去脂），脂肪的量不變：
   中性型 ＝ 底層（骨架＋肌肉）＋ 中性脂肪厚度 × 法線（和純脂肪線同一個拆法，glute_mh_fat.FatLine）。
-  底層照體積規律一步步沿當下的法線鼓起（或收）；每一步之後，脂肪層照原厚度蓋回去（沿新底層的法線）。
+  底層照體積規律一步步鼓起（或收），方向固定在中性時（組織離開骨頭的方向；沿當下的法線長會像吹氣球，
+  臀下越長越往下）；切口附近只往切口平面長，正中兩邊（臀縫兩壁、兩腿內側）貼到正中為止。
+  脂肪層再蓋回去（cover）：量不變（底層撐大處變薄、被擠處變厚），方向用抹平過的法線，凹處兩壁不互相穿過。
 規律：
   1. 軸：全身去脂軟組織 L（DXA，公斤，不含骨礦物）。中性 L0 ＝ 54.5 − 17（脂肪）− 2.2（骨礦物）≈ 35.3。
   2. 範圍內的去脂隨全身去脂直線增加（R24：NHANES 女性型區去脂每 kg 全身去脂 +0.16～0.18，佔比 15.3% → 16.7%，
@@ -15,8 +17,11 @@ python3 tools/blender/glute_mh_muscle.py <輸出資料夾> [viewer]
      肌肉體積：臀約 60%、範圍內的大腿根約 40%。
   4. 脂肪抹平：肌肉的形被上面的脂肪層抹平，脂肪越厚抹得越多（fat_blur）。純肌肉線的脂肪是中性厚度；
      組成線（肌肉、脂肪一起變）用當下的脂肪厚度，所以同樣大小、脂肪多的人肌肉的形就看不出來。
-  5. 附著：骨頭貼著皮的地方不長（薦骨、髂嵴、恥骨上的恥丘、胯下的大陰唇與會陰）。肚子只跟著變（腹肌之後由腹部做）。
+  5. 附著：骨頭貼著皮的地方不長（薦骨、髂嵴、恥骨上的恥丘、胯下的大陰唇與會陰）。臀溝是皮膚被筋膜綁在深層，
+     溝的位置不跟著肌肉移動，肌肉長大時溝上方鼓、溝變深（內段強、往外漸弱）。肚子只跟著變（腹肌之後由腹部做）。
   6. 一般人口去脂的高端（約 55 kg 以上）多半是大體重帶來的，新增的去脂漸漸改成平順地攤開（SHAPED）。
+  7. 中性以下（萎縮）不是肥大倒著放：整體平順地變小、變扁，沒有「負的肌肉形」。瘦的時候露出的骨頭突點與
+     肌肉形留給組成線與骨架線（脂肪變薄時才看得到）。
 範圍：L 29（160 cm 女性約第 1 百分位）到 91（R21：160 cm、204 kg 外推的去脂）。高的一端在一般人口裡是
 大體重帶來的去脂，也涵蓋運動員；組成線再處理同臀圍下肌肉與脂肪的互換。
 """
@@ -67,9 +72,9 @@ MUSCLES = {
     'adductors': dict(share=0.14, width=4.5, strokes=[
         ([('front', 3.5, 79.0), ('med', 74.0, 1.5), ('med', 69.5, 0.5)], [0.4, 1.0, 1.0]),
         ([('med', 76.0, -2.0), ('med', 72.5, -2.5), ('med', 69.5, -2.0)], [0.5, 1.0, 1.0])]),
-    # 膕繩肌：坐骨粗隆（臀溝內段的正上方）往下
+    # 膕繩肌：起點在坐骨粗隆，站立時被臀大肌蓋住；看得到的肌腹從臀溝下方開始往下
     'hamstrings': dict(share=0.12, width=5.0, strokes=[
-        ([('back', 5.5, 76.0), ('back', 7.0, 73.0), ('back', 8.0, 70.5)], [0.3, 0.9, 1.0])]),
+        ([('back', 6.5, 74.0), ('back', 7.5, 72.0), ('back', 8.0, 70.5)], [0.1, 0.7, 1.0])]),
 }
 WIDEN = 0.8       # 肌肉長大時也變寬：到最多去脂時寬度 × (1 + WIDEN)（肌肥大是整個截面變大，不是只變厚）
 BLUR = 0.35       # 脂肪把肌肉的形抹平的程度：每一步的擴散係數 ×（脂肪厚度 ÷ 2 公分）²
@@ -131,18 +136,21 @@ def muscle_fields(V, N, widen=1.0):
     return out
 
 
-def fat_blur(field, nb, T, steps=BLUR_STEPS):
-    """脂肪把下面的形抹平：厚的地方擴散得多（每一步的係數跟脂肪厚度的平方成正比，最多 0.5）。"""
+def fat_blur(field, W, T, steps=BLUR_STEPS):
+    """脂肪把下面的形抹平：厚的地方擴散得多（每一步的係數跟脂肪厚度的平方成正比，最多 0.5）。
+    field 可以是一個值或一組向量（每列一個頂點）；W 是鄰點平均矩陣（gm.averaging_matrix）。"""
     a = np.clip(BLUR * (T / 2.0) ** 2, 0, 0.5)
+    if field.ndim > 1:
+        a = a[:, None]
     f = field.copy()
     for _ in range(steps):
-        avg = np.array([f[n].mean() for n in nb])
-        f = f + a * (avg - f)
+        f = f + a * (W @ f - f)
     return f
 
 
 # 附著：每條控制線上，增厚乘上 (1 − 比例 × 權重)
-ATTACH = dict(cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)   # 臀溝不再壓：臀大肌下緣斜過臀溝，溝是脂肪與筋膜的事
+# 臀溝：皮膚被筋膜綁在深層（不是臀大肌下緣；下緣斜著穿過溝），溝的位置不跟著肌肉移動；內段強、往外漸弱（控制線的強度）
+ATTACH = dict(fold=0.7, cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)
 
 
 class MuscleLine:
@@ -165,16 +173,39 @@ class MuscleLine:
         self.A = A * (1 - (1 - gf.BELLY_FOLLOW) * fl.belly) * fl.top
         self.V0n, self.N0n = V0, N0
         self._fields = {}
-        self.nb = gm.neighbours(len(V0), self.F)
+        self.W = gm.averaging_matrix(len(V0), self.F)
+        self.cut = gm.cut_frame(V0, self.F)
         self.base0 = fl.base.copy()
         self.N_base0 = gm.vertex_normals(self.base0, self.F)
         self.T0 = fl.T0
+        self.area0 = gf.areas(self.base0, self.F)
+        self.Ns0 = self.skin_normals(self.base0, self.T0)
+        # 長大的方向固定在中性時（抹平過的底層法線，大致是組織離開骨頭的方向）。沿「當下」的法線一步步長會像吹氣球：
+        # 臀下、大腿上段朝下的面越長越往下，擠在大腿切口上，溝下多出一層台階。
+        D = fat_blur(self.N_base0, self.W, np.full(len(V0), 2.0))
+        self.D0 = D / np.linalg.norm(D, axis=1, keepdims=True)
+        self.th0 = np.clip(((fl.V0 - self.base0) * self.N_base0).sum(1), 0, None)   # 中性時沿底層法線量的脂肪厚度
         self._states = {}
 
-    def cover(self, B):
-        """底層蓋回中性厚度的脂肪層：脂肪層跟著底層的法線轉（中性時剛好還原中性型）。"""
-        dN = gm.vertex_normals(B, self.F) - self.N_base0
-        return self.fat.constrain(self.fat.V0 + (B - self.base0) + self.T0[:, None] * dN)
+    def skin_normals(self, B, T):
+        """脂肪層蓋回去的方向：底層的法線先被脂肪抹平（脂肪越厚越平），凹處兩壁的方向才不會交叉。"""
+        N = fat_blur(gm.vertex_normals(B, self.F), self.W, T)
+        return N / np.linalg.norm(N, axis=1, keepdims=True)
+
+    def cover(self, B, T=None):
+        """底層蓋回脂肪層（純肌肉線用中性的脂肪；組成線傳入當下的厚度 T）。
+        脂肪的量不變：底層表面撐大的地方脂肪變薄、凹進去被擠的地方變厚；蓋回去的方向用抹平過的法線，
+        凹處（臀溝、臀縫底）兩壁的脂肪才不會互相穿過；最後確保脂肪至少有應有厚度的一半，皮不會跑進肌肉裡。
+        中性時剛好還原中性型。"""
+        T = self.T0 if T is None else T
+        ratio = self.area0 / gf.areas(B, self.F)
+        for _ in range(4):
+            ratio = self.W @ ratio
+        t = T * ratio
+        S = self.fat.V0 + (B - self.base0) + t[:, None] * self.skin_normals(B, T) - self.T0[:, None] * self.Ns0
+        NB = gm.vertex_normals(B, self.F)
+        short = np.clip(0.5 * self.th0 * ratio * (T / self.T0) - ((S - B) * NB).sum(1), 0, None)
+        return self.fat.constrain(S + short[:, None] * NB)
 
     def fields(self, L):
         """L 時各肌肉的形（寬度隨去脂增加；用中性位置算，跟著組織走）。每 1 kg 算一次。"""
@@ -192,17 +223,25 @@ class MuscleLine:
         shaped = np.zeros(len(B))
         for name, f in self.fields(L).items():
             shaped += MUSCLES[name]['share'] * f / (area * f).sum()
-        k = float(np.interp(L, [p[0] for p in SHAPED], [p[1] for p in SHAPED]))
+        # 中性以下（萎縮）不是肥大倒著放：整體變小、變扁，沒有「負的肌肉形」
+        k = 0.0 if L < L0 else float(np.interp(L, [p[0] for p in SHAPED], [p[1] for p in SHAPED]))
         if k < 1:
-            smooth = fat_blur(shaped, self.nb, np.full(len(B), 2.6), steps=60)
+            smooth = fat_blur(shaped, self.W, np.full(len(B), 2.6), steps=60)
             smooth /= (area * smooth).sum()
             shaped = k * shaped + (1 - k) * smooth
-        return fat_blur(vol * shaped, self.nb, T)
+        return fat_blur(vol * shaped, self.W, T)
 
     def grow(self, B, dL, L):
         dT = self.increment(B, dL, self.T0, L)
-        B = B + dT[:, None] * gm.vertex_normals(B, self.F)
-        B[self.mid, 0] = 0.0
+        D = gm.growth_dirs(B, self.D0, self.cut)
+        # 方向沒有正對表面時，同樣的位移撐出的體積較少；補回來，體積才照規律
+        area = gf.areas(B, self.F)
+        cos = np.clip((D * gm.vertex_normals(B, self.F)).sum(1), 0.2, 1)
+        dT *= (area * dT).sum() / (area * dT * cos).sum()
+        B = B + dT[:, None] * D
+        # 兩邊（臀縫兩壁、兩腿內側）最多貼到正中
+        side = np.sign(self.V0n[:, 0])
+        B[:, 0] = side * np.maximum(B[:, 0] * side, 0.0)
         return B
 
     def base(self, L):
@@ -231,14 +270,19 @@ if __name__ == '__main__':
     assert np.abs(ml.shape(L0) - ml.fat.V0).max() < 1e-6, '中性去脂要還原中性型'
     Ls = np.arange(LMIN, LMAX + 0.01, 1.0)
     rows, cages = [], []
+    fold = (gm.control_weights(ml.V0n, ml.N0n)['fold'] > 0.5) & (np.abs(ml.V0n[:, 0]) < 5)
     for L in Ls:
         V = ml.shape(L)
         P, _ = gm.preview(V, ml.F, 2)
         m = gf.measure(P)
+        # 自我檢查：翻過來的面（和中性比轉了 84° 以上）、臀溝內段的高度變化
+        m['flipped'] = int((gm.face_turn(V, ml.fat.V0, ml.F) < 0.1).sum())
+        m['foldDy'] = round(float((V - ml.fat.V0)[fold, 1].mean()), 2)
         rows.append(dict(L=float(L), **m))
         cages.append(V.astype(np.float32))
         if L % 5 == 0 or L in (LMIN, LMAX):
-            print(f'L {L:5.1f}  臀圍 {m["hipCirc"]:6.2f}  寬 {m["hipBreadth"]:5.2f}  厚 {m["buttockDepth"]:5.2f}  大腿圍 {m["thighCirc"]:5.2f}')
+            print(f'L {L:5.1f}  臀圍 {m["hipCirc"]:6.2f}  寬 {m["hipBreadth"]:5.2f}  厚 {m["buttockDepth"]:5.2f}  大腿圍 {m["thighCirc"]:5.2f}'
+                  f'  翻面 {m["flipped"]}  臀溝內段高度 {m["foldDy"]:+.2f}')
     hip = np.array([r['hipCirc'] for r in rows])
     slope = np.gradient(hip, Ls)
     i0 = int(np.argmin(np.abs(Ls - L0)))

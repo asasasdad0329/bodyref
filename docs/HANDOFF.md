@@ -18,7 +18,7 @@
 - 做了：
   - 作者看「臀縫底修正」：大腿頂端內側鼓成兩顆、恥丘下方有橫線。試做「軀幹和大腿分開、交界擠壓」的預覽（只在暫存區，沒進倉庫），作者否決：部位接邊繃，檢視頁已回滾。
   - 和作者檢討後定 DECISIONS #68：中性型先對齊目標再重做形。目標頁已寫進 [01-glute](work/c1-lower-body/01-glute.md)「中性型的目標」。
-- 下一步：中性型定為 MakeHuman 起點（#71），控制線已標；純脂肪線（`glute_mh_fat.py`，https://claude.ai/artifact/3uNDH3rMyjMK3oQVxffJ82）與純肌肉線第二版（`glute_mh_muscle.py`，依肌肉走向的筆觸雕形，加了「脂肪蓋住肌肉形」的模糊，供組成線用；https://claude.ai/artifact/ANroNpVuySvP293aWjy8ek）等作者看。下一步雕脂肪線自己的形（R25：低寬軟、B／C 點先填、香蕉捲、下垂、腰側），再做組成線。脂肪 110 kg 時臀圍比舊版少約 7 公分，作者決定等肌肉線做完再一起校。之後做組成線、骨架線。
+- 下一步：中性型定為 MakeHuman 起點（#71），控制線已標；純脂肪線（`glute_mh_fat.py`，https://claude.ai/artifact/3uNDH3rMyjMK3oQVxffJ82）與純肌肉線第二版（`glute_mh_muscle.py`，依肌肉走向的筆觸雕形，加了「脂肪蓋住肌肉形」的模糊，供組成線用；https://claude.ai/artifact/ANroNpVuySvP293aWjy8ek）等作者看。作者指出臀下的摺有問題，肌肉線已修（沿中性方向長、脂肪層量不變不穿過、臀溝綁住、切口只往水平長；見 01-glute「臀溝修正」）。下一步雕脂肪線自己的形（R25：低寬軟、B／C 點先填、香蕉捲、下垂、腰側），脂肪線的臀溝一起做；再做組成線。瘦端的樣子（骨頭突點、腿縫）等組成線與骨架線。脂肪 110 kg 時臀圍比舊版少約 7 公分，作者決定等肌肉線做完再一起校。之後做組成線、骨架線。
 - 未決：分支 `claude/glute-rebuild` 的程式要不要沿用、從哪一版當起點，等第 3 步一起決定。
 
 ### 2026-10-28 · Claude

@@ -427,3 +427,84 @@ def zone_weights(V, N, soft=4.0):
         * np.clip((-N[:, 1] - 0.3) / 0.3, 0, 1)
     edge = np.maximum(np.clip((y - 96.5) / 4.0, 0, 1), np.clip((72.0 - y) / 4.0, 0, 1))
     return dict(belly=belly, crotch=crotch, edge=edge)
+
+
+# ---------- 切口（上緣軀幹、下緣兩腿）----------
+# 這一區是從身體切下來的，切口外面身體還接著。切口附近長大時不能沿當下的法線長（開放邊的法線往外歪，
+# 切口會往下、往外翻成裙擺）；要像「上下還接著同一截」那樣，只往切口平面的方向長。
+
+def cut_frame(V, F, reach=3.0):
+    """每個頂點離最近切口的權重（切口上 1，往內 reach 公分平順歸零）與那一截的軸。
+    軸取切口附近表面法線最不沿著的方向（圓筒的軸），不取切口平面的法向：腿的切口是斜切的，
+    但大腿往下接的方向是大腿的軸。"""
+    from scipy.sparse.csgraph import dijkstra
+    ef = edge_faces(F)
+    adj = defaultdict(set)
+    for (a, b), fs in ef.items():
+        if len(fs) == 1:
+            adj[a].add(b)
+            adj[b].add(a)
+    loop_of, n_loops, seen = {}, 0, set()
+    for s in adj:
+        if s in seen:
+            continue
+        stack = [s]
+        seen.add(s)
+        while stack:
+            u = stack.pop()
+            loop_of[u] = n_loops
+            for w in adj[u] - seen:
+                seen.add(w)
+                stack.append(w)
+        n_loops += 1
+    rows, cols = zip(*ef.keys())
+    w = np.linalg.norm(V[list(rows)] - V[list(cols)], axis=1)
+    G = csr_matrix(coo_matrix((w, (rows, cols)), shape=(len(V),) * 2))
+    bnd = np.array(sorted(loop_of))
+    d, _, src = dijkstra(G, directed=False, indices=bnd, min_only=True, return_predecessors=True)
+    which = np.array([loop_of[s] for s in src])
+    N = vertex_normals(V, F)
+    axes = []
+    for k in range(n_loops):
+        band = (which == k) & (d < reach)
+        a = np.linalg.eigh(N[band].T @ N[band])[1][:, 0]
+        axes.append(a * np.sign(a[1]))
+    t = np.clip(1 - d / reach, 0, 1)
+    return t * t * (3 - 2 * t), np.array(axes)[which]
+
+
+def cut_normals(N, cut):
+    """生長方向：切口附近把沿切口軸的分量拿掉（只往切口平面長），其他地方照法線。"""
+    w, A = cut
+    M = N - (w * (N * A).sum(1))[:, None] * A
+    return M / (np.linalg.norm(M, axis=1, keepdims=True) + 1e-12)
+
+
+def averaging_matrix(n, F):
+    """鄰點平均的稀疏矩陣：(W @ f)[i] ＝ i 的相鄰頂點上 f 的平均。"""
+    nb = neighbours(n, F)
+    rows = np.concatenate([np.full(len(a), i) for i, a in enumerate(nb)])
+    cols = np.concatenate(nb)
+    vals = np.concatenate([np.full(len(a), 1.0 / len(a)) for a in nb])
+    return csr_matrix(coo_matrix((vals, (rows, cols)), shape=(n, n)))
+
+
+def growth_dirs(V, N, cut, reach=2.0):
+    """長大的方向：照法線，但
+    - 切口附近只往切口平面長（cut_normals）；
+    - 正中附近朝正中的那一面（臀縫兩壁、兩腿內側）不往正中長：兩邊貼在一起後沿著接觸面往後、往下長，不互相穿過。"""
+    N = cut_normals(N, cut)
+    x = V[:, 0]
+    t = np.clip(1 - np.abs(x) / reach, 0, 1)
+    toward = np.clip(-np.sign(x) * N[:, 0] / 0.3, 0, 1)
+    M = N.copy()
+    M[:, 0] *= 1 - t * t * (3 - 2 * t) * toward
+    return M / (np.linalg.norm(M, axis=1, keepdims=True) + 1e-12)
+
+
+def face_turn(V, V0, F):
+    """每個面的方向和中性比：1 沒轉、0 轉了 90°、負的是翻過來（皮膚互相穿過或摺過去）。"""
+    def fn(X):
+        n = np.cross(X[F[:, 2]] - X[F[:, 0]], X[F[:, 3]] - X[F[:, 1]])
+        return n / (np.linalg.norm(n, axis=1, keepdims=True) + 1e-12)
+    return (fn(V) * fn(V0)).sum(1)
