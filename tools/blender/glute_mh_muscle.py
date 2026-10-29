@@ -9,11 +9,14 @@ python3 tools/blender/glute_mh_muscle.py <輸出資料夾> [viewer]
   1. 軸：全身去脂軟組織 L（DXA，公斤，不含骨礦物）。中性 L0 ＝ 54.5 − 17（脂肪）− 2.2（骨礦物）≈ 35.3。
   2. 範圍內的去脂隨全身去脂直線增加（R24：NHANES 女性型區去脂每 kg 全身去脂 +0.16～0.18，佔比 15.3% → 16.7%，
      到最高也接近直線）。範圍比 DXA 的女性型區大一點，取 0.18。
-  3. 分布：各肌肉整塊均勻增厚，最厚在肌腹，不做近端、遠端的偏向（R2b）。臀大肌整塊飽滿，臀的上半部也跟著圓
-     （肌肉臀與脂肪臀形狀上的主要差別：脂肪多在臀下半與外側）；臀中肌撐出上外側；大腿是股四頭（前、外）、
-     內收肌群（內）、膕繩肌（後）。
-  4. 附著：骨頭貼著皮的地方不長（薦骨、髂嵴、恥骨上的恥丘、胯下的大陰唇與會陰）；臀溝、鼠蹊是脂肪與筋膜的摺，
-     少長一點。肚子只跟著變（腹肌之後由腹部做）。
+  3. 形：每塊肌肉用幾筆「纖維方向的筆觸」描述（MUSCLES），沿線肌腹厚、肌腱端薄，橫截面是圓的；肌肉長大時也變寬。
+     臀大肌從薦骨斜向外下、外下端收進髂脛束（薄），所以上半與中段鼓、大轉子後面凹；臀中肌在髂嵴下方撐出上外側；
+     大轉子本身沒有肌肉，是臀側凹陷的底；股外側肌從大轉子下方開始，往下越來越厚。份量照 Handsfield 2014 的下肢
+     肌肉體積：臀約 60%、範圍內的大腿根約 40%。
+  4. 脂肪抹平：肌肉的形被上面的脂肪層抹平，脂肪越厚抹得越多（fat_blur）。純肌肉線的脂肪是中性厚度；
+     組成線（肌肉、脂肪一起變）用當下的脂肪厚度，所以同樣大小、脂肪多的人肌肉的形就看不出來。
+  5. 附著：骨頭貼著皮的地方不長（薦骨、髂嵴、恥骨上的恥丘、胯下的大陰唇與會陰）。肚子只跟著變（腹肌之後由腹部做）。
+  6. 一般人口去脂的高端（約 55 kg 以上）多半是大體重帶來的，新增的去脂漸漸改成平順地攤開（SHAPED）。
 範圍：L 29（160 cm 女性約第 1 百分位）到 91（R21：160 cm、204 kg 外推的去脂）。高的一端在一般人口裡是
 大體重帶來的去脂，也涵蓋運動員；組成線再處理同臀圍下肌肉與脂肪的互換。
 """
@@ -33,20 +36,113 @@ REGION_SLOPE = 0.18           # 範圍內每 kg 全身去脂多 0.18 kg（R24）
 DENSITY = 1.06                # 肌肉密度（公克／公分³）
 STEP_L = 0.5
 
-# 肌肉：中心、半徑（素體座標，左半）、朝向、相對厚度（肌腹）
+# 肌肉：每塊用幾筆「纖維方向的筆觸」描述（雕塑的作法），起點 → 終點；每筆給沿線的相對厚度（肌腹厚、肌腱端薄）
+# 與半寬（公分）。點用「哪一面、哪個位置」指定，貼到中性型的表面上：
+#   ('back', x, y) 背面該 (x, y) 最後面的點；('front', x, y) 正面最前面的點；
+#   ('lat', y, z) 外側該 (y, z) 最外面的點；('med', y, z) 大腿內側該 (y, z) 最內面的點。
+# share：這塊肌肉在範圍內去脂的份量。Handsfield 2014 的下肢肌肉體積比例：臀大肌 12.3%（最大的一塊）、臀中肌 5.0%、
+# 臀小肌 1.6%、闊筋膜張肌 0.9%；大腿肌肉只有上段在範圍內（約 10 公分），合計約 11%。所以臀約 60%、大腿根約 40%。
 MUSCLES = {
-    # 臀區的去脂大半是大腿根的肌肉（股四頭、內收肌群、膕繩肌比臀大肌重），臀大肌整塊飽滿但不能吃掉大部分的量，
-    # 否則臀會鼓成一顆球（第一版：臀厚 31 對臀寬 39）
-    'gluteusMaximus': dict(c=(7.0, 80.5, -11.0), r=(7.5, 8.5, 6.5), face=(0.3, 0.0, -1), amt=0.6),
-    'gluteusMedius':  dict(c=(12.5, 90.5, -5.5), r=(5.5, 4.0, 6.0), face=(1, 0.2, -0.5), amt=0.35),
-    'tensorFasciae':  dict(c=(13.5, 85.5, 2.5), r=(3.0, 4.0, 3.0), face=(1, 0, 0.6), amt=0.25),
-    'quadriceps':     dict(c=(10.0, 70.0, 5.0), r=(5.5, 8.0, 4.5), face=(0.4, 0, 1), amt=1.0),
-    'vastusLateralis': dict(c=(16.0, 69.0, 0.5), r=(4.0, 8.0, 5.0), face=(1, 0, 0.2), amt=0.8),
-    'adductors':      dict(c=(4.0, 71.0, 0.5), r=(3.5, 7.0, 5.0), face=(-1, 0, 0.2), amt=0.85),
-    'hamstrings':     dict(c=(9.5, 68.0, -5.5), r=(5.0, 7.0, 4.5), face=(0, 0, -1), amt=0.8),
+    # 臀大肌：從薦骨、髂骨後緣斜向外下，上、中段收進大轉子後方的髂脛束，下段收到股骨臀肌粗隆。
+    # 外下端是肌腱（薄），長大時上半與中段鼓、外下方被髂脛束拉住，大轉子後面的臀側凹陷變深
+    'gluteusMaximus': dict(share=0.48, width=4.0, strokes=[
+        ([('back', 4.5, 93.5), ('back', 10.0, 89.0), ('lat', 85.0, -5.0)], [0.6, 1.0, 0.25]),
+        ([('back', 2.0, 88.0), ('back', 8.0, 83.0), ('lat', 80.5, -6.0)], [0.7, 1.0, 0.3]),
+        ([('back', 1.6, 81.5), ('back', 6.5, 77.8), ('back', 11.5, 74.0)], [0.6, 1.0, 0.35])]),
+    # 臀中肌：髂嵴下方的扇形，收到大轉子上緣；後半被臀大肌蓋住，露出的是上外側
+    'gluteusMedius': dict(share=0.09, width=3.5, strokes=[
+        ([('back', 8.5, 95.5), ('lat', 88.5, -4.0)], [0.8, 0.4]),
+        ([('lat', 97.0, -3.0), ('lat', 88.5, -2.0)], [1.0, 0.4]),
+        ([('lat', 96.0, 2.0), ('lat', 88.5, 0.5)], [0.8, 0.3])]),
+    # 闊筋膜張肌：髂前上棘往外下，收進髂脛束
+    'tensorFasciae': dict(share=0.03, width=2.0, strokes=[
+        ([('front', 11.5, 90.0), ('lat', 82.0, 3.0)], [0.6, 0.4])]),
+    # 股外側肌：大轉子下方開始（大轉子本身沒有肌肉，是臀側凹陷的底），往下越來越厚
+    'vastusLateralis': dict(share=0.08, width=6.0, strokes=[
+        ([('lat', 80.0, -1.0), ('lat', 76.0, -0.5), ('lat', 72.5, 0.0)], [0.0, 0.7, 1.0])]),
+    # 股直肌＋股中間肌：大腿正前方的縱向隆起，從髂前下棘往下
+    'quadricepsFront': dict(share=0.06, width=5.5, strokes=[
+        ([('front', 10.5, 84.0), ('front', 10.0, 76.0), ('front', 9.8, 71.0)], [0.3, 0.8, 1.0])]),
+    # 內收肌群：從恥骨與坐恥枝往下展開的楔形
+    'adductors': dict(share=0.14, width=4.5, strokes=[
+        ([('front', 3.5, 79.0), ('med', 74.0, 1.5), ('med', 69.5, 0.5)], [0.4, 1.0, 1.0]),
+        ([('med', 76.0, -2.0), ('med', 72.5, -2.5), ('med', 69.5, -2.0)], [0.5, 1.0, 1.0])]),
+    # 膕繩肌：坐骨粗隆（臀溝內段的正上方）往下
+    'hamstrings': dict(share=0.12, width=5.0, strokes=[
+        ([('back', 5.5, 76.0), ('back', 7.0, 73.0), ('back', 8.0, 70.5)], [0.3, 0.9, 1.0])]),
 }
+WIDEN = 0.8       # 肌肉長大時也變寬：到最多去脂時寬度 × (1 + WIDEN)（肌肥大是整個截面變大，不是只變厚）
+BLUR = 0.35       # 脂肪把肌肉的形抹平的程度：每一步的擴散係數 ×（脂肪厚度 ÷ 2 公分）²
+BLUR_STEPS = 25
+# 一般人口去脂的高端（約 55 kg 以上，160 cm 女性的第 90 百分位以上）多半是大體重帶來的：肌肉整體變大、皮與結締組織增加，
+# 不是運動員那種一塊塊的肌肥大。這一段新增的去脂漸漸改成平順地攤開（各肌肉的形合起來再大幅抹平），到 75 kg 只剩 30% 照肌肉的形。
+SHAPED = [(L0, 1.0), (55.0, 1.0), (75.0, 0.3), (91.0, 0.3)]
+
+
+def surface_point(V, N, spec):
+    """('back', x, y) 等指定方式 → 中性型表面上的點與法線（左半）。"""
+    side, a, b = spec
+    left = V[:, 0] >= 0
+    if side in ('back', 'front'):
+        m = left & (np.hypot(V[:, 0] - a, V[:, 1] - b) < 1.2) & ((N[:, 2] < 0) if side == 'back' else (N[:, 2] > 0))
+        i = np.nonzero(m)[0][np.argmin(V[m, 2])] if side == 'back' else np.nonzero(m)[0][np.argmax(V[m, 2])]
+    else:
+        m = left & (np.hypot(V[:, 1] - a, V[:, 2] - b) < 1.2)
+        if side == 'lat':
+            i = np.nonzero(m)[0][np.argmax(V[m, 0])]
+        else:
+            m &= N[:, 0] < 0
+            i = np.nonzero(m)[0][np.argmin(V[m, 0])]
+    return V[i], N[i]
+
+
+def muscle_fields(V, N, widen=1.0):
+    """每塊肌肉在每個頂點上的形（0～1 × 沿線厚度）：筆觸附近、法線朝同一面的點才算；同一塊肌肉的幾筆取最大。"""
+    Vm = np.c_[np.abs(V[:, 0]), V[:, 1:]]
+    Nm = np.c_[N[:, 0] * np.where(V[:, 0] < 0, -1, 1), N[:, 1:]]
+    out = {}
+    for name, m in MUSCLES.items():
+        f = np.zeros(len(V))
+        for pts, thick in m['strokes']:
+            P, Pn = zip(*[surface_point(V, N, p) for p in pts])
+            P, Pn = np.array(P), np.array(Pn)
+            seg = np.linalg.norm(np.diff(P, axis=0), axis=1)
+            s_at = np.r_[0, np.cumsum(seg)] / seg.sum()
+            best = np.full(len(V), np.inf)
+            s_best = np.zeros(len(V))
+            n_best = np.zeros((len(V), 3))
+            for k in range(len(P) - 1):
+                a, d = P[k], P[k + 1] - P[k]
+                t = np.clip(((Vm - a) @ d) / (d @ d), 0, 1)
+                dist = np.linalg.norm(Vm - (a + t[:, None] * d), axis=1)
+                better = dist < best
+                best[better] = dist[better]
+                s_best[better] = (s_at[k] + (s_at[k + 1] - s_at[k]) * t)[better]
+                nn = Pn[k] + (Pn[k + 1] - Pn[k]) * t[:, None]
+                n_best[better] = nn[better]
+            n_best /= np.linalg.norm(n_best, axis=1, keepdims=True) + 1e-12
+            # 橫截面是圓的（肌腹鼓、往兩邊收），不是平頂加陡邊：平頂的話長大後每塊肌肉的邊都是一道崖
+            w = m['width'] * widen
+            u = np.clip(1 - best / w, 0, 1)
+            core = u * u * (3 - 2 * u)
+            facing = np.clip(((Nm * n_best).sum(1) - 0.2) / 0.4, 0, 1)
+            f = np.maximum(f, core * facing * np.interp(s_best, np.linspace(0, 1, len(thick)), thick))
+        out[name] = f
+    return out
+
+
+def fat_blur(field, nb, T, steps=BLUR_STEPS):
+    """脂肪把下面的形抹平：厚的地方擴散得多（每一步的係數跟脂肪厚度的平方成正比，最多 0.5）。"""
+    a = np.clip(BLUR * (T / 2.0) ** 2, 0, 0.5)
+    f = field.copy()
+    for _ in range(steps):
+        avg = np.array([f[n].mean() for n in nb])
+        f = f + a * (avg - f)
+    return f
+
+
 # 附著：每條控制線上，增厚乘上 (1 − 比例 × 權重)
-ATTACH = dict(fold=0.5, cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)
+ATTACH = dict(cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)   # 臀溝不再壓：臀大肌下緣斜過臀溝，溝是脂肪與筋膜的事
 
 
 class MuscleLine:
@@ -66,18 +162,10 @@ class MuscleLine:
         A *= (1 - mons) * (1 - Z['crotch'])
         # 髂嵴（上緣外側）貼骨
         A *= 1 - 0.8 * np.clip((y - 96.5) / 3.0, 0, 1) * np.clip((x - 9.0) / 3.0, 0, 1)
-        self.A = A
-        Nm = gf.mirrored(N0, V0)
-        Vm = np.c_[x, y, z]
-        w = np.zeros(len(V0))
-        for d in MUSCLES.values():
-            c, r = np.array(d['c']), np.array(d['r'])
-            f = np.array(d['face'], float)
-            f /= np.linalg.norm(f)
-            q = (Vm - c) / r
-            w += d['amt'] * np.exp(-0.5 * (q ** 2).sum(1)) * np.clip(Nm @ f, 0, 1)
-        w *= A * (1 - (1 - gf.BELLY_FOLLOW) * fl.belly) * fl.top
-        self.w = w
+        self.A = A * (1 - (1 - gf.BELLY_FOLLOW) * fl.belly) * fl.top
+        self.V0n, self.N0n = V0, N0
+        self._fields = {}
+        self.nb = gm.neighbours(len(V0), self.F)
         self.base0 = fl.base.copy()
         self.N_base0 = gm.vertex_normals(self.base0, self.F)
         self.T0 = fl.T0
@@ -88,9 +176,31 @@ class MuscleLine:
         dN = gm.vertex_normals(B, self.F) - self.N_base0
         return self.fat.constrain(self.fat.V0 + (B - self.base0) + self.T0[:, None] * dN)
 
-    def grow(self, B, dL):
+    def fields(self, L):
+        """L 時各肌肉的形（寬度隨去脂增加；用中性位置算，跟著組織走）。每 1 kg 算一次。"""
+        k = int(round(L))
+        if k not in self._fields:
+            widen = 1 + WIDEN * np.clip((k - L0) / (LMAX - L0), 0, 1)
+            self._fields[k] = {n: v * self.A for n, v in muscle_fields(self.V0n, self.N0n, widen).items()}
+        return self._fields[k]
+
+    def increment(self, B, dL, T, L):
+        """這一步每個頂點的肌肉增厚：每塊肌肉分到 share × 體積，照它的形（肌腹厚、肌腱端薄、邊緣收）攤開；
+        再被脂肪抹平（厚度 T 的脂肪層）。"""
         vol = REGION_SLOPE * dL / DENSITY * 1000     # 公分³，左右合計（dL 可以是負的）
-        dT = vol * self.w / (gf.areas(B, self.F) * self.w).sum()
+        area = gf.areas(B, self.F)
+        shaped = np.zeros(len(B))
+        for name, f in self.fields(L).items():
+            shaped += MUSCLES[name]['share'] * f / (area * f).sum()
+        k = float(np.interp(L, [p[0] for p in SHAPED], [p[1] for p in SHAPED]))
+        if k < 1:
+            smooth = fat_blur(shaped, self.nb, np.full(len(B), 2.6), steps=60)
+            smooth /= (area * smooth).sum()
+            shaped = k * shaped + (1 - k) * smooth
+        return fat_blur(vol * shaped, self.nb, T)
+
+    def grow(self, B, dL, L):
+        dT = self.increment(B, dL, self.T0, L)
         B = B + dT[:, None] * gm.vertex_normals(B, self.F)
         B[self.mid, 0] = 0.0
         return B
@@ -103,11 +213,11 @@ class MuscleLine:
         k = max([j for j in range(n + 1) if key(j) in self._states], default=0)
         B = self._states[key(k)].copy() if k else self.base0.copy()
         for j in range(k, n):
-            B = self.grow(B, sgn * STEP_L)
+            B = self.grow(B, sgn * STEP_L, L0 + sgn * (j + 0.5) * STEP_L)
             self._states[key(j + 1)] = B.copy()
         rest = abs(L - L0) - n * STEP_L
         if rest > 1e-9:
-            B = self.grow(B, sgn * rest)
+            B = self.grow(B, sgn * rest, L0 + sgn * (n * STEP_L + rest / 2))
         return B
 
     def shape(self, L):
