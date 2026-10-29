@@ -51,6 +51,8 @@ meta = dict(nv=int(P.shape[1]), nt=int(len(tris)), F=F, step_F=F[1] - F[0], F0=f
             step=STEP, origin=ORIGIN.tolist(), onsets=onsets, hem_y=ZONE['hem_y'],
             title=str(d['title']) if 'title' in d.files else None, axis=str(d['axis']) if 'axis' in d.files else None)
 html = (Path(__file__).parent / 'fat_viewer.html').read_text()
+if meta['title']:
+    html = html.replace('<title>臀・純脂肪線</title>', f"<title>{meta['title']}</title>").replace('<h1>臀・純脂肪線</h1>', f"<h1>{meta['title']}</h1>")
 html = html.replace('/*__META__*/null', json.dumps(meta, ensure_ascii=False))
 (out / 'index.html').write_text(html.replace('/*__DATA__*/', base64.b64encode(data).decode()))
 print(out / 'index.html', f'{(out / "index.html").stat().st_size / 1e6:.2f} MB')
