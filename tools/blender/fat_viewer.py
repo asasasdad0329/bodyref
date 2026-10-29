@@ -1,4 +1,4 @@
-"""把 glute_fat.py 匯出的網格（export 模式）打包成可以旋轉的網頁檢視器。
+"""把 glute_fat.py 匯出的網格（export 模式）或 glute_mh_fat.py 的 viewer 輸出，打包成可以旋轉的網頁檢視器。
 
 python3 tools/blender/fat_viewer.py <glute_fat.py export 的輸出資料夾> <網頁輸出資料夾>
 
@@ -15,7 +15,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glute_cage import ZONE, zones  # noqa: E402
+from glute_cage import ZONE, zones  # noqa: E402  （glute_mh_fat.py 的輸出自帶分區，不用這個）
 
 src, out = Path(sys.argv[1]), Path(sys.argv[2])
 out.mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ fn = np.cross(P0[tris[:, 1]] - P0[tris[:, 0]], P0[tris[:, 2]] - P0[tris[:, 0]])
 for c in range(3):
     np.add.at(N, tris[:, c], fn)
 N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-9)
-zone = zones(P0, N)
+zone = d['zone'] if 'zone' in d.files else zones(P0, N)
 frames = q.astype(np.int16).tobytes()
 frames += b'\0' * (-len(frames) % 4)   # 三角形索引是 uint32，起點要對齊 4 位元組
 data = frames + tris.tobytes() + zone.tobytes()
