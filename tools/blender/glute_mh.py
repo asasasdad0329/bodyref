@@ -358,3 +358,72 @@ if __name__ == '__main__':
     T = np.r_[Fs[:, [0, 1, 2]], Fs[:, [0, 2, 3]]]
     np.savez(sys.argv[1], V=g.V, F=g.F, P=P, T=T)
     print('cage', len(g.V), 'preview', len(P), [s[0] for s in g.steps])
+
+
+# ---------- 控制線與區域（#71）----------
+# 從中性型（MakeHuman 起點）的表面量出來的溝（素體座標，左半；右半鏡像）。每條是 (x, y) 折線，
+# 加上沿線的強度（0～1）。權重在中性型上算一次就固定在頂點上，之後肉怎麼長，線都跟著組織走。
+CONTROL_LINES = {
+    # 臀溝：內側最深（x 1.5～4.5、高 74.5～76），往外變淺、往下斜，x 約 11 淡掉（R23：只有內側是臀壓在大腿上）
+    'fold': dict(pts=[(0.8, 76.2), (2.5, 75.7), (4.5, 75.0), (6.5, 74.0), (8.5, 73.4), (10.5, 73.5), (12.0, 73.8)],
+                 strength=[1.0, 1.0, 0.85, 0.6, 0.35, 0.12, 0.0], side='back', width=1.2),
+    # 鼠蹊溝：胯下（大陰唇旁的摺）斜上到髂前上棘；下段深、上段淺（量到的溝深 1.3 → 0.1）
+    'groin': dict(pts=[(2.0, 77.8), (2.3, 79.0), (3.0, 81.0), (4.5, 82.8), (6.5, 84.8), (8.5, 87.3), (10.5, 90.0),
+                       (11.5, 92.0)],
+                  strength=[1.0, 1.0, 0.9, 0.7, 0.5, 0.35, 0.2, 0.1], side='front', width=1.5),
+    # 恥骨上橫摺：恥丘上緣，兩端接到鼠蹊（很胖時下腹蓋上來的深摺由腹部做，這裡只留淺的）
+    'suprapubic': dict(pts=[(0.0, 83.6), (2.5, 83.5), (4.5, 83.3), (6.0, 84.2)], strength=[1, 1, 1, 0.5],
+                       side='front', width=1.5),
+    # 臀縫：正中後方，臀縫底（77.6）到臀縫淡掉的地方（約 91）
+    'cleft': dict(pts=[(0.0, 77.6), (0.0, 84.0), (0.0, 89.0), (0.0, 91.0)], strength=[1, 1, 0.8, 0.0],
+                  side='back', width=1.4),
+    # 薦骨正中：臀縫上方，腰窩之間的平三角
+    'sacrum': dict(pts=[(0.0, 89.0), (0.0, 93.0), (0.0, 97.0)], strength=[0.3, 0.7, 0.7], side='back', width=2.5),
+}
+
+
+def polyline_distance(x, y, pts, strength):
+    """(x, y) 到折線的距離，和最近那一點沿線內插的強度。"""
+    P = np.array(pts, float)
+    s = np.array(strength, float)
+    best = np.full(len(x), np.inf)
+    st = np.zeros(len(x))
+    Q = np.c_[x, y]
+    for i in range(len(P) - 1):
+        a, b = P[i], P[i + 1]
+        d = b - a
+        t = np.clip(((Q - a) @ d) / max(d @ d, 1e-12), 0, 1)
+        dist = np.linalg.norm(Q - (a + t[:, None] * d), axis=1)
+        better = dist < best
+        best[better] = dist[better]
+        st[better] = (s[i] + (s[i + 1] - s[i]) * t)[better]
+    return best, st
+
+
+def control_weights(V, N):
+    """每條控制線在每個頂點上的權重（0～1：線上是強度、離線 width 公分平滑歸零）；只算法線朝 side 那一面。"""
+    x, y = np.abs(V[:, 0]), V[:, 1]
+    out = {}
+    for name, c in CONTROL_LINES.items():
+        d, s = polyline_distance(x, y, c['pts'], c['strength'])
+        w = s * np.exp(-(d / c['width']) ** 2)
+        face = np.clip(N[:, 2] if c['side'] == 'front' else -N[:, 2], 0, 1)
+        out[name] = w * np.clip(face * 3, 0, 1)
+    return out
+
+
+def zone_weights(V, N, soft=4.0):
+    """區域權重（0～1）：belly 上緣的肚子（只當連接，不長、不垂）、crotch 胯下（兩腿之間）、edge 上下切口附近。"""
+    x, y, z = np.abs(V[:, 0]), V[:, 1], V[:, 2]
+    # 肚子：正面、恥骨上橫摺以上、兩條鼠蹊之間
+    gp = np.array(CONTROL_LINES['groin']['pts'])
+    gx = np.interp(y, gp[:, 1], gp[:, 0]) + np.clip(y - gp[-1, 1], 0, None) * 0.3   # 髂前上棘以上往外斜
+    above = np.clip((y - 84.0) / soft + 0.5, 0, 1)
+    inside = np.clip((gx - x) / soft + 0.5, 0, 1)
+    front = np.clip(N[:, 2] * 2.5, 0, 1)
+    belly = above * inside * front
+    # 胯下：兩腿之間朝下的那一條（大陰唇底面、會陰、臀縫底），不含兩側的大腿內側
+    crotch = np.clip((79.0 - y) / 1.5, 0, 1) * np.clip((y - 74.5) / 1.0, 0, 1) * np.clip((3.0 - x) / 1.0, 0, 1) \
+        * np.clip((-N[:, 1] - 0.3) / 0.3, 0, 1)
+    edge = np.maximum(np.clip((y - 96.5) / 4.0, 0, 1), np.clip((72.0 - y) / 4.0, 0, 1))
+    return dict(belly=belly, crotch=crotch, edge=edge)
