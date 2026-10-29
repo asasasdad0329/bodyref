@@ -192,6 +192,7 @@
 | 補 | R23 | 美術解剖：骨盆到大腿根的體塊、面、轉折與交界的通則 | 雕塑與繪畫用的解剖書（Zarins、Goldfinger、Bridgman、Loomis 的通則，用自己的話寫，不收圖） | 臀 ①（中性型重做，#68） | 完成（記於[臀的工作檔](../c1-lower-body/01-glute.md#美術解剖骨盆到大腿根r232026-10-29)） |
 | 補 | R24 | 女性型區（臀與大腿上段）的去脂隨全身去脂怎麼變 | NHANES 2011–2018 DXA（`tools/research/r24_gynoid_lean.py`） | 臀 ②（純肌肉線） | 完成（記於[臀的工作檔](../c1-lower-body/01-glute.md#純肌肉線2026-10-2958)） |
 | 補 | R25 | 臀的表面形：臀型的框架與三個點（Mendieta）、臀溝的構造、臀下垂分級、大轉子凹陷、肌肉的份量與區域肥大 | 整形外科文獻（Mendieta 2006／2018、Gonzalez 2006、Ghavami／Surg Radiol Anat 2021、Clin Anat 2026）、Handsfield 2014、肌肥大 MRI 研究 | 臀 ②（肌肉線與脂肪線的形） | 完成（記於[臀的工作檔](../c1-lower-body/01-glute.md#臀的表面形r252026-10-29)） |
+| 補 | R26 | 脂肪怎麼垂：皮下筋膜系統包住脂肪、附著區（臀溝、臀側凹陷、大腿外側下段、大腿內側中段、大腿後側下段）、淺筋膜只在臀上半（纖維從髂嵴拉來）、皮下脂肪分淺深兩層 | Rohrich 2001（zones of adherence）與教科書章節、Han 2022（Clin Anat，37 具大體）、Markman & Barton 1987、Gonzalez 2006 | 臀 ②（脂肪線的重力） | 完成（記於[臀的工作檔](../c1-lower-body/01-glute.md#脂肪線立體重力2026-10-29r26)） |
 
 ### 研究問題（引導研究，不決定結構）
 

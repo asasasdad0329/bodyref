@@ -1,14 +1,18 @@
-"""臀的純脂肪線，在 MakeHuman 起胚的中性型上（DECISIONS #61、#71；研究 R20、R21）。只用 numpy、scipy。
+"""臀的純脂肪線，在 MakeHuman 起胚的中性型上（DECISIONS #61、#71；研究 R20、R21、R25、R26）。只用 numpy、scipy。
 
 python3 tools/blender/glute_mh_fat.py <輸出資料夾> [viewer]
 
-規律沿用 glute_fat.py（#61），改動：
-- 脂肪直接加在控制籠（glute_mh.build 的加密籠）上，再 Catmull-Clark 細分；不再擬合籠，變大變小都是成片平順的。
-- 附著線用中性型上量出來的控制線（glute_mh.CONTROL_LINES），權重固定在頂點上，跟著組織走。
-- 肚子只當連接（作者 2026-10-29）：不長、不垂，只跟著鄰區平順地變一點。
-分層：中性型 ＝ 底層 ＋ 脂肪厚度 × 法線。
-  厚度 T(點, F) ＝ 最薄厚度 ＋ Σ 堆積點的分布(點) × 增長曲線(F) × 附著係數(點)；中性型對應 F0。
-  中性以下照公式；中性以上照體積規律一步步沿當下的法線充氣，厚的地方順便下垂。
+分層：中性型 ＝ 底層（骨架＋肌肉）＋ 脂肪厚度 × 法線；厚度 T(點, F) 由堆積點與增長曲線給（#61，規律沿用 glute_fat.py）。
+做法分兩步（作者 2026-10-29：做的時候要有體積的概念，記下來的只要表面）：
+  1. 不受重力時怎麼長：照數據的規律（堆積點、範圍內每 kg 全身脂肪 0.18 kg），沿中性時的方向（抹平過的法線，
+     組織離開骨頭的方向）長，方向沒正對表面時補回體積。切口附近只往切口平面長；正中兩邊貼到正中為止；
+     胯下（大陰唇底面、會陰）夾在兩腿之間不往下長。中性以下照厚度公式收。
+  2. 重力：把脂肪層當成立體的體積（glute_mh_soft.FatVolume），只加臀那一袋多出來的重量，解線性彈性的平衡：
+     - 體積不變（脂肪幾乎不可壓縮）；皮與淺筋膜是膜（彎曲勁度），臀上半有淺筋膜從髂嵴拉著較硬、下半鬆（Han 2022）；
+     - 附著區綁住：臀溝內段、臀縫、薦骨、臀側凹陷（大轉子上方）（Rohrich 的 zones of adherence）；
+     - 溝下的大腿、肚子、上下切口不受這袋的重力（是別的部位的事）；
+     - 接觸：垂下來的臀不擠進大腿後面的表面，兩邊不穿過正中。
+     中性起每 SOFT_STEP kg 解一次（前一格當起點），中間直線內插；位移只留大尺度的部分（籠格子尺度的起伏是數值的）。
 輸出：fat_line.json（每 1 kg 的臀圍、寬、厚、大腿圍）、fat_line.npz（每 1 kg 的控制籠）；加 viewer 另存
 fat_viewer.npz（細分 2 次的網格，每 4 kg 一組）給 fat_viewer.py 做成可旋轉的檢視頁。產物不進倉庫。
 """
@@ -21,6 +25,7 @@ from scipy.spatial import ConvexHull
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import glute_mh as gm  # noqa: E402
+import glute_mh_soft as gs  # noqa: E402
 
 # ---------- 軸（同 glute_fat.py）----------
 F0 = 17.0                     # 中性型：160 cm、54.5 kg、DXA 體脂約 31%
@@ -28,7 +33,6 @@ FMIN, FMAX = 9.0, 110.0       # 瘦端約 BMI 16.5；胖端到全身體重約 20
 REGION_SLOPE = 0.18           # 範圍內每 kg 全身脂肪多約 0.18 kg 脂肪（R20、R21）
 STEP_F = 0.5
 SPREAD_REF = 33.0
-SAG = 0.6
 BELLY_FOLLOW = 0.4            # 肚子只跟著鄰區變這麼多
 TOP_TAPER = (96.0, 101.0, 0.55)   # 上緣切口附近增長放緩到 55%，之後才接得上腰
 TMIN = 0.25
@@ -52,6 +56,19 @@ DEPOTS = {
 
 # ---------- 2. 附著線：每條控制線上，厚度增長乘上 (1 − 最大比例 × 權重) ----------
 ATTACH = dict(fold=0.85, cleft=0.9, sacrum=0.6, suprapubic=0.3, groin=0.45)
+
+# ---------- 3. 重力（立體的脂肪層，glute_mh_soft）----------
+ADHERE = dict(fold=1.0, cleft=1.0, sacrum=1.0)     # 附著區：控制線（皮綁在深層）
+LGD = dict(c=(15.5, 86.5), r=(2.5, 2.5))             # 臀側凹陷（大轉子上方）附著區，只算朝外側的面
+SOFT_G = 0.8         # 重力：每公克多出來的脂肪的力（和彈簧勁度同一套單位；校成 109 kg 時臀下緣垂過臀溝幾公分）
+SOFT_K = 1           # 脂肪層沿厚度切幾層
+SOFT_STEP = 4.0      # 每幾 kg 解一次平衡，中間內插
+K_ANCH = 30.0        # 附著區拉回原位的勁度
+SF_UP = 4.0          # 臀上半淺筋膜：皮膚那層的邊加硬的倍數
+LOOSE = 0.5          # 臀下半：層間（隔膜）勁度的倍數
+SKIN = 5.0           # 皮膚（膜）比脂肪硬的倍數
+BEND = 100.0         # 皮膚那層的彎曲勁度
+D_SMOOTH = 10        # 位移平順的次數
 
 
 def growth(F, on, k):
@@ -85,18 +102,33 @@ class FatLine:
         self.A = np.ones(len(self.V0))
         for name, s in ATTACH.items():
             self.A *= 1 - s * C[name]
-        self.belly, self.edge = Z['belly'], Z['edge']
+        self.belly = Z['belly']
+        self.crotch = Z['crotch']
         y = self.V0[:, 1]
         y0, y1, keep = TOP_TAPER
         self.top = 1 - (1 - keep) * np.clip((y - y0) / (y1 - y0), 0, 1)
-        # 下垂：肚子不垂（交給腹部）；恥丘附著在恥骨上，變厚但不往下垂到胯下；上下切口不動
-        N0 = self.N0
-        self.sag = (1 - self.belly) * (1 - self.edge)
-        self.sag *= 1 - 0.85 * np.clip(N0[:, 2], 0, 1) * np.clip((84.5 - y) / 2.0, 0, 1) \
-            * np.exp(-(self.V0[:, 0] / 6.0) ** 2)
         self.T0 = self.thickness(F0)
         self.base = self.V0 - self.T0[:, None] * self.N0
-        self._states = {}
+        # 長的方向：中性時的法線抹平（組織離開骨頭的方向）。沿當下的法線一步步長會像吹氣球，溝兩壁越長越朝彼此、穿過去
+        self.W = gm.averaging_matrix(len(self.V0), self.F)
+        D = self.N0.copy()
+        for _ in range(25):
+            D = D + 0.35 * (self.W @ D - D)
+        self.D0 = D / np.linalg.norm(D, axis=1, keepdims=True)
+        self.cut = gm.cut_frame(self.V0, self.F)
+        # 重力只作用在臀那一袋：臀溝線（往外水平延伸）以上，不含肚子與上緣
+        fp = np.array(gm.CONTROL_LINES['fold']['pts'])
+        self.y_crease = np.interp(np.abs(self.V0[:, 0]), fp[:, 0], fp[:, 1])
+        u = np.clip((y - self.y_crease) / 2.0, 0, 1)
+        self.glute = u * u * (3 - 2 * u) * (1 - self.belly) * (1 - np.clip((y - 96.5) / 4.0, 0, 1))
+        a = np.zeros(len(self.V0))
+        for name, k in ADHERE.items():
+            a = np.maximum(a, k * C[name])
+        x = np.abs(self.V0[:, 0])
+        a = np.maximum(a, np.exp(-(((x - LGD['c'][0]) / LGD['r'][0]) ** 2 + ((y - LGD['c'][1]) / LGD['r'][1]) ** 2))
+                       * np.clip(np.abs(self.N0[:, 0]) * 2, 0, 1))
+        self.adhere = a
+        self._unl, self._sag = {}, {}
         assert np.abs(self.shape(F0) - self.V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
 
     def maps(self, V, N, F):
@@ -131,38 +163,113 @@ class FatLine:
         return V
 
     def distribution(self, F):
-        """此刻新增的脂肪往哪裡去：各堆積點增長曲線的斜率 × 分布 × 附著係數。"""
+        """此刻新增的脂肪往哪裡去：各堆積點增長曲線的斜率 × 分布 × 附著係數。
+        胯下（大陰唇底面、會陰）夾在兩腿之間，沒有往下長的空間；大陰唇的脂肪從恥丘那邊長（mons）。"""
         M = self.maps(self.V0, self.N0, F)
         w = np.zeros(len(self.V0))
         for name, d in DEPOTS.items():
             w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
-        w *= self.A * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top
+        w *= self.A * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top * (1 - np.clip(self.crotch * 2, 0, 1))
         return w
 
-    def inflate(self, V, F, dF):
-        w = self.distribution(F)
-        vol = REGION_SLOPE * dF / 0.9 * 1000            # 公分³（脂肪密度 0.9），左右兩半合計
-        dT = vol * w / (areas(V, self.F) * w).sum()
-        V = V + dT[:, None] * gm.vertex_normals(V, self.F)
-        excess = np.linalg.norm(V - self.V0, axis=1)
-        V[:, 1] -= SAG * dT * excess / 5.0 * self.A * self.sag
-        return self.constrain(V)
-
-    def shape(self, F):
-        """任一全身脂肪量 F 的控制籠。中性以下照公式；中性以上從中性用同樣的步長一步步充氣，結果只由 F 決定。"""
+    def unloaded(self, F):
+        """不受重力時的形與每個點長了多厚。中性以下照厚度公式沿長的方向收；中性以上從中性用同樣的步長一步步長，
+        體積照規律（方向沒正對表面時補回），結果只由 F 決定。"""
         if F <= F0:
             T = self.T0 + (self.thickness(F) - self.T0) * (1 - (1 - BELLY_FOLLOW) * self.belly)
-            return self.constrain(self.base + T[:, None] * self.N0)
+            return self.constrain(self.V0 + (T - self.T0)[:, None] * self.D0), np.zeros(len(self.V0))
         n = int(round((F - F0) / STEP_F * 1e6)) // 1000000
-        k = max([j for j in self._states if j <= n], default=0)
-        V = self._states[k].copy() if k else self.V0.copy()
-        for j in range(k, n):
-            V = self.inflate(V, F0 + (j + 0.5) * STEP_F, STEP_F)
-            self._states[j + 1] = V.copy()
+        k = max([j for j in self._unl if j <= n], default=0)
+        V, acc = (a.copy() for a in self._unl[k]) if k else (self.V0.copy(), np.zeros(len(self.V0)))
+        steps = [(F0 + (j + 0.5) * STEP_F, STEP_F, j + 1) for j in range(k, n)]
         rest = F - (F0 + n * STEP_F)
         if rest > 1e-9:
-            V = self.inflate(V, F0 + n * STEP_F + rest / 2, rest)
-        return V
+            steps.append((F0 + n * STEP_F + rest / 2, rest, None))
+        for Fm, dF, key in steps:
+            w = self.distribution(Fm)
+            area = areas(V, self.F)
+            dT = REGION_SLOPE * dF / 0.9 * 1000 * w / (area * w).sum()      # 公分³（脂肪密度 0.9），左右兩半合計
+            N = gm.growth_dirs(V, self.D0, self.cut)
+            cos = np.clip((N * gm.vertex_normals(V, self.F)).sum(1), 0.2, 1)
+            dT *= (area * dT).sum() / (area * dT * cos).sum()
+            V = self.constrain(V + dT[:, None] * N)
+            acc = acc + dT
+            if key is not None:
+                self._unl[key] = (V.copy(), acc.copy())
+        return V, acc
+
+    def _soft_setup(self):
+        n, K = len(self.V0), SOFT_K
+        self.vol = gs.FatVolume(self.F, n, K)
+        ef = gm.edge_faces(self.F)
+        bnd = np.zeros(n, bool)
+        for e, fs in ef.items():
+            if len(fs) == 1:
+                bnd[list(e)] = True
+        col, lay = np.tile(np.arange(n), K + 1), np.repeat(np.arange(K + 1), n)
+        # 只解臀那一袋（加外圍三圈）；其他地方沒有這袋的重力，留在不受重力的位置
+        g = (self.glute > 0.02).astype(float)
+        for _ in range(3):
+            g = np.maximum(g, (self.W @ g > 0).astype(float))
+        self.s_free = (lay > 0) & ~bnd[col] & (g[col] > 0)
+        self.s_col, self.s_lay = col, lay
+        y = self.V0[:, 1]
+        back = np.clip(-self.N0[:, 2] * 2, 0, 1)
+        E = self.vol.E
+        ce = col[E].T
+        ymid, bk = (y[ce[0]] + y[ce[1]]) / 2, (back[ce[0]] + back[ce[1]]) / 2
+        up = np.clip((ymid - 86.0) / 4.0, 0, 1) * bk           # 臀上半：淺筋膜從髂嵴拉著（皮膚那層加硬）
+        low = np.clip((84.0 - ymid) / 4.0, 0, 1) * bk           # 臀下半：隔膜鬆
+        k = np.ones(len(E))
+        sk = self.vol.skin_edge
+        k[sk] *= SKIN * (1 + (SF_UP - 1) * up[sk])
+        inter = lay[E[:, 0]] != lay[E[:, 1]]
+        k[inter] *= 1 - (1 - LOOSE) * low[inter]
+        self.s_kedge = k
+        self.s_kanch = K_ANCH * self.adhere[col] * (lay > 0)
+        self.s_side = np.sign(np.round(self.V0[col, 0], 6))
+        self.s_thigh = (self.glute < 0.05) & (self.N0[:, 2] < -0.3) & (y < self.y_crease + 0.5)
+        self.s_lap = gs.laplacian(self.F, n)
+
+    def sag(self, Fg):
+        """格點 Fg 上重力造成的皮膚位移（相對不受重力的形）。"""
+        if Fg in self._sag:
+            return self._sag[Fg]
+        if not hasattr(self, 'vol'):
+            self._soft_setup()
+        K, n = SOFT_K, len(self.V0)
+        U, acc = self.unloaded(Fg)
+        Xr = self.vol.layers(self.base, U)
+        load = np.zeros(len(Xr))
+        dm = 0.9 * np.clip(acc, 0, None) * areas(U, self.F) * self.glute           # 臀這袋多出來的脂肪（公克）
+        for kk in range(1, K + 1):
+            load[kk * n:(kk + 1) * n] = SOFT_G * dm / K
+        fp = np.array(gm.CONTROL_LINES['fold']['pts'])
+        hf = gs.height_field(np.c_[np.abs(U[self.s_thigh, 0]), U[self.s_thigh, 1], U[self.s_thigh, 2]],
+                             lambda x: np.interp(x, fp[:, 0], fp[:, 1]))
+        check = (self.s_lay == K) & (self.glute[self.s_col] > 0.3)
+        kb = [0.0] * (K + 1)
+        kb[K] = BEND
+        if K > 1:
+            kb[K - 1] = 0.2 * BEND
+        X = self.vol.solve_linear(Xr, self.s_free, self.s_kedge, self.s_kanch, load, self.s_side, (hf, check),
+                                  lap=self.s_lap, k_bend=kb)
+        D = X[K * n:(K + 1) * n] - U
+        for _ in range(D_SMOOTH):
+            D = D + 0.5 * (self.W @ D - D)
+        self._sag[Fg] = D
+        return D
+
+    def shape(self, F):
+        """任一全身脂肪量 F 的控制籠：不受重力的形 ＋ 重力的位移（中性起每 SOFT_STEP kg 解一次，中間直線內插）。"""
+        U, _ = self.unloaded(F)
+        if F <= F0:
+            return U
+        j = int(np.floor((F - F0) / SOFT_STEP + 1e-9))
+        Fa, Fb = F0 + j * SOFT_STEP, F0 + (j + 1) * SOFT_STEP
+        Da = self.sag(Fa) if Fa > F0 else 0.0
+        t = (F - Fa) / SOFT_STEP
+        return self.constrain(U + (1 - t) * Da + t * self.sag(Fb))
 
 
 def girth(P, y, side=None):
@@ -207,5 +314,6 @@ if __name__ == '__main__':
         Nn = gm.vertex_normals(Pn, Q)
         zone = np.where(gm.zone_weights(Pn, Nn)['belly'] > 0.5, 1, np.where(Pn[:, 1] < 73.0, 2, 0)).astype(np.uint8)
         np.savez_compressed(out / 'fat_viewer.npz', F=Fs[sel], positions=np.stack([m[0] for m in meshes]).astype(np.float32),
-                            tris=tris, F0=F0, hip=hip[sel], thigh=np.array([r['thighCirc'] for r in rows])[sel], zone=zone)
+                            tris=tris, F0=F0, hip=hip[sel], thigh=np.array([r['thighCirc'] for r in rows])[sel], zone=zone,
+                            title='臀・純脂肪線（立體＋重力）', axis='全身脂肪')
         print('viewer frames', len(sel), 'verts', len(meshes[0][0]))
