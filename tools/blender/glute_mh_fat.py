@@ -51,19 +51,23 @@ DEPOTS = {
     'mons':        dict(c=(0.0, 81.0, 7.0), r=(3.5, 2.0, 3.0), face=(0, 0, 1), amax=1.8, on=0.0, k=25.0, sp=0.3),
     'innerThigh':  dict(c=(3.5, 73.0, 1.0), r=(3.0, 4.0, 5.0), face=(-1, 0, 0), amax=2.2, on=8.0, k=25.0, sp=0.4),
     'backThigh':   dict(c=(8.0, 73.5, -9.0), r=(5.0, 3.0, 4.0), face=(0, 0, -1), amax=1.8, on=15.0, k=25.0, sp=0.5),
+    # 大腿上段一整圈（臀溝下方的後、內、外側）：變胖時大腿和臀一起長，從下面把臀溝撐出來（R27：掃描統計模型、Seamscape）。
+    # 從中性開始長（中性的厚度不變），中心在大腿軸上、臀溝下方
+    'thighRoot':   dict(c=(9.0, 70.5, -1.0), r=(7.0, 3.5, 7.0), face=None, amax=float(__import__('os').environ.get('THIGH_AMAX', '4.0')),
+                        on=F0, k=30.0, sp=0.3, medial=False, grow_only=True),
     'frontThigh':  dict(c=(9.0, 74.0, 6.0), r=(4.5, 4.5, 5.0), face=(0.3, 0, 1), amax=3.5, on=4.0, k=22.0, sp=0.6),
 }
 
 # ---------- 2. 附著線：每條控制線上，厚度增長乘上 (1 − 最大比例 × 權重) ----------
 ATTACH = dict(fold=0.85, cleft=0.9, sacrum=0.6, suprapubic=0.3, groin=0.45)
 # 中性以上多長的脂肪：臀溝那條線也會長（被兩側的脂肪往外推），只是比兩側少（作者 2026-10-30：大體重時那個縫也要外推）
-ATTACH_GROW = dict(ATTACH, fold=float(__import__('os').environ.get('FOLD_GROW_ATTACH', '0.5')))
+ATTACH_GROW = dict(ATTACH, fold=float(__import__('os').environ.get('FOLD_GROW_ATTACH', '0.25')))
 
 # ---------- 3. 重力（立體的脂肪層，glute_mh_soft）----------
 ADHERE = dict(fold=1.0, cleft=1.0, sacrum=1.0)     # 附著區：控制線（皮綁在深層）
 ADHERE_SHARP = float(__import__('os').environ.get('ADHERE_SHARP', '3'))
 LGD = dict(c=(15.5, 86.5), r=(2.5, 2.5))             # 臀側凹陷（大轉子上方）附著區，只算朝外側的面
-SOFT_G = 0.8         # 重力：每公克多出來的脂肪的力（和彈簧勁度同一套單位；校成 109 kg 時臀下緣垂過臀溝幾公分）
+SOFT_G = float(__import__('os').environ.get('SOFT_G', '0.25'))   # 重力：每公克多出來的脂肪的力（和彈簧勁度同一套單位；校成 109 kg 時臀下緣垂過臀溝幾公分）
 SOFT_K = 1           # 脂肪層沿厚度切幾層
 SOFT_STEP = 4.0      # 每幾 kg 解一次平衡，中間內插
 K_ANCH = 30.0        # 附著區拉回原位的勁度
@@ -149,16 +153,21 @@ class FatLine:
                 M[name] = np.ones(len(V))
                 continue
             c, r = np.array(d['c']), np.array(d['r'])
-            f = np.array(d['face'], float)
-            f /= np.linalg.norm(f)
             q = (Vm - c) / (r * (1 + d['sp'] * (F - F0) / SPREAD_REF))
-            M[name] = np.exp(-0.5 * (q ** 2).sum(1)) * np.clip(Nm @ f, 0, 1)
+            M[name] = np.exp(-0.5 * (q ** 2).sum(1))
+            if d['face'] is not None:
+                f = np.array(d['face'], float)
+                M[name] *= np.clip(Nm @ (f / np.linalg.norm(f)), 0, 1)
+            if not d.get('medial', True):
+                M[name] *= np.clip(1 + Nm[:, 0] / 0.5, 0, 1)      # 朝內（正中）的面不長：大腿內側已有 innerThigh，兩腿貼合處另外處理
         return M
 
     def thickness(self, F):
         M = self.maps(self.V0, self.N0, F)
         T = np.full(len(self.V0), TMIN)
         for name, d in DEPOTS.items():
+            if d.get('grow_only'):          # 只管中性以上多長的（中性與更瘦時的厚度不變）
+                continue
             T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
         return T
 
