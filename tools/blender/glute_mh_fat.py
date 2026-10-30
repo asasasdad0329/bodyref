@@ -56,9 +56,12 @@ DEPOTS = {
 
 # ---------- 2. 附著線：每條控制線上，厚度增長乘上 (1 − 最大比例 × 權重) ----------
 ATTACH = dict(fold=0.85, cleft=0.9, sacrum=0.6, suprapubic=0.3, groin=0.45)
+# 中性以上多長的脂肪：臀溝那條線也會長（被兩側的脂肪往外推），只是比兩側少（作者 2026-10-30：大體重時那個縫也要外推）
+ATTACH_GROW = dict(ATTACH, fold=float(__import__('os').environ.get('FOLD_GROW_ATTACH', '0.5')))
 
 # ---------- 3. 重力（立體的脂肪層，glute_mh_soft）----------
 ADHERE = dict(fold=1.0, cleft=1.0, sacrum=1.0)     # 附著區：控制線（皮綁在深層）
+ADHERE_SHARP = float(__import__('os').environ.get('ADHERE_SHARP', '3'))
 LGD = dict(c=(15.5, 86.5), r=(2.5, 2.5))             # 臀側凹陷（大轉子上方）附著區，只算朝外側的面
 SOFT_G = 0.8         # 重力：每公克多出來的脂肪的力（和彈簧勁度同一套單位；校成 109 kg 時臀下緣垂過臀溝幾公分）
 SOFT_K = 1           # 脂肪層沿厚度切幾層
@@ -69,6 +72,7 @@ LOOSE = 0.5          # 臀下半：層間（隔膜）勁度的倍數
 SKIN = 5.0           # 皮膚（膜）比脂肪硬的倍數
 BEND = 100.0         # 皮膚那層的彎曲勁度
 D_SMOOTH = 10        # 位移平順的次數
+GROW_BLEND = float(__import__('os').environ.get('GROW_BLEND', '0.5'))   # 長的方向：0 中性時的方向、1 當下的形的方向
 
 
 def growth(F, on, k):
@@ -102,6 +106,9 @@ class FatLine:
         self.A = np.ones(len(self.V0))
         for name, s in ATTACH.items():
             self.A *= 1 - s * C[name]
+        self.A_grow = np.ones(len(self.V0))
+        for name, s in ATTACH_GROW.items():
+            self.A_grow *= 1 - s * C[name]
         self.belly = Z['belly']
         self.crotch = Z['crotch']
         y = self.V0[:, 1]
@@ -123,7 +130,8 @@ class FatLine:
         self.glute = u * u * (3 - 2 * u) * (1 - self.belly) * (1 - np.clip((y - 96.5) / 4.0, 0, 1))
         a = np.zeros(len(self.V0))
         for name, k in ADHERE.items():
-            a = np.maximum(a, k * C[name])
+            # 只綁那一條線（控制線的權重取次方，變窄）：線上方的組織可以翻過去
+            a = np.maximum(a, k * C[name] ** ADHERE_SHARP)
         x = np.abs(self.V0[:, 0])
         a = np.maximum(a, np.exp(-(((x - LGD['c'][0]) / LGD['r'][0]) ** 2 + ((y - LGD['c'][1]) / LGD['r'][1]) ** 2))
                        * np.clip(np.abs(self.N0[:, 0]) * 2, 0, 1))
@@ -169,7 +177,7 @@ class FatLine:
         w = np.zeros(len(self.V0))
         for name, d in DEPOTS.items():
             w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
-        w *= self.A * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top * (1 - np.clip(self.crotch * 2, 0, 1))
+        w *= self.A_grow * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top * (1 - np.clip(self.crotch * 2, 0, 1))
         return w
 
     def unloaded(self, F):
@@ -189,8 +197,16 @@ class FatLine:
             w = self.distribution(Fm)
             area = areas(V, self.F)
             dT = REGION_SLOPE * dF / 0.9 * 1000 * w / (area * w).sum()      # 公分³（脂肪密度 0.9），左右兩半合計
-            N = gm.growth_dirs(V, self.D0, self.cut)
-            cos = np.clip((N * gm.vertex_normals(V, self.F)).sum(1), 0.2, 1)
+            Nc = gm.vertex_normals(V, self.F)
+            # 長的方向：中性時的方向（組織離開骨頭）和當下的形的方向（像吹氣球一樣撐圓，臀下段朝下的面往下長）混合，
+            # 兩者都抹平過：溝兩壁的方向被平均掉，不會越長越朝彼此
+            N = Nc.copy()
+            for _ in range(25):
+                N = N + 0.35 * (self.W @ N - N)
+            N = GROW_BLEND * N / np.linalg.norm(N, axis=1, keepdims=True) + (1 - GROW_BLEND) * self.D0
+            N /= np.linalg.norm(N, axis=1, keepdims=True)
+            N = gm.growth_dirs(V, N, self.cut)
+            cos = np.clip((N * Nc).sum(1), 0.2, 1)
             dT *= (area * dT).sum() / (area * dT * cos).sum()
             V = self.constrain(V + dT[:, None] * N)
             acc = acc + dT
