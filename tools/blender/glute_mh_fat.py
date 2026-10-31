@@ -108,13 +108,18 @@ def areas(V, F):
 
 
 class FatLine:
-    def __init__(self):
+    def __init__(self, frame=None):
+        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。
+        規則（堆積點、控制線、區域、附著）都在原本中性型的頂點上算（Vc、Nc），綁在組織上；形（底層、長的方向、切口）用 V0。"""
         g = gm.build()
-        self.V0, self.F = g.V.copy(), g.F
+        self.F = g.F
+        self.Vc = g.V.copy()
+        self.Nc = gm.vertex_normals(self.Vc, self.F)
+        self.V0 = self.Vc.copy() if frame is None else np.asarray(frame, float).copy()
         self.N0 = gm.vertex_normals(self.V0, self.F)
-        self.mid = np.abs(self.V0[:, 0]) < 1e-6
-        C = gm.control_weights(self.V0, self.N0)
-        Z = gm.zone_weights(self.V0, self.N0)
+        self.mid = np.abs(self.Vc[:, 0]) < 1e-6
+        C = gm.control_weights(self.Vc, self.Nc)
+        Z = gm.zone_weights(self.Vc, self.Nc)
         self.A = np.ones(len(self.V0))
         for name, s in ATTACH.items():
             self.A *= 1 - s * C[name]
@@ -124,12 +129,12 @@ class FatLine:
         self.belly = Z['belly']
         self.crotch = Z['crotch']
         # 胯下不長的只有朝下的底面（大陰唇底、會陰）；朝正中的壁（臀縫最底、兩腿內側）照樣長，兩邊才擠得攏
-        medial = np.clip(-np.sign(self.V0[:, 0]) * self.N0[:, 0], 0, None)
+        medial = np.clip(-np.sign(self.Vc[:, 0]) * self.Nc[:, 0], 0, None)
         self.crotch_hold = np.clip(self.crotch * 2, 0, 1) * np.clip(1 - medial / 0.6, 0, 1)
         if __import__('os').environ.get('PERI_GROW', '1') == '1':
             # 會陰後段（肛門四周，臀縫底）也有脂肪（坐骨肛門窩），會跟著長、把臀縫底的凹填起來；只有前段（大陰唇底）不長
-            self.crotch_hold *= np.clip((self.V0[:, 2] + 1.0) / 2.0, 0, 1)
-        y = self.V0[:, 1]
+            self.crotch_hold *= np.clip((self.Vc[:, 2] + 1.0) / 2.0, 0, 1)
+        y = self.Vc[:, 1]
         y0, y1, keep = TOP_TAPER
         self.top = 1 - (1 - keep) * np.clip((y - y0) / (y1 - y0), 0, 1)
         self.T0 = self.thickness(F0)
@@ -143,16 +148,16 @@ class FatLine:
         self.cut = gm.cut_frame(self.V0, self.F)
         # 重力只作用在臀那一袋：臀溝線（往外水平延伸）以上，不含肚子與上緣
         fp = np.array(gm.CONTROL_LINES['fold']['pts'])
-        self.y_crease = np.interp(np.abs(self.V0[:, 0]), fp[:, 0], fp[:, 1])
+        self.y_crease = np.interp(np.abs(self.Vc[:, 0]), fp[:, 0], fp[:, 1])
         u = np.clip((y - self.y_crease) / 2.0, 0, 1)
         self.glute = u * u * (3 - 2 * u) * (1 - self.belly) * (1 - np.clip((y - 96.5) / 4.0, 0, 1))
         a = np.zeros(len(self.V0))
         for name, k in ADHERE.items():
             # 只綁那一條線（控制線的權重取次方，變窄）：線上方的組織可以翻過去
             a = np.maximum(a, k * C[name] ** ADHERE_SHARP)
-        x = np.abs(self.V0[:, 0])
+        x = np.abs(self.Vc[:, 0])
         a = np.maximum(a, np.exp(-(((x - LGD['c'][0]) / LGD['r'][0]) ** 2 + ((y - LGD['c'][1]) / LGD['r'][1]) ** 2))
-                       * np.clip(np.abs(self.N0[:, 0]) * 2, 0, 1))
+                       * np.clip(np.abs(self.Nc[:, 0]) * 2, 0, 1))
         self.adhere = a
         self._unl, self._sag = {}, {}
         assert np.abs(self.shape(F0) - self.V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
@@ -177,7 +182,7 @@ class FatLine:
         return M
 
     def thickness(self, F):
-        M = self.maps(self.V0, self.N0, F)
+        M = self.maps(self.Vc, self.Nc, F)
         T = np.full(len(self.V0), TMIN)
         for name, d in DEPOTS.items():
             if d.get('grow_only'):          # 只管中性以上多長的（中性與更瘦時的厚度不變）
@@ -189,7 +194,7 @@ class FatLine:
         V[self.mid, 0] = 0.0
         if clamp:
             # 站姿專用的擋板（肌肉線還在用）：兩邊最多貼到正中。脂肪線的接觸改由 glute_mh_contact 處理
-            left, right = (self.V0[:, 0] > 0) & ~self.mid, (self.V0[:, 0] < 0) & ~self.mid
+            left, right = (self.Vc[:, 0] > 0) & ~self.mid, (self.Vc[:, 0] < 0) & ~self.mid
             V[left, 0] = np.maximum(V[left, 0], 0.05)
             V[right, 0] = np.minimum(V[right, 0], -0.05)
         return V
@@ -197,7 +202,7 @@ class FatLine:
     def distribution(self, F):
         """此刻新增的脂肪往哪裡去：各堆積點增長曲線的斜率 × 分布 × 附著係數。
         胯下（大陰唇底面、會陰）夾在兩腿之間，沒有往下長的空間；大陰唇的脂肪從恥丘那邊長（mons）。"""
-        M = self.maps(self.V0, self.N0, F)
+        M = self.maps(self.Vc, self.Nc, F)
         w = np.zeros(len(self.V0))
         for name, d in DEPOTS.items():
             w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
@@ -266,8 +271,8 @@ class FatLine:
             g = np.maximum(g, (self.W @ g > 0).astype(float))
         self.s_free = (lay > 0) & ~bnd[col] & (g[col] > 0)
         self.s_col, self.s_lay = col, lay
-        y = self.V0[:, 1]
-        back = np.clip(-self.N0[:, 2] * 2, 0, 1)
+        y = self.Vc[:, 1]
+        back = np.clip(-self.Nc[:, 2] * 2, 0, 1)
         E = self.vol.E
         ce = col[E].T
         ymid, bk = (y[ce[0]] + y[ce[1]]) / 2, (back[ce[0]] + back[ce[1]]) / 2
@@ -280,8 +285,8 @@ class FatLine:
         k[inter] *= 1 - (1 - LOOSE) * low[inter]
         self.s_kedge = k
         self.s_kanch = K_ANCH * self.adhere[col] * (lay > 0)
-        self.s_side = np.sign(np.round(self.V0[col, 0], 6))
-        self.s_thigh = (self.glute < 0.05) & (self.N0[:, 2] < -0.3) & (y < self.y_crease + 0.5)
+        self.s_side = np.sign(np.round(self.Vc[col, 0], 6))
+        self.s_thigh = (self.glute < 0.05) & (self.Nc[:, 2] < -0.3) & (y < self.y_crease + 0.5)
         self.s_lap = gs.laplacian(self.F, n)
 
     def sag(self, Fg):

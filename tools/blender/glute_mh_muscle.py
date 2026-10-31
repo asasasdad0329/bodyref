@@ -159,11 +159,12 @@ ATTACH = dict(fold=0.7, cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)
 
 
 class MuscleLine:
-    def __init__(self):
-        self.fat = gf.FatLine()
+    def __init__(self, frame=None):
+        """frame：這副骨架下的中性型（見 glute_mh_fat.FatLine）。肌肉的形、附著都在原本中性型的頂點上算。"""
+        self.fat = gf.FatLine(frame)
         fl = self.fat
         self.F, self.mid = fl.F, fl.mid
-        V0, N0 = fl.V0, fl.N0
+        V0, N0 = fl.Vc, fl.Nc
         C = gm.control_weights(V0, N0)
         Z = gm.zone_weights(V0, N0)
         A = np.ones(len(V0))
@@ -179,7 +180,7 @@ class MuscleLine:
         self.V0n, self.N0n = V0, N0
         self._fields = {}
         self.W = gm.averaging_matrix(len(V0), self.F)
-        self.cut = gm.cut_frame(V0, self.F)
+        self.cut = gm.cut_frame(fl.V0, self.F)
         self.base0 = fl.base.copy()
         self.N_base0 = gm.vertex_normals(self.base0, self.F)
         self.T0 = fl.T0

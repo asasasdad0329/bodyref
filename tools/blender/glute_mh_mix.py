@@ -30,8 +30,9 @@ F0, L0 = gf.F0, gmu.L0
 
 
 class MixLine:
-    def __init__(self):
-        self.ml = gmu.MuscleLine()
+    def __init__(self, frame=None):
+        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。"""
+        self.ml = gmu.MuscleLine(frame)
         self.fl = self.ml.fat
         self.F = self.fl.F
         self._T, self._start, self._sag, self._walk = {}, {}, {}, {}
