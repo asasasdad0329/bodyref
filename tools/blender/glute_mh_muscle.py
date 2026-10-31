@@ -84,6 +84,9 @@ MUSCLES = {
 # 偏美型（型 t = 1，DECISIONS #75）的肌肉份量：臀大肌、臀中肌多，大腿少（合計 1）。造型假設
 BEAUTY_SHARE = dict(gluteusMaximus=0.60, gluteusMedius=0.12, tensorFasciae=0.03, vastusLateralis=0.06,
                     quadricepsFront=0.05, adductors=0.08, hamstrings=0.06)
+# 插畫型（型 t = 2）：臀大肌、臀中肌更多
+STYLIZED_SHARE = dict(gluteusMaximus=0.68, gluteusMedius=0.14, tensorFasciae=0.02, vastusLateralis=0.05,
+                      quadricepsFront=0.04, adductors=0.04, hamstrings=0.03)
 WIDEN = 0.8       # 肌肉長大時也變寬：到最多去脂時寬度 × (1 + WIDEN)（肌肥大是整個截面變大，不是只變厚）
 BLUR = 0.35       # 脂肪把肌肉的形抹平的程度：每一步的擴散係數 ×（脂肪厚度 ÷ 2 公分）²
 BLUR_STEPS = 25
@@ -164,9 +167,11 @@ ATTACH = dict(fold=0.7, cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)
 class MuscleLine:
     def __init__(self, frame=None, type=0.0):
         """frame：這副骨架下的中性型（見 glute_mh_fat.FatLine）。肌肉的形、附著都在原本中性型的頂點上算。
-        type：型（0～1）；肌肉份量在原本與偏美型（BEAUTY_SHARE）之間內插。"""
+        type：型（0～2）；肌肉份量在原本、偏美型（BEAUTY_SHARE）、插畫型（STYLIZED_SHARE）之間內插。"""
         self.fat = gf.FatLine(frame, type)
-        self.share = {k: m['share'] + type * (BEAUTY_SHARE[k] - m['share']) for k, m in MUSCLES.items()}
+        a, b = min(type, 1.0), max(type - 1, 0.0)
+        self.share = {k: m['share'] + a * (BEAUTY_SHARE[k] - m['share']) + b * (STYLIZED_SHARE[k] - BEAUTY_SHARE[k])
+                      for k, m in MUSCLES.items()}
         fl = self.fat
         self.F, self.mid = fl.F, fl.mid
         V0, N0 = fl.Vc, fl.Nc

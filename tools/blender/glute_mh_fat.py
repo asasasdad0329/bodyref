@@ -80,27 +80,60 @@ BEAUTY = dict(
             'hipDip': dict(amax=3.0, r=(3.5, 4.0, 4.0)), 'saddle': dict(amax=6.5), 'thighRoot': dict(amax=5.0),
             'innerThigh': dict(amax=3.0), 'flank': dict(amax=1.5), 'everywhere': dict(amax=1.0)},
     belly_follow=0.2, fold_grow=0.55)
+# 插畫型（型 t = 2）：更接近作者給的參考圖（2026-10-31）。臀更大、更高、下緣更收、臀溝更清楚，臀側凹陷全填，
+# 腰側、全身平均、肚子幾乎不長。型在 1～2 之間是偏美型和插畫型之間內插（兩個目標，不外插）
+STYLIZED = dict(
+    depots={'buttock': dict(amax=10.0, c=(6.5, 83.5, -11.5)), 'lowerButtock': dict(amax=1.2),
+            'hipDip': dict(amax=4.0, r=(4.0, 4.5, 4.5)), 'saddle': dict(amax=7.0), 'thighRoot': dict(amax=5.5),
+            'innerThigh': dict(amax=3.0), 'backThigh': dict(amax=1.2), 'flank': dict(amax=0.5), 'everywhere': dict(amax=0.5)},
+    belly_follow=0.1, fold_grow=0.75)
 LEAN0 = 35.3                  # 中性的全身去脂（同 glute_mh_muscle.L0）
 
 
+def _lerp(a, b, u):
+    a, b = np.array(a, float), np.array(b, float)
+    return tuple(a + u * (b - a)) if a.ndim else float(a + u * (b - a))
+
+
 def type_depots(t):
-    """型 t 的堆積點：數值欄位在原本與偏美型之間直線內插。"""
+    """型 t 的堆積點：0～1 在原本與偏美型之間、1～2 在偏美型與插畫型之間直線內插。"""
     out = {}
     for name, d in DEPOTS.items():
         e = dict(d)
-        for k, v in BEAUTY['depots'].get(name, {}).items():
-            a, b = np.array(d[k], float), np.array(v, float)
-            e[k] = tuple(a + t * (b - a)) if a.ndim else float(a + t * (b - a))
+        keys = [k for k in ('amax', 'c', 'r') if d.get(k) is not None]
+        beauty = {k: BEAUTY['depots'].get(name, {}).get(k, d[k]) for k in keys}
+        styl = {k: STYLIZED['depots'].get(name, {}).get(k, beauty[k]) for k in keys}
+        for k in keys:
+            e[k] = _lerp(d[k], beauty[k], min(t, 1.0)) if t <= 1 else _lerp(beauty[k], styl[k], t - 1)
         out[name] = e
     return out
 
 
+def type_value(key, base, t):
+    """型 t 時的單一數值（肚子跟著長的比例、臀溝多長的比例）。"""
+    return base + min(t, 1.0) * (BEAUTY[key] - base) + max(t - 1, 0.0) * (STYLIZED[key] - BEAUTY[key])
+
+
 def firmness(t, F, L):
-    """偏美型的挺度：重力的倍數（1 照原本）。撐不撐得住看組成：肌肉多撐得住（中性一半、多 20 kg 去脂全部），
-    脂肪多撐不住（全身脂肪 35 kg 以上漸少，110 kg 時只剩兩成）。很胖時照樣會垂，只是分配讓形偏圓。造型假設。"""
+    """型的挺度：重力的倍數（1 照原本）。撐不撐得住看組成：肌肉多撐得住（中性一半、多 20 kg 去脂全部），
+    脂肪多撐不住（全身脂肪 35 kg 以上漸少，110 kg 時只剩兩成）。很胖時照樣會垂，只是分配讓形偏圓。造型假設。
+    偏美型最多減一半，插畫型最多減七成。"""
     m = np.clip(0.5 + (L - LEAN0) / 40.0, 0, 1)
     b = np.clip((F - 35.0) / 75.0, 0, 0.8)
-    return 1 - 0.5 * t * m * (1 - b)
+    k = 0.5 * min(t, 1.0) + 0.2 * max(t - 1, 0.0)
+    return 1 - k * m * (1 - b)
+
+
+def type_reach(t, F, L):
+    """變化區間：插畫型（型超過 1 的部分）做得到多少，看組成撐不撐得住（DECISIONS #75：肌肉與脂肪要平衡）。
+    去脂：中性時 0.4，多 18 kg 起全部；脂肪：中性時還沒有多的量可以塑形，多 15 kg 起全部，60 kg 以上漸弱，110 kg 剩 0.4。
+    回傳這個組成實際用的型（1 以下照原樣）。造型假設。"""
+    if t <= 1:
+        return t
+    s = lambda u: float(np.clip(u, 0, 1) ** 2 * (3 - 2 * np.clip(u, 0, 1)))
+    m = float(np.clip(0.4 + (L - LEAN0) / 30.0, 0, 1))
+    f = s((F - F0) / 15.0) * (1 - 0.6 * s((F - 60.0) / 50.0))
+    return 1 + (t - 1) * m * f
 
 
 # ---------- 3. 重力（立體的脂肪層，glute_mh_soft）----------
@@ -142,7 +175,8 @@ def areas(V, F):
 
 class FatLine:
     def __init__(self, frame=None, type=0.0):
-        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。type：型（0～1，見 BEAUTY）。
+        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。
+        type：型（0 照資料、1 偏美（BEAUTY）、2 插畫型（STYLIZED））。
         規則（堆積點、控制線、區域、附著）都在原本中性型的頂點上算（Vc、Nc），綁在組織上；形（底層、長的方向、切口）用 V0。"""
         g = gm.build()
         self.F = g.F
@@ -150,10 +184,10 @@ class FatLine:
         self.Nc = gm.vertex_normals(self.Vc, self.F)
         self.V0 = self.Vc.copy() if frame is None else np.asarray(frame, float).copy()
         self.N0 = gm.vertex_normals(self.V0, self.F)
-        assert 0.0 <= type <= 1.0, '型只在 0～1 之間（不外插）'
+        assert 0.0 <= type <= 2.0, '型只在 0～2 之間（兩個目標之間內插，不外插）'
         self.type = type
         self.depots = type_depots(type)
-        self.belly_follow = BELLY_FOLLOW + type * (BEAUTY['belly_follow'] - BELLY_FOLLOW)
+        self.belly_follow = type_value('belly_follow', BELLY_FOLLOW, type)
         self.mid = np.abs(self.Vc[:, 0]) < 1e-6
         C = gm.control_weights(self.Vc, self.Nc)
         Z = gm.zone_weights(self.Vc, self.Nc)
@@ -163,7 +197,7 @@ class FatLine:
         self.A_grow = np.ones(len(self.V0))
         for name, s in ATTACH_GROW.items():
             if name == 'fold':
-                s = s + type * (BEAUTY['fold_grow'] - s)
+                s = type_value('fold_grow', s, type)
             self.A_grow *= 1 - s * C[name]
         self.belly = Z['belly']
         self.crotch = Z['crotch']

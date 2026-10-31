@@ -26,7 +26,9 @@ info = json.loads(js.read_text()) if js else dict(depots={})
 STEP = 0.002
 ORIGIN = np.array([0.0, 84.0, 0.0])
 P = d['positions'].astype(np.float64)
-q = np.round((P - ORIGIN) / STEP)
+pair = 'positions2' in d.files            # 並排比較：第二組網格接在第一組後面
+Pall = np.concatenate([P, d['positions2'].astype(np.float64)]) if pair else P
+q = np.round((Pall - ORIGIN) / STEP)
 assert np.abs(q).max() < 32767, '超出 int16 範圍'
 tris = d['tris'].astype(np.uint32)
 # 分區：中性型的頂點法線（三角形面法線平均）
@@ -52,7 +54,10 @@ meta = dict(nv=int(P.shape[1]), nt=int(len(tris)), F=F, step_F=F[1] - F[0], F0=f
             step=STEP, origin=ORIGIN.tolist(), onsets=onsets, hem_y=ZONE['hem_y'],
             title=str(d['title']) if 'title' in d.files else None, axis=str(d['axis']) if 'axis' in d.files else None,
             extra=[str(t) for t in d['extra']] if 'extra' in d.files else None,
-            hide_value=bool(d['hide_value']) if 'hide_value' in d.files else False)
+            hide_value=bool(d['hide_value']) if 'hide_value' in d.files else False,
+            pair=[str(t) for t in d['pair']] if pair else None,
+            hip2=[round(float(v), 2) for v in d['hip2']] if pair else None,
+            sub=[[str(t) for t in row] for row in d['sub']] if 'sub' in d.files else None)
 html = (Path(__file__).parent / 'fat_viewer.html').read_text()
 if meta['title']:
     html = html.replace('<title>臀・純脂肪線</title>', f"<title>{meta['title']}</title>").replace('<h1>臀・純脂肪線</h1>', f"<h1>{meta['title']}</h1>")

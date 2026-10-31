@@ -46,6 +46,18 @@
   }
   .toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* 並排比較：同一台相機畫左右兩半，轉動同步 */
+  .pair span { position: absolute; text-align: center; padding: 0 8px; pointer-events: none; font-family: var(--display); font-size: 1.02rem; line-height: 1.3; }
+  .pair small { display: block; font-family: var(--body); font-size: .74rem; color: var(--muted); }
+  .divider { position: absolute; pointer-events: none; border: 0 solid var(--muted); opacity: .35; }
+  /* 橫的畫面左右分，直的畫面（手機）上下分 */
+  .stage:not(.stacked) #pairA { top: 92px; left: 0; width: 50%; }
+  .stage:not(.stacked) #pairB { top: 92px; left: 50%; width: 50%; }
+  .stage:not(.stacked) .divider { top: 0; bottom: 0; left: 50%; border-left-width: 1px; }
+  .stage.stacked #pairA { top: calc(50% - 44px); left: 0; width: auto; text-align: left; padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .stage.stacked #pairB { top: auto; bottom: 60px; left: 0; width: auto; text-align: left; padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .stage.stacked .legend { display: none; }
+  .stage.stacked .divider { left: 0; right: 0; top: 50%; border-top-width: 1px; }
 </style>
 
 <div class="stage">
@@ -55,6 +67,8 @@
     <div class="now" aria-live="off"><span id="val"><span id="axis">全身脂肪</span> <b id="fat">17.0</b> kg・</span>臀圍 <span id="hip">—</span> cm<span id="extra"></span></div>
     <div class="legend"><span><i id="sw0"></i>臀負責（平口褲範圍）</span><span><i id="sw1"></i>下腹（交給腹部）</span><span><i id="sw2"></i>褲管以下的大腿</span></div>
   </div>
+  <div class="divider" id="divider" hidden></div>
+  <div class="pair" id="pair" hidden><span id="pairA"><b id="pairL"></b><small id="subL"></small></span><span id="pairB"><b id="pairR"></b><small id="subR"></small></span></div>
   <button class="toggle" id="thighs" type="button" aria-pressed="false">隱藏大腿</button>
   <div class="status" id="status">載入模型中…</div>
   <div class="hint" id="hint">拖曳旋轉・雙指或滾輪縮放</div>
@@ -80,6 +94,9 @@ const PERIOD = 16;   // 秒：瘦 → 胖 → 瘦一趟
 if (meta.title) { document.title = meta.title; document.querySelector('h1').textContent = meta.title; }
 if (meta.axis) $('axis').textContent = meta.axis;
 if (meta.hide_value) $('val').hidden = true;   // 格點不是公斤（例如骨架線）：只顯示臀圍與說明
+const pair = !!meta.pair;                       // 並排比較：兩組網格，左右（直的畫面上下）各一
+let stacked = false;
+if (pair) { $('pair').hidden = false; $('divider').hidden = false; $('pairL').textContent = meta.pair[0]; $('pairR').textContent = meta.pair[1]; }
 $('hint').textContent += meta.hide_value ? '・自動循環' : `・${meta.axis || '全身脂肪'} ${Fmin} → ${Fmax} → ${Fmin} kg 循環`;
 
 const canvas = $('view');
@@ -129,7 +146,9 @@ new MutationObserver(applyTheme).observe(document.documentElement, { attributes:
 function resize() {
   const r = canvas.parentElement.getBoundingClientRect();
   renderer.setSize(r.width, r.height, false);
-  camera.aspect = r.width / Math.max(r.height, 1);
+  stacked = pair && r.height > r.width;
+  canvas.parentElement.classList.toggle('stacked', stacked);
+  camera.aspect = (pair && !stacked ? r.width / 2 : r.width) / Math.max(pair && stacked ? r.height / 2 : r.height, 1);
   camera.updateProjectionMatrix();
 }
 new ResizeObserver(resize).observe(canvas.parentElement);
@@ -137,13 +156,13 @@ new ResizeObserver(resize).observe(canvas.parentElement);
 function frame() {
   resize();
   const halfW = 34, halfH = 24, t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const dist = Math.max(halfH / t, halfW / (t * camera.aspect));
+  const dist = Math.max(halfH / t, halfW / (t * camera.aspect)) * (stacked ? 1.15 : 1);
   camera.position.copy(target).add(new THREE.Vector3(1, 0.12, -1).normalize().multiplyScalar(dist));
   controls.maxDistance = Math.max(260, dist * 1.6);
   controls.update();
 }
 
-let frames, positions, geometry, zone;
+let frames, positions, geometry, zone, positions2, geometry2, mesh, mesh2;
 function locate(F) {
   // 格點可以不等距（組成線）：找 F 落在哪兩組之間
   const G = meta.F, last = G.length - 2;
@@ -158,8 +177,17 @@ function setFat(F) {
   for (let k = 0; k < n; k++) positions[k] = o[k % 3] + (frames[a + k] * (1 - u) + frames[b + k] * u) * s;
   geometry.attributes.position.needsUpdate = true;
   geometry.computeVertexNormals();
+  if (pair) {
+    const off = meta.F.length * n;
+    for (let k = 0; k < n; k++) positions2[k] = o[k % 3] + (frames[off + a + k] * (1 - u) + frames[off + b + k] * u) * s;
+    geometry2.attributes.position.needsUpdate = true;
+    geometry2.computeVertexNormals();
+    const j = u < 0.5 ? i : i + 1;
+    if (meta.sub) { $('subL').textContent = meta.sub[0][j]; $('subR').textContent = meta.sub[1][j]; }
+  }
   $('fat').textContent = F.toFixed(1);
-  $('hip').textContent = (meta.hip[i] * (1 - u) + meta.hip[i + 1] * u).toFixed(1);
+  $('hip').textContent = (meta.hip[i] * (1 - u) + meta.hip[i + 1] * u).toFixed(1)
+    + (pair ? ' ｜ ' + (meta.hip2[i] * (1 - u) + meta.hip2[i + 1] * u).toFixed(1) : '');
   if (meta.extra) $('extra').textContent = '・' + meta.extra[u < 0.5 ? i : i + 1];   // 每組另外的說明（例如組成線的脂肪量）
 }
 
@@ -168,7 +196,7 @@ try {
   const bin = atob($('data').textContent.trim());
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  frames = new Int16Array(bytes.buffer, 0, meta.F.length * meta.nv * 3);
+  frames = new Int16Array(bytes.buffer, 0, meta.F.length * meta.nv * 3 * (pair ? 2 : 1));
   const at = Math.ceil(frames.byteLength / 4) * 4;   // 頂點資料後補齊到 4 位元組
   const index = new Uint32Array(bytes.buffer, at, meta.nt * 3);
   positions = new Float32Array(meta.nv * 3);
@@ -179,7 +207,17 @@ try {
   colors = new Float32Array(meta.nv * 3);
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   applyTheme();
-  scene.add(new THREE.Mesh(geometry, material));
+  mesh = new THREE.Mesh(geometry, material);
+  scene.add(mesh);
+  if (pair) {
+    positions2 = new Float32Array(meta.nv * 3);
+    geometry2 = new THREE.BufferGeometry();
+    geometry2.setAttribute('position', new THREE.BufferAttribute(positions2, 3));
+    geometry2.setIndex(geometry.index);
+    geometry2.setAttribute('color', geometry.attributes.color);
+    mesh2 = new THREE.Mesh(geometry2, material);
+    scene.add(mesh2);
+  }
   $('status').hidden = true;
 } catch (e) {
   $('status').textContent = `模型資料讀不到（${e.message}）。重新整理頁面再試一次。`;
@@ -195,7 +233,22 @@ function loop(now) {
     setFat(F);
   }
   controls.update();
-  renderer.render(scene, camera);
+  if (pair && mesh2) {
+    // 同一台相機，左半畫第一組、右半畫第二組
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    renderer.setScissorTest(true);
+    // 視窗的原點在左下：左右分時第一組在左，上下分時第一組在上
+    const views = stacked ? [[mesh, 0, h / 2, w, h / 2], [mesh2, 0, 0, w, h / 2]] : [[mesh, 0, 0, w / 2, h], [mesh2, w / 2, 0, w / 2, h]];
+    for (const [m, x, y, vw, vh] of views) {
+      mesh.visible = m === mesh; mesh2.visible = m === mesh2;
+      renderer.setViewport(x, y, vw, vh);
+      renderer.setScissor(x, y, vw, vh);
+      renderer.render(scene, camera);
+    }
+    renderer.setScissorTest(false);
+  } else {
+    renderer.render(scene, camera);
+  }
   requestAnimationFrame(loop);
 }
 frame();
