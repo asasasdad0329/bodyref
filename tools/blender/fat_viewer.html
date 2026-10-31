@@ -52,7 +52,7 @@
   <canvas id="view" aria-label="可旋轉的臀部灰模，自動在瘦與胖之間循環"></canvas>
   <div class="label">
     <h1>臀・純脂肪線</h1>
-    <div class="now" aria-live="off"><span id="axis">全身脂肪</span> <b id="fat">17.0</b> kg・臀圍 <span id="hip">—</span> cm</div>
+    <div class="now" aria-live="off"><span id="axis">全身脂肪</span> <b id="fat">17.0</b> kg・臀圍 <span id="hip">—</span> cm<span id="extra"></span></div>
     <div class="legend"><span><i id="sw0"></i>臀負責（平口褲範圍）</span><span><i id="sw1"></i>下腹（交給腹部）</span><span><i id="sw2"></i>褲管以下的大腿</span></div>
   </div>
   <button class="toggle" id="thighs" type="button" aria-pressed="false">隱藏大腿</button>
@@ -144,9 +144,12 @@ function frame() {
 
 let frames, positions, geometry, zone;
 function locate(F) {
-  const t = Math.min(Math.max((F - Fmin) / meta.step_F, 0), meta.F.length - 1);
-  const i = Math.min(Math.floor(t), meta.F.length - 2);
-  return [i, t - i];
+  // 格點可以不等距（組成線）：找 F 落在哪兩組之間
+  const G = meta.F, last = G.length - 2;
+  let i = 0;
+  while (i < last && F > G[i + 1]) i++;
+  const u = Math.min(Math.max((F - G[i]) / (G[i + 1] - G[i]), 0), 1);
+  return [i, u];
 }
 function setFat(F) {
   const [i, u] = locate(F);
@@ -156,6 +159,7 @@ function setFat(F) {
   geometry.computeVertexNormals();
   $('fat').textContent = F.toFixed(1);
   $('hip').textContent = (meta.hip[i] * (1 - u) + meta.hip[i + 1] * u).toFixed(1);
+  if (meta.extra) $('extra').textContent = '・' + meta.extra[u < 0.5 ? i : i + 1];   // 每組另外的說明（例如組成線的脂肪量）
 }
 
 // 網格資料以 base64 內嵌在頁面裡（文章站不接受另外的二進位檔）

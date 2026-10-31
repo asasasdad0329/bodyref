@@ -219,7 +219,9 @@ class FatLine:
             start, D0, cache = self.V0, self.D0, self._unl
         if F <= F0:
             T = self.T0 + (self.thickness(F) - self.T0) * (1 - (1 - BELLY_FOLLOW) * self.belly)
-            return self.constrain(start + (T - self.T0)[:, None] * D0, clamp=False), np.zeros(len(self.V0))
+            # 切口附近只在切口平面裡收（切口是接身體其他部分的地方，不能離開那個平面）
+            D = gm.cut_normals(D0, self.cut)
+            return self.constrain(start + (T - self.T0)[:, None] * D, clamp=False), np.zeros(len(self.V0))
         cache = {} if cache is None else cache
         n = int(round((F - F0) / STEP_F * 1e6)) // 1000000
         k = max([j for j in cache if j <= n], default=0)

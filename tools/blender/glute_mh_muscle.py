@@ -210,7 +210,12 @@ class MuscleLine:
         S = self.fat.V0 + (B - self.base0) + t[:, None] * self.skin_normals(B, T) - self.T0[:, None] * self.Ns0
         NB = gm.vertex_normals(B, self.F)
         short = np.clip(0.5 * self.th0 * ratio * (T / self.T0) - ((S - B) * NB).sum(1), 0, None)
-        return self.fat.constrain(S + short[:, None] * NB, clamp=False)
+        S = S + short[:, None] * NB
+        # 切口附近的點只在切口平面裡移動（切口接著身體其他部分）：底層在正中被擋住時會橫移，連帶沿腿的方向移
+        w, ax = self.cut
+        d = S - self.fat.V0
+        S = S - (w * (d * ax).sum(1))[:, None] * ax
+        return self.fat.constrain(S, clamp=False)
 
     def fields(self, L):
         """L 時各肌肉的形（寬度隨去脂增加；用中性位置算，跟著組織走）。每 1 kg 算一次。"""
