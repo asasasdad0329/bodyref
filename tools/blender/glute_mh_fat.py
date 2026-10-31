@@ -5,14 +5,17 @@ python3 tools/blender/glute_mh_fat.py <輸出資料夾> [viewer]
 分層：中性型 ＝ 底層（骨架＋肌肉）＋ 脂肪厚度 × 法線；厚度 T(點, F) 由堆積點與增長曲線給（#61，規律沿用 glute_fat.py）。
 做法分兩步（作者 2026-10-29：做的時候要有體積的概念，記下來的只要表面）：
   1. 不受重力時怎麼長：照數據的規律（堆積點、範圍內每 kg 全身脂肪 0.18 kg），沿中性時的方向（抹平過的法線，
-     組織離開骨頭的方向）長，方向沒正對表面時補回體積。切口附近只往切口平面長；正中兩邊貼到正中為止；
-     胯下（大陰唇底面、會陰）夾在兩腿之間不往下長。中性以下照厚度公式收。
+     組織離開骨頭的方向）長，方向沒正對表面時補回體積。切口附近只往切口平面長；
+     胯下前段（大陰唇底面）夾在兩腿之間不往下長。中性以下照厚度公式收。
   2. 重力：把脂肪層當成立體的體積（glute_mh_soft.FatVolume），只加臀那一袋多出來的重量，解線性彈性的平衡：
      - 體積不變（脂肪幾乎不可壓縮）；皮與淺筋膜是膜（彎曲勁度），臀上半有淺筋膜從髂嵴拉著較硬、下半鬆（Han 2022）；
      - 附著區綁住：臀溝內段、臀縫、薦骨、臀側凹陷（大轉子上方）（Rohrich 的 zones of adherence）；
      - 溝下的大腿、肚子、上下切口不受這袋的重力（是別的部位的事）；
-     - 接觸：垂下來的臀不擠進大腿後面的表面，兩邊不穿過正中。
+     - 兩邊不穿過正中（這一步裡的近似，真正的接觸在第 3 步）。
      中性起每 SOFT_STEP kg 解一次（前一格當起點），中間直線內插；位移只留大尺度的部分（籠格子尺度的起伏是數值的）。
+  3. 接觸（DECISIONS #73，glute_mh_contact）：前兩步的形當目標，從中性型每 CONTACT_STEP kg 一步走過去，
+     皮膚任何兩片相碰（臀縫兩壁、臀底和大腿、兩腿內側、胯下）都兩邊一起讓開、不互相穿過；左右鏡像對稱。
+     沒有站姿專用的擋板，換姿勢時同一套照樣能用。
 輸出：fat_line.json（每 1 kg 的臀圍、寬、厚、大腿圍）、fat_line.npz（每 1 kg 的控制籠）；加 viewer 另存
 fat_viewer.npz（細分 2 次的網格，每 4 kg 一組）給 fat_viewer.py 做成可旋轉的檢視頁。產物不進倉庫。
 """
@@ -26,6 +29,7 @@ from scipy.spatial import ConvexHull
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import glute_mh as gm  # noqa: E402
 import glute_mh_soft as gs  # noqa: E402
+import glute_mh_contact as gc  # noqa: E402
 
 # ---------- 軸（同 glute_fat.py）----------
 F0 = 17.0                     # 中性型：160 cm、54.5 kg、DXA 體脂約 31%
@@ -79,6 +83,7 @@ LOOSE = 0.5          # 臀下半：層間（隔膜）勁度的倍數
 SKIN = 5.0           # 皮膚（膜）比脂肪硬的倍數
 BEND = 100.0         # 皮膚那層的彎曲勁度
 D_SMOOTH = 10        # 位移平順的次數
+CONTACT_STEP = 1.0   # 接觸：每幾 kg 走一步
 GROW_BLEND = float(__import__('os').environ.get('GROW_BLEND', '0.5'))   # 長的方向：0 中性時的方向、1 當下的形的方向
 
 
@@ -180,12 +185,13 @@ class FatLine:
             T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
         return T
 
-    def constrain(self, V):
+    def constrain(self, V, clamp=True):
         V[self.mid, 0] = 0.0
-        # 兩腿內側長胖後貼在一起：最多貼到正中（擠壓成接觸面），不穿過去
-        left, right = (self.V0[:, 0] > 0) & ~self.mid, (self.V0[:, 0] < 0) & ~self.mid
-        V[left, 0] = np.maximum(V[left, 0], 0.05)
-        V[right, 0] = np.minimum(V[right, 0], -0.05)
+        if clamp:
+            # 站姿專用的擋板（肌肉線還在用）：兩邊最多貼到正中。脂肪線的接觸改由 glute_mh_contact 處理
+            left, right = (self.V0[:, 0] > 0) & ~self.mid, (self.V0[:, 0] < 0) & ~self.mid
+            V[left, 0] = np.maximum(V[left, 0], 0.05)
+            V[right, 0] = np.minimum(V[right, 0], -0.05)
         return V
 
     def distribution(self, F):
@@ -203,7 +209,7 @@ class FatLine:
         體積照規律（方向沒正對表面時補回），結果只由 F 決定。"""
         if F <= F0:
             T = self.T0 + (self.thickness(F) - self.T0) * (1 - (1 - BELLY_FOLLOW) * self.belly)
-            return self.constrain(self.V0 + (T - self.T0)[:, None] * self.D0), np.zeros(len(self.V0))
+            return self.constrain(self.V0 + (T - self.T0)[:, None] * self.D0, clamp=False), np.zeros(len(self.V0))
         n = int(round((F - F0) / STEP_F * 1e6)) // 1000000
         k = max([j for j in self._unl if j <= n], default=0)
         V, acc = (a.copy() for a in self._unl[k]) if k else (self.V0.copy(), np.zeros(len(self.V0)))
@@ -226,7 +232,7 @@ class FatLine:
             N = gm.growth_dirs(V, N, self.cut, toward_mid=TOWARD_MID)
             cos = np.clip((N * Nc).sum(1), 0.2, 1)
             dT *= (area * dT).sum() / (area * dT * cos).sum()
-            V = self.constrain(V + dT[:, None] * N)
+            V = self.constrain(V + dT[:, None] * N, clamp=False)
             acc = acc + dT
             if key is not None:
                 self._unl[key] = (V.copy(), acc.copy())
@@ -278,15 +284,11 @@ class FatLine:
         dm = 0.9 * np.clip(acc, 0, None) * areas(U, self.F) * self.glute           # 臀這袋多出來的脂肪（公克）
         for kk in range(1, K + 1):
             load[kk * n:(kk + 1) * n] = SOFT_G * dm / K
-        fp = np.array(gm.CONTROL_LINES['fold']['pts'])
-        hf = gs.height_field(np.c_[np.abs(U[self.s_thigh, 0]), U[self.s_thigh, 1], U[self.s_thigh, 2]],
-                             lambda x: np.interp(x, fp[:, 0], fp[:, 1]))
-        check = (self.s_lay == K) & (self.glute[self.s_col] > 0.3)
         kb = [0.0] * (K + 1)
         kb[K] = BEND
         if K > 1:
             kb[K - 1] = 0.2 * BEND
-        X = self.vol.solve_linear(Xr, self.s_free, self.s_kedge, self.s_kanch, load, self.s_side, (hf, check),
+        X = self.vol.solve_linear(Xr, self.s_free, self.s_kedge, self.s_kanch, load, self.s_side, None,
                                   lap=self.s_lap, k_bend=kb)
         D = X[K * n:(K + 1) * n] - U
         for _ in range(D_SMOOTH):
@@ -294,8 +296,9 @@ class FatLine:
         self._sag[Fg] = D
         return D
 
-    def shape(self, F):
-        """任一全身脂肪量 F 的控制籠：不受重力的形 ＋ 重力的位移（中性起每 SOFT_STEP kg 解一次，中間直線內插）。"""
+    def target(self, F):
+        """規則算出來的形（不受重力的形 ＋ 重力的位移；中性起每 SOFT_STEP kg 解一次，中間直線內插），還沒處理接觸，
+        兩片皮可能互相穿過。"""
         U, _ = self.unloaded(F)
         if F <= F0:
             return U
@@ -303,7 +306,31 @@ class FatLine:
         Fa, Fb = F0 + j * SOFT_STEP, F0 + (j + 1) * SOFT_STEP
         Da = self.sag(Fa) if Fa > F0 else 0.0
         t = (F - Fa) / SOFT_STEP
-        return self.constrain(U + (1 - t) * Da + t * self.sag(Fb))
+        return self.constrain(U + (1 - t) * Da + t * self.sag(Fb), clamp=False)
+
+    def shape(self, F):
+        """任一全身脂肪量 F 的控制籠：從中性型（沒有穿面）每 CONTACT_STEP kg 一步走向規則算出的形，
+        每一步用通用的接觸（glute_mh_contact）讓碰在一起的皮膚兩邊一起讓開、不穿過。結果只由 F 決定。"""
+        if abs(F - F0) < 1e-9:
+            return self.V0.copy()
+        if not hasattr(self, 'contact'):
+            ef = gm.edge_faces(self.F)
+            bnd = np.zeros(len(self.V0), bool)
+            for e, fs in ef.items():
+                if len(fs) == 1:
+                    bnd[list(e)] = True
+            self.contact = gc.Contact(self.V0, self.F, bnd)
+            self._path = {0: self.V0.copy()}
+        sgn = 1 if F > F0 else -1
+        n = int(np.floor(abs(F - F0) / CONTACT_STEP + 1e-9))
+        k = max(j for j in range(n + 1) if sgn * j in self._path)
+        X = self._path[sgn * k]
+        for j in range(k + 1, n + 1):
+            X = self.contact.resolve(X, self.target(F0 + sgn * j * CONTACT_STEP))
+            self._path[sgn * j] = X
+        if abs(abs(F - F0) - n * CONTACT_STEP) > 1e-9:
+            X = self.contact.resolve(X, self.target(F))
+        return X.copy()
 
 
 def girth(P, y, side=None):
