@@ -51,7 +51,8 @@ meta = dict(nv=int(P.shape[1]), nt=int(len(tris)), F=F, step_F=F[1] - F[0], F0=f
             hip=[round(float(v), 2) for v in d['hip']], thigh=[round(float(v), 2) for v in d['thigh']],
             step=STEP, origin=ORIGIN.tolist(), onsets=onsets, hem_y=ZONE['hem_y'],
             title=str(d['title']) if 'title' in d.files else None, axis=str(d['axis']) if 'axis' in d.files else None,
-            extra=[str(t) for t in d['extra']] if 'extra' in d.files else None)
+            extra=[str(t) for t in d['extra']] if 'extra' in d.files else None,
+            hide_value=bool(d['hide_value']) if 'hide_value' in d.files else False)
 html = (Path(__file__).parent / 'fat_viewer.html').read_text()
 if meta['title']:
     html = html.replace('<title>臀・純脂肪線</title>', f"<title>{meta['title']}</title>").replace('<h1>臀・純脂肪線</h1>', f"<h1>{meta['title']}</h1>")
