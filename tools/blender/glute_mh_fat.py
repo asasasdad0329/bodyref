@@ -311,26 +311,9 @@ class FatLine:
     def shape(self, F):
         """任一全身脂肪量 F 的控制籠：從中性型（沒有穿面）每 CONTACT_STEP kg 一步走向規則算出的形，
         每一步用通用的接觸（glute_mh_contact）讓碰在一起的皮膚兩邊一起讓開、不穿過。結果只由 F 決定。"""
-        if abs(F - F0) < 1e-9:
-            return self.V0.copy()
-        if not hasattr(self, 'contact'):
-            ef = gm.edge_faces(self.F)
-            bnd = np.zeros(len(self.V0), bool)
-            for e, fs in ef.items():
-                if len(fs) == 1:
-                    bnd[list(e)] = True
-            self.contact = gc.Contact(self.V0, self.F, bnd)
-            self._path = {0: self.V0.copy()}
-        sgn = 1 if F > F0 else -1
-        n = int(np.floor(abs(F - F0) / CONTACT_STEP + 1e-9))
-        k = max(j for j in range(n + 1) if sgn * j in self._path)
-        X = self._path[sgn * k]
-        for j in range(k + 1, n + 1):
-            X = self.contact.resolve(X, self.target(F0 + sgn * j * CONTACT_STEP))
-            self._path[sgn * j] = X
-        if abs(abs(F - F0) - n * CONTACT_STEP) > 1e-9:
-            X = self.contact.resolve(X, self.target(F))
-        return X.copy()
+        if not hasattr(self, 'walk'):
+            self.walk = gc.Walk(self.V0, self.F, F0, self.target, CONTACT_STEP)
+        return self.walk(F)
 
 
 def girth(P, y, side=None):

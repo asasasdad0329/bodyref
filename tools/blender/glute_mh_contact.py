@@ -136,6 +136,46 @@ class Contact:
         return x
 
 
+def boundary_mask(quads, n):
+    """切口上的點（只屬於一個面的邊的兩端）。"""
+    from collections import Counter
+    cnt = Counter()
+    for q in quads:
+        for k in range(4):
+            a, b = q[k], q[(k + 1) % 4]
+            cnt[(min(a, b), max(a, b))] += 1
+    m = np.zeros(n, bool)
+    for (a, b), c in cnt.items():
+        if c == 1:
+            m[a] = m[b] = True
+    return m
+
+
+class Walk:
+    """沿一條變形線（全身脂肪、全身去脂……）從中性型走到 a：每 step 一步，用規則算出的形 target(a) 當目標做接觸。
+    路徑上的格點固定（a0 ± j·step），走過的存起來；不在格點上的 a 從最近的格點再走一步。結果只由 a 決定，
+    不依賴之前要過哪些值。"""
+
+    def __init__(self, V0, quads, a0, target, step=1.0, **kw):
+        self.V0, self.a0, self.target, self.step = V0, a0, target, step
+        self.contact = Contact(V0, quads, boundary_mask(quads, len(V0)), **kw)
+        self._path = {0: V0.copy()}
+
+    def __call__(self, a):
+        if abs(a - self.a0) < 1e-9:
+            return self.V0.copy()
+        sgn = 1 if a > self.a0 else -1
+        n = int(np.floor(abs(a - self.a0) / self.step + 1e-9))
+        k = max(j for j in range(n + 1) if sgn * j in self._path)
+        X = self._path[sgn * k]
+        for j in range(k + 1, n + 1):
+            X = self.contact.resolve(X, self.target(self.a0 + sgn * j * self.step))
+            self._path[sgn * j] = X
+        if abs(abs(a - self.a0) - n * self.step) > 1e-9:
+            X = self.contact.resolve(X, self.target(a))
+        return X.copy()
+
+
 def subdivision_matrix(F, n):
     """Catmull-Clark 細分一次（和 glute_mh.subdivide 同一套規則）寫成稀疏矩陣 S：細分後的點 ＝ S @ 原本的點。
     回傳 S 與細分後的四邊形。"""

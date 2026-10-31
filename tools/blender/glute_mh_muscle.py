@@ -5,8 +5,11 @@ python3 tools/blender/glute_mh_muscle.py <輸出資料夾> [viewer]
 在中性型上只加減肌肉（去脂），脂肪的量不變：
   中性型 ＝ 底層（骨架＋肌肉）＋ 中性脂肪厚度 × 法線（和純脂肪線同一個拆法，glute_mh_fat.FatLine）。
   底層照體積規律一步步鼓起（或收），方向固定在中性時（組織離開骨頭的方向；沿當下的法線長會像吹氣球，
-  臀下越長越往下）；切口附近只往切口平面長，正中兩邊（臀縫兩壁、兩腿內側）貼到正中為止。
-  脂肪層再蓋回去（cover）：量不變（底層撐大處變薄、被擠處變厚），方向用抹平過的法線，凹處兩壁不互相穿過。
+  臀下越長越往下）；切口附近只往切口平面長，底層的正中兩邊（臀縫兩壁、兩腿內側）貼到正中為止（底層不記錄，
+  這是裡面那層的近似）。
+  脂肪層再蓋回去（cover）：量不變（底層撐大處變薄、被擠處變厚），方向用抹平過的法線。
+  皮膚的接觸（DECISIONS #73，glute_mh_contact，和純脂肪線同一套）：上面算出的形當目標，從中性型每 1 kg 一步
+  走過去，碰在一起的皮膚兩邊一起讓開、不互相穿過。
 規律：
   1. 軸：全身去脂軟組織 L（DXA，公斤，不含骨礦物）。中性 L0 ＝ 54.5 − 17（脂肪）− 2.2（骨礦物）≈ 35.3。
   2. 範圍內的去脂隨全身去脂直線增加（R24：NHANES 女性型區去脂每 kg 全身去脂 +0.16～0.18，佔比 15.3% → 16.7%，
@@ -34,12 +37,14 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import glute_mh as gm  # noqa: E402
 import glute_mh_fat as gf  # noqa: E402
+import glute_mh_contact as gc  # noqa: E402
 
 L0 = 35.3
 LMIN, LMAX = 29.0, 91.0
 REGION_SLOPE = 0.18           # 範圍內每 kg 全身去脂多 0.18 kg（R24）
 DENSITY = 1.06                # 肌肉密度（公克／公分³）
 STEP_L = 0.5
+CONTACT_STEP = 1.0           # 接觸：每幾 kg 走一步
 
 # 肌肉：每塊用幾筆「纖維方向的筆觸」描述（雕塑的作法），起點 → 終點；每筆給沿線的相對厚度（肌腹厚、肌腱端薄）
 # 與半寬（公分）。點用「哪一面、哪個位置」指定，貼到中性型的表面上：
@@ -196,7 +201,7 @@ class MuscleLine:
         """底層蓋回脂肪層（純肌肉線用中性的脂肪；組成線傳入當下的厚度 T）。
         脂肪的量不變：底層表面撐大的地方脂肪變薄、凹進去被擠的地方變厚；蓋回去的方向用抹平過的法線，
         凹處（臀溝、臀縫底）兩壁的脂肪才不會互相穿過；最後確保脂肪至少有應有厚度的一半，皮不會跑進肌肉裡。
-        中性時剛好還原中性型。"""
+        還沒處理接觸（凹處兩壁可能互相穿過，由 shape 的接觸處理）。中性時剛好還原中性型。"""
         T = self.T0 if T is None else T
         ratio = self.area0 / gf.areas(B, self.F)
         for _ in range(4):
@@ -205,7 +210,7 @@ class MuscleLine:
         S = self.fat.V0 + (B - self.base0) + t[:, None] * self.skin_normals(B, T) - self.T0[:, None] * self.Ns0
         NB = gm.vertex_normals(B, self.F)
         short = np.clip(0.5 * self.th0 * ratio * (T / self.T0) - ((S - B) * NB).sum(1), 0, None)
-        return self.fat.constrain(S + short[:, None] * NB)
+        return self.fat.constrain(S + short[:, None] * NB, clamp=False)
 
     def fields(self, L):
         """L 時各肌肉的形（寬度隨去脂增加；用中性位置算，跟著組織走）。每 1 kg 算一次。"""
@@ -259,8 +264,15 @@ class MuscleLine:
             B = self.grow(B, sgn * rest, L0 + sgn * (n * STEP_L + rest / 2))
         return B
 
-    def shape(self, L):
+    def target(self, L):
+        """規則算出來的形（底層＋蓋回去的脂肪），還沒處理皮膚的接觸。"""
         return self.cover(self.base(L))
+
+    def shape(self, L):
+        """去脂 L 時的控制籠：從中性型每 CONTACT_STEP kg 一步走向 target，皮膚相碰處兩邊一起讓開。結果只由 L 決定。"""
+        if not hasattr(self, 'walk'):
+            self.walk = gc.Walk(self.fat.V0, self.F, L0, self.target, CONTACT_STEP)
+        return self.walk(L)
 
 
 if __name__ == '__main__':
