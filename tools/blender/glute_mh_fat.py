@@ -70,6 +70,39 @@ ATTACH_GROW = dict(ATTACH, fold=float(__import__('os').environ.get('FOLD_GROW_AT
 # 臀縫兩壁、兩腿內側的脂肪照樣往正中長：兩邊的肉擠在一起、貼合（擋在正中），臀縫底不會留下空洞
 TOWARD_MID = __import__('os').environ.get('TOWARD_MID', '1') == '1'
 
+# ---------- 型（DECISIONS #75：量照數據、形偏美）----------
+# 型 t：0 照資料的平均分配（各線原本的樣子），1 偏美型。只在 0～1 之間內插，不外插（AGENTS：不准用線性外插放大造型）。
+# 型只改「多出來的量往哪裡去」與「撐不撐得住」，總量照規律不變；中性型與中性以下的厚度不變。
+# 偏美型（造型假設，作者 2026-10-31 看參考圖與型的試驗）：臀的中心偏高（上緣的架子）、臀下緣少一點、
+# 臀側凹陷填平、大腿上段多、腰側與全身平均少、肚子少跟、臀溝更清楚。
+BEAUTY = dict(
+    depots={'buttock': dict(amax=7.5, c=(6.5, 82.5, -11.0)), 'lowerButtock': dict(amax=2.0),
+            'hipDip': dict(amax=3.0, r=(3.5, 4.0, 4.0)), 'saddle': dict(amax=6.5), 'thighRoot': dict(amax=5.0),
+            'innerThigh': dict(amax=3.0), 'flank': dict(amax=1.5), 'everywhere': dict(amax=1.0)},
+    belly_follow=0.2, fold_grow=0.55)
+LEAN0 = 35.3                  # 中性的全身去脂（同 glute_mh_muscle.L0）
+
+
+def type_depots(t):
+    """型 t 的堆積點：數值欄位在原本與偏美型之間直線內插。"""
+    out = {}
+    for name, d in DEPOTS.items():
+        e = dict(d)
+        for k, v in BEAUTY['depots'].get(name, {}).items():
+            a, b = np.array(d[k], float), np.array(v, float)
+            e[k] = tuple(a + t * (b - a)) if a.ndim else float(a + t * (b - a))
+        out[name] = e
+    return out
+
+
+def firmness(t, F, L):
+    """偏美型的挺度：重力的倍數（1 照原本）。撐不撐得住看組成：肌肉多撐得住（中性一半、多 20 kg 去脂全部），
+    脂肪多撐不住（全身脂肪 35 kg 以上漸少，110 kg 時只剩兩成）。很胖時照樣會垂，只是分配讓形偏圓。造型假設。"""
+    m = np.clip(0.5 + (L - LEAN0) / 40.0, 0, 1)
+    b = np.clip((F - 35.0) / 75.0, 0, 0.8)
+    return 1 - 0.5 * t * m * (1 - b)
+
+
 # ---------- 3. 重力（立體的脂肪層，glute_mh_soft）----------
 ADHERE = dict(fold=1.0, cleft=1.0, sacrum=1.0)     # 附著區：控制線（皮綁在深層）
 ADHERE_SHARP = float(__import__('os').environ.get('ADHERE_SHARP', '3'))
@@ -108,8 +141,8 @@ def areas(V, F):
 
 
 class FatLine:
-    def __init__(self, frame=None):
-        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。
+    def __init__(self, frame=None, type=0.0):
+        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。type：型（0～1，見 BEAUTY）。
         規則（堆積點、控制線、區域、附著）都在原本中性型的頂點上算（Vc、Nc），綁在組織上；形（底層、長的方向、切口）用 V0。"""
         g = gm.build()
         self.F = g.F
@@ -117,6 +150,10 @@ class FatLine:
         self.Nc = gm.vertex_normals(self.Vc, self.F)
         self.V0 = self.Vc.copy() if frame is None else np.asarray(frame, float).copy()
         self.N0 = gm.vertex_normals(self.V0, self.F)
+        assert 0.0 <= type <= 1.0, '型只在 0～1 之間（不外插）'
+        self.type = type
+        self.depots = type_depots(type)
+        self.belly_follow = BELLY_FOLLOW + type * (BEAUTY['belly_follow'] - BELLY_FOLLOW)
         self.mid = np.abs(self.Vc[:, 0]) < 1e-6
         C = gm.control_weights(self.Vc, self.Nc)
         Z = gm.zone_weights(self.Vc, self.Nc)
@@ -125,6 +162,8 @@ class FatLine:
             self.A *= 1 - s * C[name]
         self.A_grow = np.ones(len(self.V0))
         for name, s in ATTACH_GROW.items():
+            if name == 'fold':
+                s = s + type * (BEAUTY['fold_grow'] - s)
             self.A_grow *= 1 - s * C[name]
         self.belly = Z['belly']
         self.crotch = Z['crotch']
@@ -162,12 +201,12 @@ class FatLine:
         self._unl, self._sag = {}, {}
         assert np.abs(self.shape(F0) - self.V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
 
-    def maps(self, V, N, F):
+    def maps(self, V, N, F, depots=None):
         """每個堆積點在每個頂點上的分布（0～1），範圍隨脂肪量擴大。用中性位置算，堆積點跟著組織走。"""
         Nm = mirrored(N, V)
         Vm = np.c_[np.abs(V[:, 0]), V[:, 1:]]
         M = {}
-        for name, d in DEPOTS.items():
+        for name, d in (DEPOTS if depots is None else depots).items():
             if d['c'] is None:
                 M[name] = np.ones(len(V))
                 continue
@@ -202,11 +241,11 @@ class FatLine:
     def distribution(self, F):
         """此刻新增的脂肪往哪裡去：各堆積點增長曲線的斜率 × 分布 × 附著係數。
         胯下（大陰唇底面、會陰）夾在兩腿之間，沒有往下長的空間；大陰唇的脂肪從恥丘那邊長（mons）。"""
-        M = self.maps(self.Vc, self.Nc, F)
+        M = self.maps(self.Vc, self.Nc, F, self.depots)
         w = np.zeros(len(self.V0))
-        for name, d in DEPOTS.items():
+        for name, d in self.depots.items():
             w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
-        w *= self.A_grow * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top * (1 - self.crotch_hold)
+        w *= self.A_grow * (1 - (1 - self.belly_follow) * self.belly) * self.top * (1 - self.crotch_hold)
         return w
 
     def smooth_dirs(self, V):
@@ -293,11 +332,12 @@ class FatLine:
         """格點 Fg 上重力造成的皮膚位移（相對不受重力的形）。"""
         if Fg in self._sag:
             return self._sag[Fg]
-        self._sag[Fg] = self.sag_of(*self.unloaded(Fg), self.base)
+        self._sag[Fg] = self.sag_of(*self.unloaded(Fg), self.base, firmness(self.type, Fg, LEAN0))
         return self._sag[Fg]
 
-    def sag_of(self, U, acc, base):
-        """不受重力的形 U（多長的厚度 acc）在重力下的皮膚位移；脂肪層在底層 base（肌肉表面）和皮膚之間。"""
+    def sag_of(self, U, acc, base, g=1.0):
+        """不受重力的形 U（多長的厚度 acc）在重力下的皮膚位移；脂肪層在底層 base（肌肉表面）和皮膚之間。
+        g：重力的倍數（型的挺度，firmness）。"""
         if not hasattr(self, 'vol'):
             self._soft_setup()
         K, n = SOFT_K, len(self.V0)
@@ -305,7 +345,7 @@ class FatLine:
         load = np.zeros(len(Xr))
         dm = 0.9 * np.clip(acc, 0, None) * areas(U, self.F) * self.glute           # 臀這袋多出來的脂肪（公克）
         for kk in range(1, K + 1):
-            load[kk * n:(kk + 1) * n] = SOFT_G * dm / K
+            load[kk * n:(kk + 1) * n] = g * SOFT_G * dm / K
         kb = [0.0] * (K + 1)
         kb[K] = BEND
         if K > 1:

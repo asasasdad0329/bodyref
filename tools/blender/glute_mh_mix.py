@@ -1,6 +1,6 @@
 """臀的組成：任一全身脂肪 F × 全身去脂 L 的形（DECISIONS #58 的組成線，#72、#73）。只用 numpy、scipy、ipctk。
 
-python3 tools/blender/glute_mh_mix.py <輸出資料夾> <L1,L2,...> [F1,F2,...]
+python3 tools/blender/glute_mh_mix.py <輸出資料夾> <L1,L2,...> [F1,F2,...] [type=0～1]
   對每個去脂 L，算脂肪 F（預設 9～110 每 1 kg）的控制籠與量測，存成 mix_L<L>.npz / .json。
 
 做法（兩條純線疊起來，各自的規律不變）：
@@ -30,9 +30,10 @@ F0, L0 = gf.F0, gmu.L0
 
 
 class MixLine:
-    def __init__(self, frame=None):
-        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。"""
-        self.ml = gmu.MuscleLine(frame)
+    def __init__(self, frame=None, type=0.0):
+        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。type：型（0～1）。"""
+        self.ml = gmu.MuscleLine(frame, type)
+        self.type = type
         self.fl = self.ml.fat
         self.F = self.fl.F
         self._T, self._start, self._sag, self._walk = {}, {}, {}, {}
@@ -71,7 +72,7 @@ class MixLine:
         key = (Fg, L)
         if key not in self._sag:
             U, acc = self.unloaded(Fg, L)
-            self._sag[key] = self.fl.sag_of(U, acc, self.start(Fg, L)[1])
+            self._sag[key] = self.fl.sag_of(U, acc, self.start(Fg, L)[1], gf.firmness(self.type, Fg, L))
         return self._sag[key]
 
     def target(self, F, L):
@@ -92,9 +93,11 @@ class MixLine:
 if __name__ == '__main__':
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
+    args = [a for a in sys.argv[3:] if not a.startswith('type=')]
+    tp = float(next((a[5:] for a in sys.argv[3:] if a.startswith('type=')), 0.0))
     Ls = [float(a) for a in sys.argv[2].split(',')]
-    Fs = [float(a) for a in sys.argv[3].split(',')] if len(sys.argv) > 3 else list(np.arange(gf.FMIN, gf.FMAX + 0.01, 1.0))
-    mx = MixLine()
+    Fs = [float(a) for a in args[0].split(',')] if args else list(np.arange(gf.FMIN, gf.FMAX + 0.01, 1.0))
+    mx = MixLine(type=tp)
     for L in Ls:
         rows, cages = [], []
         for F in sorted(Fs, key=lambda f: abs(f - F0)):            # 從中性往兩邊走，接觸的路徑才接得上
@@ -110,7 +113,7 @@ if __name__ == '__main__':
                       f'  大腿圍 {m["thighCirc"]:5.2f}', flush=True)
         order = np.argsort([r['F'] for r in rows])
         rows = [rows[i] for i in order]
-        tag = f'{L:g}'
+        tag = f'{L:g}' + (f'_t{tp:g}' if tp else '')
         (out / f'mix_L{tag}.json').write_text(json.dumps(dict(F0=F0, L0=L0, rows=rows), ensure_ascii=False, indent=1))
         np.savez_compressed(out / f'mix_L{tag}.npz', F=np.array([r['F'] for r in rows]), L=L,
                             cages=np.stack([cages[i] for i in order]), quads=mx.F)

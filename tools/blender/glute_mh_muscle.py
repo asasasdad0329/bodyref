@@ -81,6 +81,9 @@ MUSCLES = {
     'hamstrings': dict(share=0.12, width=5.0, strokes=[
         ([('back', 6.5, 74.0), ('back', 7.5, 72.0), ('back', 8.0, 70.5)], [0.1, 0.7, 1.0])]),
 }
+# 偏美型（型 t = 1，DECISIONS #75）的肌肉份量：臀大肌、臀中肌多，大腿少（合計 1）。造型假設
+BEAUTY_SHARE = dict(gluteusMaximus=0.60, gluteusMedius=0.12, tensorFasciae=0.03, vastusLateralis=0.06,
+                    quadricepsFront=0.05, adductors=0.08, hamstrings=0.06)
 WIDEN = 0.8       # 肌肉長大時也變寬：到最多去脂時寬度 × (1 + WIDEN)（肌肥大是整個截面變大，不是只變厚）
 BLUR = 0.35       # 脂肪把肌肉的形抹平的程度：每一步的擴散係數 ×（脂肪厚度 ÷ 2 公分）²
 BLUR_STEPS = 25
@@ -159,9 +162,11 @@ ATTACH = dict(fold=0.7, cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)
 
 
 class MuscleLine:
-    def __init__(self, frame=None):
-        """frame：這副骨架下的中性型（見 glute_mh_fat.FatLine）。肌肉的形、附著都在原本中性型的頂點上算。"""
-        self.fat = gf.FatLine(frame)
+    def __init__(self, frame=None, type=0.0):
+        """frame：這副骨架下的中性型（見 glute_mh_fat.FatLine）。肌肉的形、附著都在原本中性型的頂點上算。
+        type：型（0～1）；肌肉份量在原本與偏美型（BEAUTY_SHARE）之間內插。"""
+        self.fat = gf.FatLine(frame, type)
+        self.share = {k: m['share'] + type * (BEAUTY_SHARE[k] - m['share']) for k, m in MUSCLES.items()}
         fl = self.fat
         self.F, self.mid = fl.F, fl.mid
         V0, N0 = fl.Vc, fl.Nc
@@ -233,7 +238,7 @@ class MuscleLine:
         area = gf.areas(B, self.F)
         shaped = np.zeros(len(B))
         for name, f in self.fields(L).items():
-            shaped += MUSCLES[name]['share'] * f / (area * f).sum()
+            shaped += self.share[name] * f / (area * f).sum()
         # 中性以下（萎縮）不是肥大倒著放：整體變小、變扁，沒有「負的肌肉形」
         k = 0.0 if L < L0 else float(np.interp(L, [p[0] for p in SHAPED], [p[1] for p in SHAPED]))
         if k < 1:
