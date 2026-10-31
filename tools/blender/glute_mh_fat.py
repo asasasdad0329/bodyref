@@ -204,15 +204,26 @@ class FatLine:
         w *= self.A_grow * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top * (1 - self.crotch_hold)
         return w
 
-    def unloaded(self, F):
+    def smooth_dirs(self, V):
+        """長的方向的基準：表面法線抹平（組織離開骨頭的方向）。"""
+        D = gm.vertex_normals(V, self.F)
+        for _ in range(25):
+            D = D + 0.35 * (self.W @ D - D)
+        return D / np.linalg.norm(D, axis=1, keepdims=True)
+
+    def unloaded(self, F, start=None, D0=None, cache=None):
         """不受重力時的形與每個點長了多厚。中性以下照厚度公式沿長的方向收；中性以上從中性用同樣的步長一步步長，
-        體積照規律（方向沒正對表面時補回），結果只由 F 決定。"""
+        體積照規律（方向沒正對表面時補回），結果只由 F 決定。
+        start：中性脂肪時的皮膚（預設中性型；組成線傳入肌肉變了之後的皮膚），D0：它的長的方向，cache：走過的格點。"""
+        if start is None:
+            start, D0, cache = self.V0, self.D0, self._unl
         if F <= F0:
             T = self.T0 + (self.thickness(F) - self.T0) * (1 - (1 - BELLY_FOLLOW) * self.belly)
-            return self.constrain(self.V0 + (T - self.T0)[:, None] * self.D0, clamp=False), np.zeros(len(self.V0))
+            return self.constrain(start + (T - self.T0)[:, None] * D0, clamp=False), np.zeros(len(self.V0))
+        cache = {} if cache is None else cache
         n = int(round((F - F0) / STEP_F * 1e6)) // 1000000
-        k = max([j for j in self._unl if j <= n], default=0)
-        V, acc = (a.copy() for a in self._unl[k]) if k else (self.V0.copy(), np.zeros(len(self.V0)))
+        k = max([j for j in cache if j <= n], default=0)
+        V, acc = (a.copy() for a in cache[k]) if k else (start.copy(), np.zeros(len(self.V0)))
         steps = [(F0 + (j + 0.5) * STEP_F, STEP_F, j + 1) for j in range(k, n)]
         rest = F - (F0 + n * STEP_F)
         if rest > 1e-9:
@@ -227,7 +238,7 @@ class FatLine:
             N = Nc.copy()
             for _ in range(25):
                 N = N + 0.35 * (self.W @ N - N)
-            N = GROW_BLEND * N / np.linalg.norm(N, axis=1, keepdims=True) + (1 - GROW_BLEND) * self.D0
+            N = GROW_BLEND * N / np.linalg.norm(N, axis=1, keepdims=True) + (1 - GROW_BLEND) * D0
             N /= np.linalg.norm(N, axis=1, keepdims=True)
             N = gm.growth_dirs(V, N, self.cut, toward_mid=TOWARD_MID)
             cos = np.clip((N * Nc).sum(1), 0.2, 1)
@@ -235,7 +246,7 @@ class FatLine:
             V = self.constrain(V + dT[:, None] * N, clamp=False)
             acc = acc + dT
             if key is not None:
-                self._unl[key] = (V.copy(), acc.copy())
+                cache[key] = (V.copy(), acc.copy())
         return V, acc
 
     def _soft_setup(self):
@@ -275,11 +286,15 @@ class FatLine:
         """格點 Fg 上重力造成的皮膚位移（相對不受重力的形）。"""
         if Fg in self._sag:
             return self._sag[Fg]
+        self._sag[Fg] = self.sag_of(*self.unloaded(Fg), self.base)
+        return self._sag[Fg]
+
+    def sag_of(self, U, acc, base):
+        """不受重力的形 U（多長的厚度 acc）在重力下的皮膚位移；脂肪層在底層 base（肌肉表面）和皮膚之間。"""
         if not hasattr(self, 'vol'):
             self._soft_setup()
         K, n = SOFT_K, len(self.V0)
-        U, acc = self.unloaded(Fg)
-        Xr = self.vol.layers(self.base, U)
+        Xr = self.vol.layers(base, U)
         load = np.zeros(len(Xr))
         dm = 0.9 * np.clip(acc, 0, None) * areas(U, self.F) * self.glute           # 臀這袋多出來的脂肪（公克）
         for kk in range(1, K + 1):
@@ -293,20 +308,22 @@ class FatLine:
         D = X[K * n:(K + 1) * n] - U
         for _ in range(D_SMOOTH):
             D = D + 0.5 * (self.W @ D - D)
-        self._sag[Fg] = D
         return D
 
     def target(self, F):
         """規則算出來的形（不受重力的形 ＋ 重力的位移；中性起每 SOFT_STEP kg 解一次，中間直線內插），還沒處理接觸，
         兩片皮可能互相穿過。"""
-        U, _ = self.unloaded(F)
+        return self.with_sag(self.unloaded(F)[0], F, self.sag)
+
+    def with_sag(self, U, F, sag):
+        """不受重力的形加上重力的位移：重力在中性起每 SOFT_STEP kg 的格點上解（sag(格點)），中間直線內插。"""
         if F <= F0:
             return U
         j = int(np.floor((F - F0) / SOFT_STEP + 1e-9))
         Fa, Fb = F0 + j * SOFT_STEP, F0 + (j + 1) * SOFT_STEP
-        Da = self.sag(Fa) if Fa > F0 else 0.0
+        Da = sag(Fa) if Fa > F0 else 0.0
         t = (F - Fa) / SOFT_STEP
-        return self.constrain(U + (1 - t) * Da + t * self.sag(Fb), clamp=False)
+        return self.constrain(U + (1 - t) * Da + t * sag(Fb), clamp=False)
 
     def shape(self, F):
         """任一全身脂肪量 F 的控制籠：從中性型（沒有穿面）每 CONTACT_STEP kg 一步走向規則算出的形，

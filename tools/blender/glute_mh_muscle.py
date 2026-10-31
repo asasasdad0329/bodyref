@@ -236,8 +236,8 @@ class MuscleLine:
             shaped = k * shaped + (1 - k) * smooth
         return fat_blur(vol * shaped, self.W, T)
 
-    def grow(self, B, dL, L):
-        dT = self.increment(B, dL, self.T0, L)
+    def grow(self, B, dL, L, T=None):
+        dT = self.increment(B, dL, self.T0 if T is None else T, L)
         D = gm.growth_dirs(B, self.D0, self.cut)
         # 方向沒有正對表面時，同樣的位移撐出的體積較少；補回來，體積才照規律
         area = gf.areas(B, self.F)
@@ -249,19 +249,21 @@ class MuscleLine:
         B[:, 0] = side * np.maximum(B[:, 0] * side, 0.0)
         return B
 
-    def base(self, L):
-        """去脂 L 時的底層。從中性用同樣的步長一步步走過去，結果只由 L 決定。"""
+    def base(self, L, T=None, states=None):
+        """去脂 L 時的底層。從中性用同樣的步長一步步走過去，結果只由 L 決定。
+        T：蓋在上面、把肌肉的形抹平的脂肪厚度（預設中性；組成線傳入當下的厚度，states 另外存）。"""
+        states = self._states if T is None else ({} if states is None else states)
         n = int(round(abs(L - L0) / STEP_L * 1e6)) // 1000000
         sgn = 1 if L >= L0 else -1
         key = lambda j: sgn * j
-        k = max([j for j in range(n + 1) if key(j) in self._states], default=0)
-        B = self._states[key(k)].copy() if k else self.base0.copy()
+        k = max([j for j in range(n + 1) if key(j) in states], default=0)
+        B = states[key(k)].copy() if k else self.base0.copy()
         for j in range(k, n):
-            B = self.grow(B, sgn * STEP_L, L0 + sgn * (j + 0.5) * STEP_L)
-            self._states[key(j + 1)] = B.copy()
+            B = self.grow(B, sgn * STEP_L, L0 + sgn * (j + 0.5) * STEP_L, T)
+            states[key(j + 1)] = B.copy()
         rest = abs(L - L0) - n * STEP_L
         if rest > 1e-9:
-            B = self.grow(B, sgn * rest, L0 + sgn * (n * STEP_L + rest / 2))
+            B = self.grow(B, sgn * rest, L0 + sgn * (n * STEP_L + rest / 2), T)
         return B
 
     def target(self, L):
