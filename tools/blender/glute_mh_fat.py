@@ -121,6 +121,9 @@ class FatLine:
         # 胯下不長的只有朝下的底面（大陰唇底、會陰）；朝正中的壁（臀縫最底、兩腿內側）照樣長，兩邊才擠得攏
         medial = np.clip(-np.sign(self.V0[:, 0]) * self.N0[:, 0], 0, None)
         self.crotch_hold = np.clip(self.crotch * 2, 0, 1) * np.clip(1 - medial / 0.6, 0, 1)
+        if __import__('os').environ.get('PERI_GROW', '1') == '1':
+            # 會陰後段（肛門四周，臀縫底）也有脂肪（坐骨肛門窩），會跟著長、把臀縫底的凹填起來；只有前段（大陰唇底）不長
+            self.crotch_hold *= np.clip((self.V0[:, 2] + 1.0) / 2.0, 0, 1)
         y = self.V0[:, 1]
         y0, y1, keep = TOP_TAPER
         self.top = 1 - (1 - keep) * np.clip((y - y0) / (y1 - y0), 0, 1)
