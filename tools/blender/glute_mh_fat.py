@@ -61,7 +61,10 @@ DEPOTS = {
 # ---------- 2. 附著線：每條控制線上，厚度增長乘上 (1 − 最大比例 × 權重) ----------
 ATTACH = dict(fold=0.85, cleft=0.9, sacrum=0.6, suprapubic=0.3, groin=0.45)
 # 中性以上多長的脂肪：臀溝那條線也會長（被兩側的脂肪往外推），只是比兩側少（作者 2026-10-30：大體重時那個縫也要外推）
-ATTACH_GROW = dict(ATTACH, fold=float(__import__('os').environ.get('FOLD_GROW_ATTACH', '0.25')))
+ATTACH_GROW = dict(ATTACH, fold=float(__import__('os').environ.get('FOLD_GROW_ATTACH', '0.25')),
+                   cleft=float(__import__('os').environ.get('CLEFT_GROW_ATTACH', '0.5')))
+# 臀縫兩壁、兩腿內側的脂肪照樣往正中長：兩邊的肉擠在一起、貼合（擋在正中），臀縫底不會留下空洞
+TOWARD_MID = __import__('os').environ.get('TOWARD_MID', '1') == '1'
 
 # ---------- 3. 重力（立體的脂肪層，glute_mh_soft）----------
 ADHERE = dict(fold=1.0, cleft=1.0, sacrum=1.0)     # 附著區：控制線（皮綁在深層）
@@ -115,6 +118,9 @@ class FatLine:
             self.A_grow *= 1 - s * C[name]
         self.belly = Z['belly']
         self.crotch = Z['crotch']
+        # 胯下不長的只有朝下的底面（大陰唇底、會陰）；朝正中的壁（臀縫最底、兩腿內側）照樣長，兩邊才擠得攏
+        medial = np.clip(-np.sign(self.V0[:, 0]) * self.N0[:, 0], 0, None)
+        self.crotch_hold = np.clip(self.crotch * 2, 0, 1) * np.clip(1 - medial / 0.6, 0, 1)
         y = self.V0[:, 1]
         y0, y1, keep = TOP_TAPER
         self.top = 1 - (1 - keep) * np.clip((y - y0) / (y1 - y0), 0, 1)
@@ -186,7 +192,7 @@ class FatLine:
         w = np.zeros(len(self.V0))
         for name, d in DEPOTS.items():
             w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
-        w *= self.A_grow * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top * (1 - np.clip(self.crotch * 2, 0, 1))
+        w *= self.A_grow * (1 - (1 - BELLY_FOLLOW) * self.belly) * self.top * (1 - self.crotch_hold)
         return w
 
     def unloaded(self, F):
@@ -214,7 +220,7 @@ class FatLine:
                 N = N + 0.35 * (self.W @ N - N)
             N = GROW_BLEND * N / np.linalg.norm(N, axis=1, keepdims=True) + (1 - GROW_BLEND) * self.D0
             N /= np.linalg.norm(N, axis=1, keepdims=True)
-            N = gm.growth_dirs(V, N, self.cut)
+            N = gm.growth_dirs(V, N, self.cut, toward_mid=TOWARD_MID)
             cos = np.clip((N * Nc).sum(1), 0.2, 1)
             dT *= (area * dT).sum() / (area * dT * cos).sum()
             V = self.constrain(V + dT[:, None] * N)

@@ -489,11 +489,14 @@ def averaging_matrix(n, F):
     return csr_matrix(coo_matrix((vals, (rows, cols)), shape=(n, n)))
 
 
-def growth_dirs(V, N, cut, reach=2.0):
+def growth_dirs(V, N, cut, reach=2.0, toward_mid=False):
     """長大的方向：照法線，但
     - 切口附近只往切口平面長（cut_normals）；
-    - 正中附近朝正中的那一面（臀縫兩壁、兩腿內側）不往正中長：兩邊貼在一起後沿著接觸面往後、往下長，不互相穿過。"""
+    - 正中附近朝正中的那一面（臀縫兩壁、兩腿內側）不往正中長：兩邊貼在一起後沿著接觸面往後、往下長，不互相穿過。
+      toward_mid=True 時照樣往正中長（脂肪：兩邊的肉往中間擠、貼合，由 constrain 擋在正中）。"""
     N = cut_normals(N, cut)
+    if toward_mid:
+        return N
     x = V[:, 0]
     t = np.clip(1 - np.abs(x) / reach, 0, 1)
     toward = np.clip(-np.sign(x) * N[:, 0] / 0.3, 0, 1)
