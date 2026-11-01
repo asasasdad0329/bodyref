@@ -185,13 +185,14 @@ ATTACH = dict(fold=0.7, cleft=0.95, sacrum=0.9, suprapubic=0.7, groin=0.6)
 
 
 class MuscleLine:
-    def __init__(self, frame=None, type=0.0):
+    def __init__(self, frame=None, type=0.0, type_of_L=None):
         """frame：這副骨架下的中性型（見 glute_mh_fat.FatLine）。肌肉的形、附著都在原本中性型的頂點上算。
-        type：型（0～2）；肌肉份量在原本、偏美型（BEAUTY_SHARE）、插畫型（STYLIZED_SHARE）之間內插。"""
+        type：型（0～2）；肌肉份量在原本、偏美型（BEAUTY_SHARE）、插畫型（STYLIZED_SHARE）之間內插。
+        type_of_L：型照去脂變（組成線沿路徑傳入，每一步用那一步的型）；預設固定 type。"""
         self.fat = gf.FatLine(frame, type)
-        a, b = min(type, 1.0), max(type - 1, 0.0)
-        self.share = {k: m['share'] + a * (BEAUTY_SHARE[k] - m['share']) + b * (STYLIZED_SHARE[k] - BEAUTY_SHARE[k])
-                      for k, m in MUSCLES.items()}
+        self.tL = (lambda L: type) if type_of_L is None else type_of_L
+        self._shares = {}
+        self.share = self.share_of(self.tL(L0))
         fl = self.fat
         self.F, self.mid = fl.F, fl.mid
         V0, N0 = fl.Vc, fl.Nc
@@ -223,7 +224,16 @@ class MuscleLine:
         self.th0 = np.clip(((fl.V0 - self.base0) * self.N_base0).sum(1), 0, None)   # 中性時沿底層法線量的脂肪厚度
         self._states = {}
         self.bone_lim = gm.bone_limits(V0, N0)
-        self.base0t = self.base0 if type == 0 else self.redistribute(self.base0)
+        self.base0t = self.base0 if self.tL(L0) == 0 else self.redistribute(self.base0)
+
+    def share_of(self, t):
+        """型 t 的肌肉份量。"""
+        k = round(float(t), 3)
+        if k not in self._shares:
+            a, b = min(k, 1.0), max(k - 1, 0.0)
+            self._shares[k] = {n: m['share'] + a * (BEAUTY_SHARE[n] - m['share']) + b * (STYLIZED_SHARE[n] - BEAUTY_SHARE[n])
+                               for n, m in MUSCLES.items()}
+        return self._shares[k]
 
     def redistribute(self, B):
         """型的中性底層：範圍內中性的肌肉照型的份量重新分配 TYPE_AT_NEUTRAL（臀多、大腿少，總量不變），
@@ -285,7 +295,7 @@ class MuscleLine:
         vol = REGION_SLOPE * dL / DENSITY * 1000     # 公分³，左右合計（dL 可以是負的）
         area = gf.areas(B, self.F)
         shaped = np.zeros(len(B))
-        share = self.share if L >= L0 else LOSS_SHARE
+        share = self.share_of(self.tL(L)) if L >= L0 else LOSS_SHARE
         for name, f in self.fields(L).items():
             shaped += share[name] * f / (area * f).sum()
         # 中性以下（萎縮）：中性附近整體變小、變扁（沒有「負的肌肉形」），越瘦越照各塊肌肉的形掉（皮包骨，#83）

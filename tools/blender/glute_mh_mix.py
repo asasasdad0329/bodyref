@@ -1,6 +1,6 @@
 """臀的組成：任一全身脂肪 F × 全身去脂 L 的形（DECISIONS #58 的組成線，#72、#73）。只用 numpy、scipy、ipctk。
 
-python3 tools/blender/glute_mh_mix.py <輸出資料夾> <L1,L2,...> [F1,F2,...] [type=0～1]
+python3 tools/blender/glute_mh_mix.py <輸出資料夾> <L1,L2,...> [F1,F2,...] [type=0～2 或 default]
   對每個去脂 L，算脂肪 F（預設 9～130 每 1 kg）的控制籠與量測，存成 mix_L<L>.npz / .json。
 
 做法（兩條純線疊起來，各自的規律不變）：
@@ -29,58 +29,90 @@ import glute_mh_contact as gc  # noqa: E402
 F0, L0 = gf.F0, gmu.L0
 
 
+def muscle_type_fade(F):
+    """肌肉的型跟著脂肪淡掉的比例：脂肪 9 kg 以上 1，2 kg（皮包骨）時 0（同 glute_mh_fat.default_type 的脂肪那一半）。"""
+    u = float(np.clip((F - gf.FMIN) / 7.0, 0, 1))
+    return u * u * (3 - 2 * u)
+
+
 class MixLine:
     def __init__(self, frame=None, type=0.0):
-        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。type：型（0～1）。"""
-        self.ml = gmu.MuscleLine(frame, type)
+        """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。
+        type：型。數字是固定的型（0～2）；'default' 是網站預設的型（glute_mh_fat.default_type），照組成變：
+        沿路徑每一步用那一步的型（先沿去脂、再沿脂肪），所以每一欄去脂只要從中性走一次，結果只由 (F, L) 決定。"""
+        if type == 'default':
+            self.tfun = gf.default_type
+        else:
+            self.tfun = lambda F, L, t=float(type): t
+        self.const0 = type != 'default' and float(type) == 0.0
+        self.ml = gmu.MuscleLine(frame, self.tfun(F0, L0), type_of_L=lambda L: self.tfun(F0, L))
+        # 預設的型越接近皮包骨越淡（default_type 的脂肪那一半）。肌肉的型是在中性脂肪那裡沿去脂分配的，
+        # 脂肪再往下掉時要跟著淡：在型 0 的肌肉和這個型的肌肉之間內插（兩個都是算出來的形，不外插）
+        self.ml0 = gmu.MuscleLine(frame, 0.0) if type == 'default' else None
         self.type = type
         self.fl = self.ml.fat
         self.F = self.fl.F
-        self._T, self._start, self._sag, self._walk = {}, {}, {}, {}
+        self._T, self._start, self._sag, self._walk, self._fc = {}, {}, {}, {}, {}
 
-    def fat_T(self, F):
-        """F 時每個點的脂肪厚度（用來決定肌肉的形被抹平多少）；用純脂肪線的厚度。"""
-        if F not in self._T:
-            fl = self.fl
-            self._T[F] = fl.Tt(F) if F <= F0 else fl.Tt(F0) + fl.unloaded(F)[1]
-        return self._T[F]
+    def tf(self, L):
+        """去脂 L 那一欄，型照脂肪量變。"""
+        return lambda F: self.tfun(F, L)
+
+    def fat_T(self, F, L):
+        """F 時每個點的脂肪厚度（用來決定肌肉的形被抹平多少）；用純脂肪線（這一欄的型）的厚度。"""
+        key = (F, L)
+        if key not in self._T:
+            fl, tf = self.fl, self.tf(L)
+            if F <= F0:
+                T = fl.Tt(F, tf(F))
+            else:
+                T = fl.Tt(F0, tf(F0)) + fl.unloaded(F, fl.V0, fl.D0, self._fc.setdefault(L, {}), tf)[1]
+            self._T[key] = T
+            if len(self._T) > 400:
+                self._T.pop(next(iter(self._T)))
+        return self._T[key]
 
     def start(self, F, L):
         """(皮膚, 肌肉表面)：去脂 L 的肌肉（形照 F 的脂肪厚度抹平）蓋上中性的脂肪。"""
         key = (F, L)
         if key not in self._start:
-            if abs(F - F0) < 1e-9 and self.type == 0:
+            if abs(F - F0) < 1e-9 and self.const0:
                 B = self.ml.base(L)
             else:
-                B = self.ml.base(L, T=self.fat_T(F))
+                T = self.fat_T(F, L)
+                B = self.ml.base(L, T=T)
+                h = muscle_type_fade(F)
+                if self.ml0 is not None and h < 1:
+                    B0 = self.ml0.base(L, T=T)
+                    B = B0 + h * (B - B0)
             self._start[key] = (self.ml.cover(B), B)
             if len(self._start) > 400:            # 只留最近的，記憶體不會一直漲
                 self._start.pop(next(iter(self._start)))
         return self._start[key]
 
     def unloaded(self, F, L):
-        if abs(L - L0) < 1e-9 and self.type == 0:
+        if abs(L - L0) < 1e-9 and self.const0:
             return self.fl.unloaded(F)
         S, _ = self.start(F, L)
-        return self.fl.unloaded(F, start=S, D0=self.fl.smooth_dirs(S), cache={})
+        return self.fl.unloaded(F, start=S, D0=self.fl.smooth_dirs(S), cache={}, tf=self.tf(L))
 
     def sag(self, Fg, L):
         key = (Fg, L)
         if key not in self._sag:
             U, acc = self.unloaded(Fg, L)
-            self._sag[key] = self.fl.sag_of(U, acc, self.start(Fg, L)[1], gf.firmness(self.type, Fg, L))
+            self._sag[key] = self.fl.sag_of(U, acc, self.start(Fg, L)[1], gf.firmness(self.tfun(Fg, L), Fg, L))
         return self._sag[key]
 
     def target(self, F, L):
         """規則算出來的形（還沒處理接觸）。"""
-        if abs(L - L0) < 1e-9 and self.type == 0:
+        if abs(L - L0) < 1e-9 and self.const0:
             return self.fl.target(F)
         return self.fl.with_sag(self.unloaded(F, L)[0], F, lambda g: self.sag(g, L))
 
     def shape(self, F, L):
         """控制籠：先沿去脂走到 L（純肌肉線），再沿脂肪每 1 kg 一步做接觸。
-        型大於 0 時路徑多一段：先從原本的中性型走到型的中性（脂肪與肌肉照型重新分配），再沿去脂、再沿脂肪。"""
-        if self.type == 0:
+        型不是 0 時路徑多一段：先從原本的中性型走到型的中性（脂肪與肌肉照型重新分配），再沿去脂、再沿脂肪。"""
+        if self.const0:
             if abs(L - L0) < 1e-9:
                 return self.fl.shape(F)
             if L not in self._walk:
@@ -100,7 +132,8 @@ if __name__ == '__main__':
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
     args = [a for a in sys.argv[3:] if not a.startswith('type=')]
-    tp = float(next((a[5:] for a in sys.argv[3:] if a.startswith('type=')), 0.0))
+    tp = next((a[5:] for a in sys.argv[3:] if a.startswith('type=')), '0')
+    tp = tp if tp == 'default' else float(tp)
     Ls = [float(a) for a in sys.argv[2].split(',')]
     Fs = [float(a) for a in args[0].split(',')] if args else list(np.arange(gf.FMIN, gf.FMAX + 0.01, 1.0))
     mx = MixLine(type=tp)
@@ -119,7 +152,7 @@ if __name__ == '__main__':
                       f'  大腿圍 {m["thighCirc"]:5.2f}', flush=True)
         order = np.argsort([r['F'] for r in rows])
         rows = [rows[i] for i in order]
-        tag = f'{L:g}' + (f'_t{tp:g}' if tp else '')
+        tag = f'{L:g}' + ('_default' if tp == 'default' else (f'_t{tp:g}' if tp else ''))
         (out / f'mix_L{tag}.json').write_text(json.dumps(dict(F0=F0, L0=L0, rows=rows), ensure_ascii=False, indent=1))
         np.savez_compressed(out / f'mix_L{tag}.npz', F=np.array([r['F'] for r in rows]), L=L,
                             cages=np.stack([cages[i] for i in order]), quads=mx.F)

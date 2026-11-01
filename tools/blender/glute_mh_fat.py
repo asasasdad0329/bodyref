@@ -251,8 +251,8 @@ class FatLine:
         self.N0 = gm.vertex_normals(self.V0, self.F)
         assert 0.0 <= type <= 2.0, '型只在 0～2 之間（兩個目標之間內插，不外插）'
         self.type = type
-        self.depots = type_depots(type)
-        self.belly_follow = type_value('belly_follow', BELLY_FOLLOW, type)
+        self.tf = lambda F: type          # 型照脂肪量變（組成線沿路徑傳入；預設固定）
+        self._tp = {}
         self.cont = LegContinuation(self.Vc, self.F)
         self.mid = np.abs(self.Vc[:, 0]) < 1e-6
         C = gm.control_weights(self.Vc, self.Nc)
@@ -260,11 +260,9 @@ class FatLine:
         self.A = np.ones(len(self.V0))
         for name, s in ATTACH.items():
             self.A *= 1 - s * C[name]
-        self.A_grow = np.ones(len(self.V0))
-        for name, s in ATTACH_GROW.items():
-            if name == 'fold':
-                s = type_value('fold_grow', s, type)
-            self.A_grow *= 1 - s * C[name]
+        self.C = C
+        tp = self.typed(type)
+        self.depots, self.belly_follow, self.A_grow = tp['depots'], tp['belly_follow'], tp['A_grow']
         self.belly = Z['belly']
         self.crotch = Z['crotch']
         # 胯下不長的只有朝下的底面（大陰唇底、會陰）；朝正中的壁（臀縫最底、兩腿內側）照樣長，兩邊才擠得攏
@@ -302,6 +300,18 @@ class FatLine:
         self._Tt = {}
         assert type > 0 or np.abs(self.shape(F0) - self.V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
 
+    def typed(self, t):
+        """型 t 的參數：堆積點、肚子跟著長的比例、長的時候臀溝那條線的附著（照 t 快取）。"""
+        k = round(float(t), 3)
+        if k not in self._tp:
+            A = np.ones(len(self.Vc))
+            for name, s in ATTACH_GROW.items():
+                if name == 'fold':
+                    s = type_value('fold_grow', s, k)
+                A *= 1 - s * self.C[name]
+            self._tp[k] = dict(depots=type_depots(k), belly_follow=type_value('belly_follow', BELLY_FOLLOW, k), A_grow=A)
+        return self._tp[k]
+
     def maps(self, V, N, F, depots=None):
         """每個堆積點在每個頂點上的分布（0～1），範圍隨脂肪量擴大。用中性位置算，堆積點跟著組織走。"""
         Nm = mirrored(N, V)
@@ -330,15 +340,17 @@ class FatLine:
             T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
         return TMIN + depletion(F) * T
 
-    def thickness_typed(self, F):
+    def thickness_typed(self, F, t=None):
         """中性與中性以下（F ≤ F0）照型分配的厚度：同樣的堆積點公式換成型的堆積點，再把總量調回資料的量
-        （型只改分配）。型 0 就是 thickness。"""
+        （型只改分配）。型 0 就是 thickness。t：型（預設照 tf）。"""
+        t = self.tf(F) if t is None else t
         Td = self.thickness(F)
-        if self.type == 0:
+        if t == 0:
             return Td
-        M = self.maps(self.Vc, self.Nc, F, self.depots)
+        depots = self.typed(t)['depots']
+        M = self.maps(self.Vc, self.Nc, F, depots)
         T = np.full(len(self.V0), TMIN)
-        for name, d in self.depots.items():
+        for name, d in depots.items():
             if d.get('grow_only'):
                 continue
             T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
@@ -346,19 +358,22 @@ class FatLine:
         T = TMIN + (T - TMIN) * (a * (Td - TMIN)).sum() / max((a * (T - TMIN)).sum(), 1e-12)
         return Td + TYPE_AT_NEUTRAL * (T - Td)
 
-    def Tt(self, F):
+    def Tt(self, F, t=None):
         """F ≤ F0 時每個點的脂肪厚度（照型）；肚子只跟著變一部分。型 0、F0 時就是 T0。"""
-        if F not in self._Tt:
-            self._Tt[F] = self.T0 + self.cont((self.thickness_typed(F) - self.T0)
-                                              * (1 - (1 - self.belly_follow) * self.belly))
-        return self._Tt[F]
+        t = self.tf(F) if t is None else t
+        key = (F, round(float(t), 3))
+        if key not in self._Tt:
+            bf = self.typed(t)['belly_follow']
+            self._Tt[key] = self.T0 + self.cont((self.thickness_typed(F, t) - self.T0) * (1 - (1 - bf) * self.belly))
+        return self._Tt[key]
 
-    def neutral_skin(self, start, D0):
+    def neutral_skin(self, start, D0, t=None):
         """型的中性皮膚（還沒處理接觸）：中性的脂肪照型重新分配，從 start（原本的中性皮膚）沿長的方向移。"""
-        if self.type == 0:
+        t = self.tf(F0) if t is None else t
+        if t == 0:
             return start.copy()
         D = gm.cut_normals(D0, self.cut)
-        return self.constrain(start + (self.Tt(F0) - self.T0)[:, None] * D, clamp=False)
+        return self.constrain(start + (self.Tt(F0, t) - self.T0)[:, None] * D, clamp=False)
 
     def constrain(self, V, clamp=True):
         V[self.mid, 0] = 0.0
@@ -369,14 +384,15 @@ class FatLine:
             V[right, 0] = np.minimum(V[right, 0], -0.05)
         return V
 
-    def distribution(self, F):
-        """此刻新增的脂肪往哪裡去：各堆積點增長曲線的斜率 × 分布 × 附著係數。
+    def distribution(self, F, t=None):
+        """此刻新增的脂肪往哪裡去：各堆積點增長曲線的斜率 × 分布 × 附著係數（型 t，預設照 tf）。
         胯下（大陰唇底面、會陰）夾在兩腿之間，沒有往下長的空間；大陰唇的脂肪從恥丘那邊長（mons）。"""
-        M = self.maps(self.Vc, self.Nc, F, self.depots)
+        tp = self.typed(self.tf(F) if t is None else t)
+        M = self.maps(self.Vc, self.Nc, F, tp['depots'])
         w = np.zeros(len(self.V0))
-        for name, d in self.depots.items():
+        for name, d in tp['depots'].items():
             w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
-        w *= self.A_grow * (1 - (1 - self.belly_follow) * self.belly) * self.top * (1 - self.crotch_hold)
+        w *= tp['A_grow'] * (1 - (1 - tp['belly_follow']) * self.belly) * self.top * (1 - self.crotch_hold)
         return self.cont(w)
 
     def smooth_dirs(self, V):
@@ -386,27 +402,29 @@ class FatLine:
             D = D + 0.35 * (self.W @ D - D)
         return D / np.linalg.norm(D, axis=1, keepdims=True)
 
-    def unloaded(self, F, start=None, D0=None, cache=None):
+    def unloaded(self, F, start=None, D0=None, cache=None, tf=None):
         """不受重力時的形與每個點長了多厚。中性以下照厚度公式沿長的方向收；中性以上從中性用同樣的步長一步步長，
         體積照規律（方向沒正對表面時補回），結果只由 F 決定。
-        start：中性脂肪時的皮膚（預設中性型；組成線傳入肌肉變了之後的皮膚），D0：它的長的方向，cache：走過的格點。"""
+        start：中性脂肪時的皮膚（預設中性型；組成線傳入肌肉變了之後的皮膚），D0：它的長的方向，cache：走過的格點。
+        tf：型照脂肪量變（每一步用那一步的型；組成線依去脂傳入），預設 self.tf。"""
+        tf = self.tf if tf is None else tf
         if start is None:
             start, D0, cache = self.V0, self.D0, self._unl
         if F <= F0:
-            T = self.Tt(F)
+            T = self.Tt(F, tf(F))
             # 切口附近只在切口平面裡收（切口是接身體其他部分的地方，不能離開那個平面）
             D = gm.cut_normals(D0, self.cut)
             return self.constrain(start + (T - self.T0)[:, None] * D, clamp=False), np.zeros(len(self.V0))
         cache = {} if cache is None else cache
         n = int(round((F - F0) / STEP_F * 1e6)) // 1000000
         k = max([j for j in cache if j <= n], default=0)
-        V, acc = (a.copy() for a in cache[k]) if k else (self.neutral_skin(start, D0), np.zeros(len(self.V0)))
+        V, acc = (a.copy() for a in cache[k]) if k else (self.neutral_skin(start, D0, tf(F0)), np.zeros(len(self.V0)))
         steps = [(F0 + (j + 0.5) * STEP_F, STEP_F, j + 1) for j in range(k, n)]
         rest = F - (F0 + n * STEP_F)
         if rest > 1e-9:
             steps.append((F0 + n * STEP_F + rest / 2, rest, None))
         for Fm, dF, key in steps:
-            w = self.distribution(Fm)
+            w = self.distribution(Fm, tf(Fm))
             area = areas(V, self.F)
             dT = REGION_SLOPE * dF / 0.9 * 1000 * w / (area * w).sum()      # 公分³（脂肪密度 0.9），左右兩半合計
             Nc = gm.vertex_normals(V, self.F)
@@ -463,7 +481,7 @@ class FatLine:
         """格點 Fg 上重力造成的皮膚位移（相對不受重力的形）。"""
         if Fg in self._sag:
             return self._sag[Fg]
-        self._sag[Fg] = self.sag_of(*self.unloaded(Fg), self.base, firmness(self.type, Fg, LEAN0))
+        self._sag[Fg] = self.sag_of(*self.unloaded(Fg), self.base, firmness(self.tf(Fg), Fg, LEAN0))
         return self._sag[Fg]
 
     def sag_of(self, U, acc, base, g=1.0):
