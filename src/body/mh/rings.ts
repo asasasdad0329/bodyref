@@ -8,6 +8,7 @@ import { BodyModel } from './model';
 import { type BodyAsset, addTarget } from './asset';
 import { type V3, adjacency, centroid, meshVolume, smoothField, vertexNormals } from './geometry';
 import { type MeasureContext, type MeasureKey, type Measured, measure, measureContext, measureSkeleton } from './measure';
+import { applyPelvis, pelvisWidthFor } from './pelvis';
 import { type GirthPreferences, type GirthResponse, distributionPenalty, redistributionStep } from './distribution';
 
 // 原型：環切面 + 曲線連接 + 軟組織量體（全身）。
@@ -323,7 +324,7 @@ export class RingBody {
       volume: meshVolume(P.subarray(0, this.asset.nBody * 3), this.asset.quads) };
   }
 
-  /** 素體 + 四肢長度，縮放到指定身高、腳底貼地 */
+  /** 素體 + 四肢長度，縮放到指定身高、腳底貼地；女性再加骨盆寬（照身高，pelvis.ts） */
   private skeleton(B0: Float32Array, t: RingTargets, lens: number[]): { B: Float32Array; m: ReturnType<typeof measureSkeleton> } {
     const a = this.asset;
     const B = new Float32Array(B0);
@@ -338,6 +339,11 @@ export class RingBody {
       B[i + 2] *= s;
     }
     m = measureSkeleton(this.ctx, B);
+    if (this.ctx.sex === 'female') {
+      const arms = new Set(['upperarmL', 'upperarmR', 'forearmL', 'forearmR', 'handL', 'handR'].map(r => a.regions.indexOf(r)));
+      applyPelvis(B, B.length / 3, m.marks.crotchY, t.height, pelvisWidthFor(t.height), i => arms.has(a.region[i]));
+      m = measureSkeleton(this.ctx, B);
+    }
     return { B, m };
   }
 

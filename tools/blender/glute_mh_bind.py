@@ -5,7 +5,8 @@ glute_mh_frame 張回 MakeHuman 原本的與肩同寬，#81）。素體整個細
 和控制籠一點對一點：
   頂點點 ↔ 原本的頂點、邊點 ↔ 原本的邊、面點 ↔ 原本的面（gm.subdivide 的編號規則）。
 所以不用另外找對應。做法：
-  1. 網站的骨架（四肢長度、縮放到身高，還沒有軟組織）細分一次。
+  1. 網站的骨架（四肢長度、縮放到身高、骨盆寬，還沒有軟組織）細分一次。骨盆寬由網站的骨架做（pelvis.ts，
+     規則和 glute_mh_frame 相同），這裡的參考就用同一個骨盆寬的中性型，位移只剩軟組織。
   2. 模的變形量（這個狀態 − 參考，參考是模在 MakeHuman 站姿、還沒任何變形時）先轉回 MakeHuman 原本的空間
      （還原 Glute.align 的胯下對齊），再照網站骨架在每一點的局部縮放、拉長（鄰邊最小平方）加到網站骨架的平滑曲面上。
      網站 160 公分的骨架和 MakeHuman 起點差 0.25 公分內；身高、腿長變了，臀那一圈跟著平移、縮放、拉長。
@@ -56,9 +57,11 @@ def limit_points(P, Q, n):
 
 
 class Binding:
-    def __init__(self, skel=None, final=None):
-        """skel：網站的骨架（四肢長度、縮放到身高，還沒有軟組織；13,380 點），預設 MakeHuman 起點（160 公分）。
-        final：網站其他部位現在的形（切口外面接回去的對象），預設同 skel。"""
+    def __init__(self, skel=None, final=None, ref=None):
+        """skel：網站的骨架（四肢長度、縮放到身高、骨盆寬，還沒有軟組織；13,380 點），預設 MakeHuman 起點（160 公分）。
+        final：網站其他部位現在的形（切口外面接回去的對象），預設同 skel。
+        ref：臀的模裡和 skel 同一副骨架的中性型（控制籠）。網站的骨架已經有骨盆寬（src/body/mh/pelvis.ts）時，
+        傳那個骨盆寬的中性型（glute_mh_frame.Frame.neutral），位移就只剩軟組織；預設是 MakeHuman 站姿的起點。"""
         P, Q, _ = gm.load_mh()
         g = gm.Glute()
         used = cKDTree(P).query(g.V)[1]
@@ -93,7 +96,8 @@ class Binding:
         import glute_mh_frame as gfr
         fr = gfr.Frame()
         self.Fc = fr.F
-        self.ref = unalign(gm.preview(fr.stance(fr.V, gfr.STANCE_POSE), fr.F, 2)[0][:len(M)])
+        ref = fr.stance(fr.V, gfr.STANCE_POSE) if ref is None else np.asarray(ref, float)
+        self.ref = unalign(gm.preview(ref, fr.F, 2)[0][:len(M)])
         inreg = np.zeros(n1, bool)
         inreg[M] = True
         r, c = [], []

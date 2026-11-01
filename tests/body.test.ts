@@ -10,6 +10,7 @@ import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
 import { meshVolume } from '../src/body/mh/geometry';
 import { BODY_CASES, PLAN_CASES } from './fixtures/bodyCases';
+import { PELVIS_BASE, pelvisWidthFor } from '../src/body/mh/pelvis';
 
 let engine: BodyEngine;
 
@@ -52,6 +53,40 @@ describe('人體網格', () => {
       }
     });
   }
+
+  it('女性骨架照身高加骨盆寬：髂嵴一圈放寬、兩腿平移，高度、腰以上與手臂不動', () => {
+    // 同一個素體分別當女性（有骨盆寬）與男性（沒有）跑骨架，差就是骨盆寬（pelvis.ts，DECISIONS #77、#83）
+    const rings = engine.rings as unknown as { ctx: { sex: Sex }; skeleton(B0: Float32Array, t: { height: number }, lens: number[]): { B: Float32Array; m: { marks: { crotchY: number } } } };
+    const a = engine.asset;
+    const B0 = new Float32Array(a.base);
+    const arms = new Set(['upperarmL', 'upperarmR', 'forearmL', 'forearmR', 'handL', 'handR'].map(r => a.regions.indexOf(r)));
+    expect(pelvisWidthFor(160)).toBeCloseTo(28.4, 1);
+    for (const height of [140, 160, 190]) {
+      rings.ctx.sex = 'male';
+      const plain = rings.skeleton(B0, { height }, [0, 0, 0, 0]);
+      rings.ctx.sex = 'female';
+      const wide = rings.skeleton(B0, { height }, [0, 0, 0, 0]);
+      const s = height / 160, crotch = plain.m.marks.crotchY;
+      const half = (P: Float32Array, u: number) => {
+        let m = 0;
+        for (let i = 0; i < a.nBody; i++) if (!arms.has(a.region[i]) && Math.abs(P[i * 3 + 1] - (crotch + u * s)) < 0.6 * s) m = Math.max(m, Math.abs(P[i * 3]));
+        return m;
+      };
+      const crest = (pelvisWidthFor(height) - PELVIS_BASE * s) / 2;
+      expect(Math.abs(half(wide.B, 25) - half(plain.B, 25) - crest)).toBeLessThan(0.05 * s);   // 髂嵴那一圈
+      const legs = half(wide.B, -10) - half(plain.B, -10);
+      expect(legs).toBeGreaterThan(0);
+      expect(legs).toBeLessThan(crest);                                                      // 臀與腿放寬得比髂嵴少（R15）
+      expect(Math.abs(half(wide.B, 45) - half(plain.B, 45))).toBeLessThan(0.02);              // 腰以上收回 0
+      let dy = 0, dArm = 0;
+      for (let i = 0; i < a.nBody; i++) {
+        dy = Math.max(dy, Math.abs(wide.B[i * 3 + 1] - plain.B[i * 3 + 1]));
+        if (arms.has(a.region[i])) dArm = Math.max(dArm, Math.abs(wide.B[i * 3] - plain.B[i * 3]) + Math.abs(wide.B[i * 3 + 2] - plain.B[i * 3 + 2]));
+      }
+      expect(dy).toBeLessThan(1e-4);
+      expect(dArm).toBeLessThan(1e-4);
+    }
+  });
 
   it('只填身高時，參考體型的體重、體脂與三圍接近參考值', () => {
     for (const sex of ['female', 'male'] as const) {
