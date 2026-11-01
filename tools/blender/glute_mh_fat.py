@@ -80,13 +80,14 @@ BEAUTY = dict(
             'hipDip': dict(amax=3.0, r=(3.5, 4.0, 4.0)), 'saddle': dict(amax=6.5), 'thighRoot': dict(amax=5.0),
             'innerThigh': dict(amax=3.0), 'flank': dict(amax=1.5), 'everywhere': dict(amax=1.0)},
     belly_follow=0.2, fold_grow=0.55)
-# 插畫型（型 t = 2）：更接近作者給的參考圖（2026-10-31）。臀更大、更高、下緣更收、臀溝更清楚，臀側凹陷全填，
-# 腰側、全身平均、肚子幾乎不長。型在 1～2 之間是偏美型和插畫型之間內插（兩個目標，不外插）
+# 插畫型（型 t = 2）：更接近作者給的參考圖（2026-10-31）。臀更大、更高、範圍更大（和四周融在一起），臀側凹陷全填，
+# 腰側、全身平均、肚子幾乎不長。型在 1～2 之間是偏美型和插畫型之間內插（兩個目標，不外插）。
+# 臀下緣、大腿後側、大腿上段照樣跟著長：臀的圓要整片撐出來，不能靠把下面挖空（作者 2026-11-01：第一版臀和腿之間出現一道溝）
 STYLIZED = dict(
-    depots={'buttock': dict(amax=10.0, c=(6.5, 83.5, -11.5)), 'lowerButtock': dict(amax=1.2),
-            'hipDip': dict(amax=4.0, r=(4.0, 4.5, 4.5)), 'saddle': dict(amax=7.0), 'thighRoot': dict(amax=5.5),
-            'innerThigh': dict(amax=3.0), 'backThigh': dict(amax=1.2), 'flank': dict(amax=0.5), 'everywhere': dict(amax=0.5)},
-    belly_follow=0.1, fold_grow=0.75)
+    depots={'buttock': dict(amax=10.0, c=(6.5, 83.0, -11.5), r=(8.0, 8.0, 8.0)), 'lowerButtock': dict(amax=2.2),
+            'hipDip': dict(amax=4.0, r=(4.0, 4.5, 4.5)), 'saddle': dict(amax=7.0), 'thighRoot': dict(amax=6.5),
+            'innerThigh': dict(amax=3.0), 'backThigh': dict(amax=2.2), 'flank': dict(amax=0.5), 'everywhere': dict(amax=0.5)},
+    belly_follow=0.1, fold_grow=0.55)
 LEAN0 = 35.3                  # 中性的全身去脂（同 glute_mh_muscle.L0）
 
 

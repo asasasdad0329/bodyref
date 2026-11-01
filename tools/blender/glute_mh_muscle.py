@@ -84,9 +84,9 @@ MUSCLES = {
 # 偏美型（型 t = 1，DECISIONS #75）的肌肉份量：臀大肌、臀中肌多，大腿少（合計 1）。造型假設
 BEAUTY_SHARE = dict(gluteusMaximus=0.60, gluteusMedius=0.12, tensorFasciae=0.03, vastusLateralis=0.06,
                     quadricepsFront=0.05, adductors=0.08, hamstrings=0.06)
-# 插畫型（型 t = 2）：臀大肌、臀中肌更多
-STYLIZED_SHARE = dict(gluteusMaximus=0.68, gluteusMedius=0.14, tensorFasciae=0.02, vastusLateralis=0.05,
-                      quadricepsFront=0.04, adductors=0.04, hamstrings=0.03)
+# 插畫型（型 t = 2）：臀大肌、臀中肌更多；膕繩肌（大腿後側）照偏美型，不再減，不然臀下會凹一道溝
+STYLIZED_SHARE = dict(gluteusMaximus=0.68, gluteusMedius=0.14, tensorFasciae=0.02, vastusLateralis=0.04,
+                      quadricepsFront=0.03, adductors=0.03, hamstrings=0.06)
 WIDEN = 0.8       # 肌肉長大時也變寬：到最多去脂時寬度 × (1 + WIDEN)（肌肥大是整個截面變大，不是只變厚）
 BLUR = 0.35       # 脂肪把肌肉的形抹平的程度：每一步的擴散係數 ×（脂肪厚度 ÷ 2 公分）²
 BLUR_STEPS = 25
