@@ -1,7 +1,7 @@
 """臀的組成：任一全身脂肪 F × 全身去脂 L 的形（DECISIONS #58 的組成線，#72、#73）。只用 numpy、scipy、ipctk。
 
 python3 tools/blender/glute_mh_mix.py <輸出資料夾> <L1,L2,...> [F1,F2,...] [type=0～1]
-  對每個去脂 L，算脂肪 F（預設 9～110 每 1 kg）的控制籠與量測，存成 mix_L<L>.npz / .json。
+  對每個去脂 L，算脂肪 F（預設 9～130 每 1 kg）的控制籠與量測，存成 mix_L<L>.npz / .json。
 
 做法（兩條純線疊起來，各自的規律不變）：
   1. 肌肉：純肌肉線的底層長到 L（glute_mh_muscle）。肌肉的形被上面的脂肪抹平，抹的程度照當下的脂肪厚度
