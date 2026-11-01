@@ -401,6 +401,40 @@ def polyline_distance(x, y, pts, strength):
     return best, st
 
 
+# ---------- 骨頭區（皮包骨用，DECISIONS #83，研究 R30）----------
+# 骨頭貼近皮膚的地方。骨頭在「中性的脂肪層再往下 c 公分」（c ＝ 骨頭上那一層肌腱、筋膜、薄肌肉），
+# 肌肉萎縮時這些地方最多只能往下沉 c；脂肪掉到最薄（TMIN 0.25）時，皮到骨就是 c ＋ 0.25，對 R30 的最薄值：
+# 髂前上棘 0.4、髂嵴與薦骨 0.4～0.85、恥骨約 0.5（恥丘的脂肪掉光後）、大轉子瘦的人 0.6～1。
+# 位置照 R30 從髖關節中心推，再貼到中性型的表面上（文獻的絕對座標和這個模的表面差 1～2 公分，所以用表面標）。
+# 坐骨結節站著時被臀大肌蓋住（R30），不設。點是 (x, y)，左半；side 是骨面朝的方向（法線要朝那邊）。
+BONES = {
+    'asis': dict(pts=[(13.9, 91.9)], width=1.3, side=(0.6, 0.0, 0.8), c=0.15),
+    'crestFront': dict(pts=[(13.9, 91.9), (15.0, 94.0), (14.6, 96.3)], width=1.2, side=(1.0, 0.0, 0.3), c=0.2),
+    'crestBack': dict(pts=[(14.6, 96.3), (11.5, 96.6), (8.0, 95.6), (4.5, 94.0)], width=1.2, side=(0.5, 0.0, -1.0), c=0.2),
+    'sacrum': dict(pts=[(0.0, 86.0), (0.0, 90.0), (0.0, 94.5)], width=2.5, side=(0.0, 0.0, -1.0), c=0.3),
+    'pubis': dict(pts=[(0.0, 80.8), (2.5, 81.2)], width=1.5, side=(0.0, 0.0, 1.0), c=0.3),
+    'trochanter': dict(pts=[(17.1, 83.3)], width=2.0, side=(1.0, 0.0, 0.0), c=0.5),
+}
+
+
+def bone_limits(V, N, far=5.0):
+    """每個頂點的肌肉最多能往內沉多少（公分）：骨頭區是 c，離開骨頭區平順地放寬到 far。"""
+    x, y = np.abs(V[:, 0]), V[:, 1]
+    Nm = np.c_[N[:, 0] * np.where(V[:, 0] < 0, -1, 1), N[:, 1:]]
+    lim = np.full(len(V), far)
+    for b in BONES.values():
+        P = b['pts']
+        if len(P) == 1:
+            d = np.hypot(x - P[0][0], y - P[0][1])
+        else:
+            d, _ = polyline_distance(x, y, P, [1.0] * len(P))
+        sd = np.array(b['side'], float)
+        face = np.clip((Nm @ (sd / np.linalg.norm(sd)) - 0.2) / 0.5, 0, 1)
+        w = np.exp(-(d / b['width']) ** 2) * face
+        lim = np.minimum(lim, b['c'] + (1 - w) * far)
+    return lim
+
+
 def control_weights(V, N):
     """每條控制線在每個頂點上的權重（0～1：線上是強度、離線 width 公分平滑歸零）；只算法線朝 side 那一面。"""
     x, y = np.abs(V[:, 0]), V[:, 1]

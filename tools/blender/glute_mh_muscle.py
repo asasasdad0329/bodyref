@@ -40,7 +40,7 @@ import glute_mh_fat as gf  # noqa: E402
 import glute_mh_contact as gc  # noqa: E402
 
 L0 = 35.3
-LMIN, LMAX = 29.0, 91.0
+LMIN, LMAX = 27.0, 91.0      # 瘦端到皮包骨（#83，R29：BMI 12～13 外推去脂含骨 29～31 kg）
 REGION_SLOPE = 0.18           # 範圍內每 kg 全身去脂多 0.18 kg（R24）
 DENSITY = 1.06                # 肌肉密度（公克／公分³）
 STEP_L = 0.5
@@ -97,6 +97,12 @@ BLUR_STEPS = 25
 # 一般人口去脂的高端（約 55 kg 以上，160 cm 女性的第 90 百分位以上）多半是大體重帶來的：肌肉整體變大、皮與結締組織增加，
 # 不是運動員那種一塊塊的肌肥大。這一段新增的去脂漸漸改成平順地攤開（各肌肉的形合起來再大幅抹平），到 75 kg 只剩 30% 照肌肉的形。
 SHAPED = [(L0, 1.0), (55.0, 1.0), (75.0, 0.3), (91.0, 0.3)]
+# 中性以下萎縮時各塊肌肉掉的份量（R29：四肢先掉、肌肉尺寸約 −24%；臀肌在厭食症沒有資料）。造型假設：
+# 大腿的幾塊掉得多，臀大肌、臀中肌少一點。中性附近照舊是整體平順地縮（沒有「負的肌肉形」），
+# 越瘦越照各塊肌肉的形掉（ATROPHY_SPAN 公斤內漸漸換過去）：肌腹消下去、骨頭與肌肉之間凹下去。
+LOSS_SHARE = dict(gluteusMaximus=0.36, gluteusMedius=0.10, tensorFasciae=0.02, vastusLateralis=0.12,
+                  quadricepsFront=0.10, adductors=0.18, hamstrings=0.12)
+ATROPHY_SPAN = 6.0
 # 型作用在整個範圍（作者 2026-11-01，#77）：中性時範圍內已有的肌肉也照型的份量重新分配一部分（總量不變）。
 # 範圍內中性的去脂約 5.4 kg（組成線的估計）；TYPE_AT_NEUTRAL 是照型重新分配的比例。造型假設
 REGION_LEAN0 = 5.4
@@ -210,6 +216,7 @@ class MuscleLine:
         self.D0 = D / np.linalg.norm(D, axis=1, keepdims=True)
         self.th0 = np.clip(((fl.V0 - self.base0) * self.N_base0).sum(1), 0, None)   # 中性時沿底層法線量的脂肪厚度
         self._states = {}
+        self.bone_lim = gm.bone_limits(V0, N0)
         self.base0t = self.base0 if type == 0 else self.redistribute(self.base0)
 
     def redistribute(self, B):
@@ -272,10 +279,15 @@ class MuscleLine:
         vol = REGION_SLOPE * dL / DENSITY * 1000     # 公分³，左右合計（dL 可以是負的）
         area = gf.areas(B, self.F)
         shaped = np.zeros(len(B))
+        share = self.share if L >= L0 else LOSS_SHARE
         for name, f in self.fields(L).items():
-            shaped += self.share[name] * f / (area * f).sum()
-        # 中性以下（萎縮）不是肥大倒著放：整體變小、變扁，沒有「負的肌肉形」
-        k = 0.0 if L < L0 else float(np.interp(L, [p[0] for p in SHAPED], [p[1] for p in SHAPED]))
+            shaped += share[name] * f / (area * f).sum()
+        # 中性以下（萎縮）：中性附近整體變小、變扁（沒有「負的肌肉形」），越瘦越照各塊肌肉的形掉（皮包骨，#83）
+        if L < L0:
+            u = float(np.clip((L0 - L) / ATROPHY_SPAN, 0, 1))
+            k = u * u * (3 - 2 * u)
+        else:
+            k = float(np.interp(L, [p[0] for p in SHAPED], [p[1] for p in SHAPED]))
         if k < 1:
             smooth = fat_blur(shaped, self.W, np.full(len(B), 2.6), steps=60)
             smooth /= (area * smooth).sum()
@@ -290,6 +302,11 @@ class MuscleLine:
         cos = np.clip((D * gm.vertex_normals(B, self.F)).sum(1), 0.2, 1)
         dT *= (area * dT).sum() / (area * dT * cos).sum()
         B = B + dT[:, None] * D
+        if dL < 0:
+            # 骨頭：骨頭區的肌肉最多只能往內沉 bone_lim（glute_mh.BONES，#83）
+            din = -((B - self.base0) * self.D0).sum(1)
+            over = np.clip(din - self.bone_lim, 0, None)
+            B = B + over[:, None] * self.D0
         # 兩邊（臀縫兩壁、兩腿內側）最多貼到正中
         side = np.sign(self.V0n[:, 0])
         B[:, 0] = side * np.maximum(B[:, 0] * side, 0.0)

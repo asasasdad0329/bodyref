@@ -36,7 +36,10 @@ F0 = 17.0                     # 中性型：160 cm、54.5 kg、DXA 體脂約 31%
 # 瘦端約 BMI 16.5。胖端：原本到全身體重約 204 公斤那一級（R21，脂肪約 109 kg）；作者 2026-11-01 定上限臀圍 172、
 # 且 172 時要能同臀圍換組成，臀只做到真人在那個臀圍時臀本身的大小（其餘由腹部、大腿撐，DECISIONS #79），
 # 偏脂肪的那一頭要比 204 公斤那一級的平均多一些，取到 130
-FMIN, FMAX = 9.0, 130.0
+FMIN, FMAX = 2.0, 130.0      # 瘦端到皮包骨（#83，R29：BMI 12～13 外推脂肪 1.5～3 kg）
+# 很瘦時（全身脂肪 9 kg 以下）臀腿的脂肪掉得比照原本的公式更快：極瘦時這一區只佔全身脂肪約 15%（R29），
+# 原本的公式在 2 kg 時還留 0.57 kg。9 kg 以下多出的厚度漸漸乘上 0.5（2 kg 時）。造型假設
+DEPLETE = (9.0, 2.0, 0.5)
 REGION_SLOPE = 0.18           # 範圍內每 kg 全身脂肪多約 0.18 kg 脂肪（R20、R21）
 STEP_F = 0.5
 SPREAD_REF = 33.0
@@ -129,6 +132,22 @@ def firmness(t, F, L):
     b = np.clip((F - 35.0) / 75.0, 0, 0.8)
     k = 0.5 * min(t, 1.0) + 0.2 * max(t - 1, 0.0)
     return 1 - k * m * (1 - b)
+
+
+def depletion(F):
+    """很瘦時臀腿脂肪多掉的比例（DEPLETE）：9 kg 以上 1，2 kg 時 0.5。"""
+    hi, lo, k = DEPLETE
+    u = float(np.clip((hi - F) / (hi - lo), 0, 1))
+    return 1 - (1 - k) * u * u * (3 - 2 * u)
+
+
+def default_type(F, L):
+    """網站預設的型（#77 插畫型，強度照組成）。皮包骨時沒有脂肪也沒有肌肉可以塑形，型漸漸降到 0（#83）：
+    脂肪 9 kg、去脂 33 kg 以上照 type_reach；往下到脂肪 2、去脂 27 時是 0。造型假設。"""
+    import glute_mh_muscle as gmu
+    s = lambda u: float(np.clip(u, 0, 1) ** 2 * (3 - 2 * np.clip(u, 0, 1)))
+    g = s((F - FMIN) / 7.0) * s((L - gmu.LMIN) / 6.0)
+    return type_reach(2.0, F, L) * g
 
 
 def type_reach(t, F, L):
@@ -304,12 +323,12 @@ class FatLine:
 
     def thickness(self, F):
         M = self.maps(self.Vc, self.Nc, F)
-        T = np.full(len(self.V0), TMIN)
+        T = np.zeros(len(self.V0))
         for name, d in DEPOTS.items():
             if d.get('grow_only'):          # 只管中性以上多長的（中性與更瘦時的厚度不變）
                 continue
             T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
-        return T
+        return TMIN + depletion(F) * T
 
     def thickness_typed(self, F):
         """中性與中性以下（F ≤ F0）照型分配的厚度：同樣的堆積點公式換成型的堆積點，再把總量調回資料的量
@@ -324,7 +343,7 @@ class FatLine:
                 continue
             T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
         a = areas(self.Vc, self.F)
-        T = TMIN + (T - TMIN) * (a * (Td - TMIN)).sum() / (a * (T - TMIN)).sum()
+        T = TMIN + (T - TMIN) * (a * (Td - TMIN)).sum() / max((a * (T - TMIN)).sum(), 1e-12)
         return Td + TYPE_AT_NEUTRAL * (T - Td)
 
     def Tt(self, F):
