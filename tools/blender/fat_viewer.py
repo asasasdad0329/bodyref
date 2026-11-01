@@ -40,16 +40,72 @@ for c in range(3):
     np.add.at(N, tris[:, c], fn)
 N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-9)
 zone = d['zone'] if 'zone' in d.files else zones(P0, N)
+# 褲管以下的大腿：顏色用平順的漸層（逐點硬分會在分界畫出一道鋸齒，看起來像一圈凸起）
+yy = P0[:, 1]
+u = np.clip((73.6 - yy) / 1.2, 0, 1)
+zw = np.where(zone == 1, 0, np.round(255 * u * u * (3 - 2 * u))).astype(np.uint8)
+zone = np.where(zone == 2, 0, zone).astype(np.uint8)
+
+
+def boundary_loops(T):
+    """開口（切口）的邊界環，各自照順序排好。"""
+    from collections import Counter, defaultdict
+    cnt = Counter(tuple(sorted(e)) for t in T for e in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])))
+    adj = defaultdict(list)
+    for (a, b), c in cnt.items():
+        if c == 1:
+            adj[a].append(b); adj[b].append(a)
+    seen, loops = set(), []
+    for s0 in adj:
+        if s0 in seen:
+            continue
+        loop, prev, cur = [s0], None, s0
+        seen.add(s0)
+        while True:
+            nxt = [v for v in adj[cur] if v != prev and v not in seen]
+            if not nxt:
+                break
+            prev, cur = cur, nxt[0]
+            loop.append(cur); seen.add(cur)
+        loops.append(np.array(loop))
+    return loops
+
+
+# 切口封起來（只是顯示；另外著色）：不然從下面看得到大腿筒子的內面，看起來像一圈
+nv0 = q.shape[1]
+caps, cap_tris = [], []
+base = nv0
+for loop in boundary_loops(tris):
+    k = len(loop)
+    caps.append(loop)
+    ring = base + np.arange(k)
+    centre = base + k
+    cap_tris += [[ring[i], ring[(i + 1) % k], centre] for i in range(k)]
+    base += k + 1
+if caps:
+    ext = []
+    for fr in Pall:
+        add = []
+        for loop in caps:
+            add.append(fr[loop]); add.append(fr[loop].mean(0, keepdims=True))
+        ext.append(np.concatenate([fr] + add))
+    Pall = np.stack(ext)
+    q = np.round((Pall - ORIGIN) / STEP)
+    tris = np.concatenate([tris, np.array(cap_tris, np.uint32)]).astype(np.uint32)
+    ncap = base - nv0
+    zone = np.concatenate([zone, np.full(ncap, 3, np.uint8)])
+    zw = np.concatenate([zw, np.zeros(ncap, np.uint8)])
+assert np.abs(q).max() < 32767, '超出 int16 範圍'
 frames = q.astype(np.int16).tobytes()
 frames += b'\0' * (-len(frames) % 4)   # 三角形索引是 uint32，起點要對齊 4 位元組
-data = frames + tris.tobytes() + zone.tobytes()
+data = frames + tris.tobytes() + zone.tobytes() + zw.tobytes()
 
 # 堆積點開始長的位置（只列晚起步的，標在滑桿下）
 LABELS = {'lowerBelly': '下腹', 'saddle': '大腿外側', 'flank': '腰側'}
 onsets = sorted(({'F': v['on'], 'label': LABELS[k]} for k, v in info['depots'].items() if k in LABELS and v['on'] > 0),
                 key=lambda t: t['F'])
 F = d['F'].tolist()
-meta = dict(nv=int(P.shape[1]), nt=int(len(tris)), F=F, step_F=F[1] - F[0], F0=float(d['F0']),
+meta = dict(nv=int(q.shape[1]), nt=int(len(tris)), nt_surface=int(len(tris) - (len(cap_tris) if caps else 0)), F=F, zw=True, step_F=F[1] - F[0], F0=float(d['F0']),
             hip=[round(float(v), 2) for v in d['hip']], thigh=[round(float(v), 2) for v in d['thigh']],
             step=STEP, origin=ORIGIN.tolist(), onsets=onsets, hem_y=ZONE['hem_y'],
             title=str(d['title']) if 'title' in d.files else None, axis=str(d['axis']) if 'axis' in d.files else None,

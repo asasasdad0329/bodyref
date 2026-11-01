@@ -12,14 +12,15 @@
     --clay: #a8a7a2;        /* 灰模（臀負責的範圍） */
     --belly: #b9c4cf;       /* 下腹：交給腹部 */
     --thigh: #8f8e89;       /* 褲管以下的大腿 */
+    --cut: #9c9b96;         /* 切口（接其他部位，只是封起來給人看；不受光） */
     --display: "Barlow Condensed", "Noto Sans TC", system-ui, sans-serif;
     --body: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; --belly: #8696a6; --thigh: #7c7b77; color-scheme: dark; }
+    :root:not([data-theme="light"]) { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; --belly: #8696a6; --thigh: #7c7b77; --cut: #6a6965; color-scheme: dark; }
   }
-  :root[data-theme="dark"] { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; --belly: #8696a6; --thigh: #7c7b77; color-scheme: dark; }
+  :root[data-theme="dark"] { --stage: #2a2a28; --fg: #ecebe7; --muted: #a3a19a; --accent: #e8913f; --clay: #9a9994; --belly: #8696a6; --thigh: #7c7b77; --cut: #6a6965; color-scheme: dark; }
   html, body { height: 100%; }
   body { background: var(--stage); color: var(--fg); font-family: var(--body); }
   .stage { position: relative; height: 100%; }
@@ -65,7 +66,7 @@
   <div class="label">
     <h1>臀・純脂肪線</h1>
     <div class="now" aria-live="off"><span id="val"><span id="axis">全身脂肪</span> <b id="fat">17.0</b> kg・</span>臀圍 <span id="hip">—</span> cm<span id="extra"></span></div>
-    <div class="legend"><span><i id="sw0"></i>臀負責（平口褲範圍）</span><span><i id="sw1"></i>下腹（交給腹部）</span><span><i id="sw2"></i>褲管以下的大腿</span></div>
+    <div class="legend"><span><i id="sw0"></i>臀負責（平口褲範圍）</span><span><i id="sw1"></i>下腹（交給腹部）</span><span><i id="sw2"></i>褲管以下的大腿</span><span><i id="sw3"></i>切口（接其他部位）</span></div>
   </div>
   <div class="divider" id="divider" hidden></div>
   <div class="pair" id="pair" hidden><span id="pairA"><b id="pairL"></b><small id="subL"></small></span><span id="pairB"><b id="pairR"></b><small id="subR"></small></span></div>
@@ -122,6 +123,7 @@ $('thighs').addEventListener('click', (e) => {
   e.currentTarget.textContent = on ? '顯示大腿' : '隱藏大腿';
   material.clippingPlanes = on ? [hem] : [];
   material.needsUpdate = true;
+  if (window.__capMat) { window.__capMat.clippingPlanes = on ? [hem] : []; window.__capMat.needsUpdate = true; }
 });
 const target = new THREE.Vector3(0, 84, 0);
 const controls = new OrbitControls(camera, canvas);
@@ -133,10 +135,15 @@ controls.maxDistance = 260;
 let colors;
 function applyTheme() {
   scene.background = new THREE.Color(css('--stage'));
-  const pal = ['--clay', '--belly', '--thigh'].map((v) => new THREE.Color(css(v)));
+  const pal = ['--clay', '--belly', '--thigh', '--cut'].map((v) => new THREE.Color(css(v)));
   pal.forEach((c, k) => { $('sw' + k).style.background = '#' + c.getHexString(); });
   if (!colors) return;
-  for (let i = 0; i < meta.nv; i++) pal[zone[i]].toArray(colors, i * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < meta.nv; i++) {
+    c.copy(pal[zone[i]]);
+    if (zw && zw[i]) c.lerp(pal[2], zw[i] / 255);   // 褲管以下的大腿：平順的漸層
+    c.toArray(colors, i * 3);
+  }
   geometry.attributes.color.needsUpdate = true;
 }
 applyTheme();
@@ -162,7 +169,7 @@ function frame() {
   controls.update();
 }
 
-let frames, positions, geometry, zone, positions2, geometry2, mesh, mesh2;
+let frames, positions, geometry, zone, zw, positions2, geometry2, mesh, mesh2;
 function locate(F) {
   // 格點可以不等距（組成線）：找 F 落在哪兩組之間
   const G = meta.F, last = G.length - 2;
@@ -204,10 +211,20 @@ try {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(index, 1));
   zone = new Uint8Array(bytes.buffer, at + index.byteLength, meta.nv);
+  if (meta.zw) zw = new Uint8Array(bytes.buffer, at + index.byteLength + meta.nv, meta.nv);
   colors = new Float32Array(meta.nv * 3);
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   applyTheme();
-  mesh = new THREE.Mesh(geometry, material);
+  // 切口的封口不受光（只是讓人看得出那裡是切口，不是洞）
+  const capMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, clippingPlanes: [] });
+  let mats = material;
+  if (meta.nt_surface !== undefined && meta.nt_surface < meta.nt) {
+    geometry.addGroup(0, meta.nt_surface * 3, 0);
+    geometry.addGroup(meta.nt_surface * 3, (meta.nt - meta.nt_surface) * 3, 1);
+    mats = [material, capMat];
+  }
+  window.__capMat = capMat;
+  mesh = new THREE.Mesh(geometry, mats);
   scene.add(mesh);
   if (pair) {
     positions2 = new Float32Array(meta.nv * 3);
@@ -215,7 +232,8 @@ try {
     geometry2.setAttribute('position', new THREE.BufferAttribute(positions2, 3));
     geometry2.setIndex(geometry.index);
     geometry2.setAttribute('color', geometry.attributes.color);
-    mesh2 = new THREE.Mesh(geometry2, material);
+    for (const g of geometry.groups) geometry2.addGroup(g.start, g.count, g.materialIndex);
+    mesh2 = new THREE.Mesh(geometry2, mats);
     scene.add(mesh2);
   }
   $('status').hidden = true;
