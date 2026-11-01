@@ -10,6 +10,7 @@
    - 臀那一段寬變多時前後變薄，截面積不變（臀圍只變一點，對應臀圍 ∝ 胯寬^0.08）。髂嵴那一圈是骨頭變寬，不補。
 2. 骨盆前傾（R28）：女性站姿約 12～13°，個人差約 ±5°；中性型當作平均，線取 ±10°。
    - 骨盆繞兩髖關節的連線轉：大腿不動（站姿），臀跟著骨盆；腰的切口不動，中間平順過渡（腰椎前凸）。
+   - 每個點跟著轉多少看它屬於骨盆還是大腿（tilt_weights），中間用雙調和插值。
 3. 兩個切口是和腰、大腿共用的骨架約定（#55）：腿的切口隨腿平移，腰的切口照髂嵴寬等比放寬，前傾時都不動。
 變形後兩片皮可能相碰（前傾時恥丘往下、往後壓向大腿），用通用的接觸（glute_mh_contact.Walk）從原本的中性型走過去。
 """
@@ -47,7 +48,43 @@ class Frame:
             hw.append(np.abs(S[:, 0]).max())
             zc.append((S[:, 2].max() + S[:, 2].min()) / 2)
         self.ys, self.hw, self.zc = ys, np.array(hw), np.array(zc)
+        self.w_tilt = self.tilt_weights()
         self._cache = {}
+
+    def tilt_weights(self):
+        """前傾時每個點跟著骨盆轉多少（0～1）。看組織屬於骨盆還是大腿，不看高度（作者 2026-11-01：只照高度分，
+        骨盆一轉就把大腿外側、前側扯出一道折）：
+          跟骨盆（1）：髂嵴那一圈（86～93 公分）、臀溝以上 3 公分的臀、恥骨上的恥丘；
+          不動（0）：腿的切口往上 4 公分（大腿，站姿）、腰的切口（上面的軀幹站直，中間補成腰椎前凸）；
+          其他（鼠蹊、大轉子、臀溝一帶、腰椎）用雙調和插值：平順地過渡，不會有折。"""
+        from scipy.sparse import identity
+        from scipy.sparse.linalg import spsolve
+        V, F = self.V, self.F
+        n = len(V)
+        x, y, z = np.abs(V[:, 0]), V[:, 1], V[:, 2]
+        bnd = gc.boundary_mask(F, n)
+        thigh = np.zeros(n, bool)
+        for side in (1, -1):
+            B = np.nonzero(bnd & (V[:, 1] < 80) & (side * V[:, 0] > 0.3))[0]
+            c = V[B].mean(0)
+            a = np.linalg.svd(V[B] - c)[2][2]
+            a = a if a[1] > 0 else -a
+            h = (V - c) @ a
+            rel = V - c - np.outer(h, a)
+            thigh |= (side * V[:, 0] > 0) & (h < 4.0) & (np.linalg.norm(rel, axis=1) < 25)
+        top = bnd & (V[:, 1] > 95)
+        fp = np.array(gm.CONTROL_LINES['fold']['pts'])
+        yf = np.interp(x, fp[:, 0], fp[:, 1])
+        pelvis = (((y >= 86) & (y <= 93)) | ((z < -3) & (x < 13) & (y >= yf + 3) & (y < 86))
+                  | ((x < 4) & (z > 3) & (y > 79) & (y < 86))) & ~thigh & ~top
+        known = thigh | top | pelvis
+        w = np.where(pelvis, 1.0, 0.0)
+        L = identity(n, format='csr') - gm.averaging_matrix(n, F)
+        A = (L.T @ L).tocsr()
+        free = np.nonzero(~known)[0]
+        kn = np.nonzero(known)[0]
+        w[free] = spsolve(A[free][:, free].tocsc(), -(A[free][:, kn] @ w[kn]))
+        return np.clip(w, 0, 1)
 
     def deform(self, V, pw=PW0, tilt=0.0):
         """規則上的形（還沒處理接觸）。"""
@@ -66,7 +103,7 @@ class Frame:
             zc = np.interp(y, self.ys, self.zc)
             out[:, 2] = z + (z - zc) * (1 / sx - 1) * c
         if abs(tilt) > 1e-9:
-            w = smooth((y - 74.0) / 6.0) * (1 - smooth((y - 92.0) / 8.5))
+            w = self.w_tilt
             th = np.radians(tilt) * w
             dy, dz = out[:, 1] - HIP[0], out[:, 2] - HIP[1]
             out[:, 1] = HIP[0] + dy * np.cos(th) - dz * np.sin(th)
