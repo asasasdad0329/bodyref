@@ -5,9 +5,11 @@ glute_mh_frame 張回 MakeHuman 原本的與肩同寬，#81）。素體整個細
 和控制籠一點對一點：
   頂點點 ↔ 原本的頂點、邊點 ↔ 原本的邊、面點 ↔ 原本的面（gm.subdivide 的編號規則）。
 所以不用另外找對應。做法：
-  1. 素體整個對齊到臀的模的空間（胯下高度，glute_mh.Glute.align），細分一次。
-  2. 臀那一圈的點放到模在這個狀態的平滑曲面上（模再細分兩次後同一個編號的點，接近極限曲面）。
-  3. 圈外 FADE 公分內照位移平順漸弱（拉普拉斯），之後由腰、大腿兩個部位接手。
+  1. 網站的骨架（四肢長度、縮放到身高，還沒有軟組織）細分一次。
+  2. 模的變形量（這個狀態 − 參考，參考是模在 MakeHuman 站姿、還沒任何變形時）先轉回 MakeHuman 原本的空間
+     （還原 Glute.align 的胯下對齊），再照網站骨架在每一點的局部縮放、拉長（鄰邊最小平方）加到網站骨架的平滑曲面上。
+     網站 160 公分的骨架和 MakeHuman 起點差 0.25 公分內；身高、腿長變了，臀那一圈跟著平移、縮放、拉長。
+  3. 圈外 FADE 公分內平順接回網站其他部位現在的形（拉普拉斯），之後由腰、大腿兩個部位接手。
 控制數據就是臀那一圈 2873 個點的位置（或位移）；圈外的漸弱是固定的線性運算，網站自己算。
 python3 tools/blender/glute_mh_bind.py <out.npz> 名稱=<npz>:<鍵或第幾個> ...
 只用 numpy、scipy。
@@ -32,22 +34,41 @@ def edge_index(F):
     return {e: i for i, e in enumerate(sorted(ef))}
 
 
+ALIGN = dict(sh=77.0 - 73.9, cf=73.9, top=100.5, dz=-3.8)     # glute_mh.Glute.align 的參數
+
+
+def unalign(V):
+    """臀的模的空間（胯下對齊到 77、前後移 dz）→ MakeHuman 原本的空間（Glute.align 的反函數）。"""
+    sh, cf, top, dz = ALIGN['sh'], ALIGN['cf'], ALIGN['top'], ALIGN['dz']
+    out = V.copy()
+    y = V[:, 1]
+    k = 1 - sh / (top - cf)
+    out[:, 1] = np.where(y >= top, y, np.where(y < cf + sh, y - sh, (y - sh * top / (top - cf)) / k))
+    out[:, 2] = V[:, 2] - dz
+    return out
+
+
+def limit_points(P, Q, n):
+    """細分兩次後前 n 個點（原本那些頂點的「頂點點」），接近極限曲面。"""
+    V, F = gm.subdivide(P, Q)
+    V, F = gm.subdivide(V, F)
+    return V[:n]
+
+
 class Binding:
-    def __init__(self):
+    def __init__(self, skel=None, final=None):
+        """skel：網站的骨架（四肢長度、縮放到身高，還沒有軟組織；13,380 點），預設 MakeHuman 起點（160 公分）。
+        final：網站其他部位現在的形（切口外面接回去的對象），預設同 skel。"""
         P, Q, _ = gm.load_mh()
         g = gm.Glute()
         used = cKDTree(P).query(g.V)[1]
         assert np.abs(P[used] - g.V).max() < 1e-9
         Fr = g.F
-        # 素體整個對齊（照 Glute.align 的式子）
-        g.align()
-        sh, cf, top, dz = 77.0 - 73.9, 73.9, 100.5, -3.8
-        Pa = P.copy()
-        Pa[:, 1] = Pa[:, 1] + sh * (1 - np.clip((Pa[:, 1] - cf) / (top - cf), 0, 1))
-        Pa[:, 2] += dz
-        assert np.abs(Pa[used] - g.V).max() < 1e-9
-        # 細分一次：素體與臀那一圈
-        self.B1, self.Q1 = gm.subdivide(Pa, Q)
+        skel = P.copy() if skel is None else np.asarray(skel, float)
+        final = skel if final is None else np.asarray(final, float)
+        self.B1, self.Q1 = gm.subdivide(skel, Q)
+        self.F1 = gm.subdivide(final, Q)[0]
+        mh1 = gm.subdivide(P, Q)[0]
         nv, nr = len(P), len(used)
         eg, er = edge_index(Q), edge_index(Fr)
         fg = {tuple(sorted(q)): i for i, q in enumerate(Q)}
@@ -60,10 +81,21 @@ class Binding:
             M[nr + len(er) + fi] = nv + len(eg) + fg[tuple(sorted(used[q]))]
         self.M = M
         n1 = len(self.B1)
+        self.lim = limit_points(self.B1, self.Q1, n1)[M]          # 網站骨架在臀那一圈的平滑曲面
+        # 每一點的局部縮放、拉長（MakeHuman 起點 → 網站骨架，鄰邊最小平方）
+        nb = gm.neighbours(n1, self.Q1)
+        self.J = np.empty((len(M), 3, 3))
+        for k, i in enumerate(M):
+            js = list(nb[i])
+            E0, E1 = mh1[js] - mh1[i], self.B1[js] - self.B1[i]
+            self.J[k] = np.linalg.lstsq(E0, E1, rcond=None)[0].T
+        # 參考：臀的模在 MakeHuman 站姿、還沒有任何變形時（glute_mh_frame 張回 5°）
+        import glute_mh_frame as gfr
+        fr = gfr.Frame()
+        self.Fc = fr.F
+        self.ref = unalign(gm.preview(fr.stance(fr.V, gfr.STANCE_POSE), fr.F, 2)[0][:len(M)])
         inreg = np.zeros(n1, bool)
         inreg[M] = True
-        self.inreg = inreg
-        # 圈外漸弱：離臀那一圈 FADE 公分以上不動，中間解拉普拉斯
         r, c = [], []
         for q in self.Q1:
             for k in range(4):
@@ -78,28 +110,33 @@ class Binding:
         self.Lfx = L[self.free][:, self.fix]
         self.lu = splu(L[self.free][:, self.free].tocsc())
 
-    def state(self, Vs, F):
-        """模在狀態 Vs（控制籠）時的細分一次素體。"""
-        S = gm.preview(Vs, F, 2)[0][:len(self.M)]          # 接近極限曲面的位置
-        D = np.zeros_like(self.B1)
-        D[self.M] = S - self.B1[self.M]
+    def region(self, Vs):
+        """臀的模在狀態 Vs（控制籠）時，網站上臀那一圈 2873 點的位置。"""
+        d = unalign(gm.preview(Vs, self.Fc, 2)[0][:len(self.M)]) - self.ref
+        return self.lim + np.einsum('kij,kj->ki', self.J, d)
+
+    def state(self, Vs):
+        """細分一次的整個素體：臀那一圈照模，切口外面平順接回網站其他部位現在的形。"""
+        R = self.region(Vs)
+        D = np.zeros_like(self.F1)
+        D[self.M] = R - self.F1[self.M]
         rhs = -(self.Lfx @ D[self.fix])
         for k in range(3):
             D[self.free, k] = self.lu.solve(rhs[:, k])
-        return self.B1 + D
+        return self.F1 + D
 
 
 if __name__ == '__main__':
     out = sys.argv[1]
     bd = Binding()
-    Fc = gm.build().F
+    Fc = bd.Fc
     frames_b, frames_m, labels = [], [], []
     for spec in sys.argv[2:]:
         lab, path = spec.split('=')
         f, key = path.split(':')
         d = np.load(f)
         Vs = (d[key] if key in d.files else d['cages'][int(key)]).astype(float)
-        frames_b.append(bd.state(Vs, Fc))
+        frames_b.append(bd.state(Vs))
         frames_m.append(gm.preview(Vs, Fc, 2)[0])
         labels.append(lab)
     B = np.stack(frames_b)
