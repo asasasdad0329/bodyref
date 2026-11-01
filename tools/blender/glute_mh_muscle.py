@@ -40,7 +40,10 @@ import glute_mh_fat as gf  # noqa: E402
 import glute_mh_contact as gc  # noqa: E402
 
 L0 = 35.3
-LMIN, LMAX = 27.0, 91.0      # 瘦端到皮包骨（#83，R29：BMI 12～13 外推去脂含骨 29～31 kg）
+# 瘦端到皮包骨（#83）。最低要保證「活得下去」的肌肉量（作者 2026-11-01）：常被引用的界線是瘦體組織（體內蛋白質）
+# 掉到約 40% 就活不下去（待核）；這裡讓肌肉最多少約 30%、內臟等其他去脂少約 5%：中性去脂 35.3 裡肌肉約 18.5、
+# 其他約 16.8 → 13.0 ＋ 16.0 ≈ 29。也接近 R29 外推的重度厭食症（去脂含骨 29～31）
+LMIN, LMAX = 29.0, 91.0
 REGION_SLOPE = 0.18           # 範圍內每 kg 全身去脂多 0.18 kg（R24）
 DENSITY = 1.06                # 肌肉密度（公克／公分³）
 STEP_L = 0.5
@@ -103,6 +106,9 @@ SHAPED = [(L0, 1.0), (55.0, 1.0), (75.0, 0.3), (91.0, 0.3)]
 LOSS_SHARE = dict(gluteusMaximus=0.36, gluteusMedius=0.10, tensorFasciae=0.02, vastusLateralis=0.12,
                   quadricepsFront=0.10, adductors=0.18, hamstrings=0.12)
 ATROPHY_SPAN = 6.0
+ATROPHY_SHAPED = 0.6      # 照各塊肌肉的形掉最多六成，其餘整體縮：全照形掉時各塊肌肉的邊緣都留下溝，大腿一道道起伏
+ATROPHY_BLUR = 20         # 萎縮的形再抹平幾次（脂肪掉光時沒有東西把它抹平，肌膜與皮膚本身也會）
+BONE_SOFT = 6             # 骨頭擋住的地方往周圍平順地帶開幾圈（硬擋時骨點邊緣變成一顆顆小疙瘩）
 # 型作用在整個範圍（作者 2026-11-01，#77）：中性時範圍內已有的肌肉也照型的份量重新分配一部分（總量不變）。
 # 範圍內中性的去脂約 5.4 kg（組成線的估計）；TYPE_AT_NEUTRAL 是照型重新分配的比例。造型假設
 REGION_LEAN0 = 5.4
@@ -285,7 +291,10 @@ class MuscleLine:
         # 中性以下（萎縮）：中性附近整體變小、變扁（沒有「負的肌肉形」），越瘦越照各塊肌肉的形掉（皮包骨，#83）
         if L < L0:
             u = float(np.clip((L0 - L) / ATROPHY_SPAN, 0, 1))
-            k = u * u * (3 - 2 * u)
+            k = ATROPHY_SHAPED * u * u * (3 - 2 * u)
+            for _ in range(ATROPHY_BLUR):
+                shaped = shaped + 0.5 * (self.W @ shaped - shaped)
+            shaped /= (area * shaped).sum()
         else:
             k = float(np.interp(L, [p[0] for p in SHAPED], [p[1] for p in SHAPED]))
         if k < 1:
@@ -306,7 +315,10 @@ class MuscleLine:
             # 骨頭：骨頭區的肌肉最多只能往內沉 bone_lim（glute_mh.BONES，#83）
             din = -((B - self.base0) * self.D0).sum(1)
             over = np.clip(din - self.bone_lim, 0, None)
-            B = B + over[:, None] * self.D0
+            soft = over.copy()
+            for _ in range(BONE_SOFT):
+                soft = np.maximum(over, soft + 0.5 * (self.W @ soft - soft))
+            B = B + soft[:, None] * self.D0
         # 兩邊（臀縫兩壁、兩腿內側）最多貼到正中
         side = np.sign(self.V0n[:, 0])
         B[:, 0] = side * np.maximum(B[:, 0] * side, 0.0)
