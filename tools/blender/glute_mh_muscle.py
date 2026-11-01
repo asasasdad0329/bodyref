@@ -88,6 +88,9 @@ BEAUTY_SHARE = dict(gluteusMaximus=0.60, gluteusMedius=0.12, tensorFasciae=0.03,
 # 插畫型（型 t = 2）：臀大肌、臀中肌更多；膕繩肌（大腿後側）照偏美型，不再減，不然臀下會凹一道溝
 STYLIZED_SHARE = dict(gluteusMaximus=0.68, gluteusMedius=0.14, tensorFasciae=0.02, vastusLateralis=0.04,
                       quadricepsFront=0.03, adductors=0.03, hamstrings=0.06)
+# 每塊肌肉本身是一整團平順的體積（肌膜包著），不是幾條管子：筆觸的形先在網格上抹平 MUSCLE_SMOOTH 次（每次往鄰點平均一半）。
+# 不抹的話，脂肪薄、肌肉多時（瘦而壯）筆觸之間的縫變成一條條稜（作者 2026-11-01：瘦端要做）
+MUSCLE_SMOOTH = 12
 WIDEN = 0.8       # 肌肉長大時也變寬：到最多去脂時寬度 × (1 + WIDEN)（肌肥大是整個截面變大，不是只變厚）
 BLUR = 0.35       # 脂肪把肌肉的形抹平的程度：每一步的擴散係數 ×（脂肪厚度 ÷ 2 公分）²
 BLUR_STEPS = 25
@@ -255,7 +258,12 @@ class MuscleLine:
         if k not in self._fields:
             widen = 1 + WIDEN * np.clip((k - L0) / (LMAX - L0), 0, 1)
             # 大腿的肌肉往下一直接到膝蓋：切口附近照上方延續（glute_mh_fat.leg_continuation）
-            self._fields[k] = {n: self.fat.cont(v * self.A) for n, v in muscle_fields(self.V0n, self.N0n, widen).items()}
+            out = {}
+            for n, v in muscle_fields(self.V0n, self.N0n, widen).items():
+                for _ in range(MUSCLE_SMOOTH):
+                    v = v + 0.5 * (self.W @ v - v)
+                out[n] = self.fat.cont(v * self.A)
+            self._fields[k] = out
         return self._fields[k]
 
     def increment(self, B, dL, T, L):
