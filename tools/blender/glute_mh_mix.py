@@ -43,7 +43,7 @@ class MixLine:
         if F not in self._T:
             fl = self.fl
             if F <= F0:
-                T = fl.T0 + (fl.thickness(F) - fl.T0) * (1 - (1 - gf.BELLY_FOLLOW) * fl.belly)
+                T = fl.T0 + fl.cont((fl.thickness(F) - fl.T0) * (1 - (1 - gf.BELLY_FOLLOW) * fl.belly))
             else:
                 T = fl.T0 + fl.unloaded(F)[1]
             self._T[F] = T

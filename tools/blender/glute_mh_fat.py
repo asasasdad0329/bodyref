@@ -174,6 +174,43 @@ def areas(V, F):
     return a
 
 
+class LegContinuation:
+    """腿的切口附近（作者 2026-11-01：切口上方不該鼓出一圈；腿圍變大時是臀底與大腿的相接處變粗、轉折變緩）。
+    大腿往下一直接到膝蓋，切口只是這個部位的邊：切口往上 H 公分內，每個方位長的量不超過同一方位 H 公分處的量（封頂），
+    再平順地接成和 H 公分處一樣（延續，切口處全部照它）。總量照規律固定，多出來的會往上移到相接處。
+    用原本中性型的位置算，綁在頂點上。f → self(f)。"""
+
+    def __init__(self, Vc, F, H=5.0):
+        n = len(Vc)
+        bnd = gc.boundary_mask(F, n)
+        idx, src, w = [], [], []
+        for side in (1, -1):
+            B = np.nonzero(bnd & (Vc[:, 1] < 80) & (side * Vc[:, 0] > 0.3))[0]
+            c = Vc[B].mean(0)
+            a = np.linalg.svd(Vc[B] - c)[2][2]
+            a = a if a[1] > 0 else -a
+            e1 = np.cross(a, [0.0, 0.0, 1.0]); e1 /= np.linalg.norm(e1)
+            e2 = np.cross(a, e1)
+            h = (Vc - c) @ a
+            rel = Vc - c - np.outer(h, a)
+            ang = np.arctan2(rel @ e2, rel @ e1)
+            leg = (side * Vc[:, 0] > 0) & (np.linalg.norm(rel, axis=1) < 25)
+            band = np.nonzero(leg & (np.abs(h - H) < 1.0))[0]
+            for v in np.nonzero(leg & (h < H - 0.5))[0]:
+                dang = np.abs(np.angle(np.exp(1j * (ang[band] - ang[v]))))
+                idx.append(v)
+                src.append(band[np.argmin(dang + 0.3 * np.abs(h[band] - H))])
+                u = np.clip(h[v] / H, 0, 1)
+                w.append(1 - u * u * (3 - 2 * u))
+        self.idx, self.src, self.w = np.array(idx), np.array(src), np.array(w)
+
+    def __call__(self, f):
+        g = np.array(f, float, copy=True)
+        a, b = f[self.idx], f[self.src]
+        g[self.idx] = (1 - self.w) * np.minimum(a, b) + self.w * b
+        return g
+
+
 class FatLine:
     def __init__(self, frame=None, type=0.0):
         """frame：這副骨架下的中性型（glute_mh_frame.Frame.neutral）；預設原本的中性型。
@@ -189,6 +226,7 @@ class FatLine:
         self.type = type
         self.depots = type_depots(type)
         self.belly_follow = type_value('belly_follow', BELLY_FOLLOW, type)
+        self.cont = LegContinuation(self.Vc, self.F)
         self.mid = np.abs(self.Vc[:, 0]) < 1e-6
         C = gm.control_weights(self.Vc, self.Nc)
         Z = gm.zone_weights(self.Vc, self.Nc)
@@ -281,7 +319,7 @@ class FatLine:
         for name, d in self.depots.items():
             w += d['amax'] * (growth(F + 0.25, d['on'], d['k']) - growth(F - 0.25, d['on'], d['k'])) / 0.5 * M[name]
         w *= self.A_grow * (1 - (1 - self.belly_follow) * self.belly) * self.top * (1 - self.crotch_hold)
-        return w
+        return self.cont(w)
 
     def smooth_dirs(self, V):
         """長的方向的基準：表面法線抹平（組織離開骨頭的方向）。"""
@@ -297,7 +335,7 @@ class FatLine:
         if start is None:
             start, D0, cache = self.V0, self.D0, self._unl
         if F <= F0:
-            T = self.T0 + (self.thickness(F) - self.T0) * (1 - (1 - BELLY_FOLLOW) * self.belly)
+            T = self.T0 + self.cont((self.thickness(F) - self.T0) * (1 - (1 - BELLY_FOLLOW) * self.belly))
             # 切口附近只在切口平面裡收（切口是接身體其他部分的地方，不能離開那個平面）
             D = gm.cut_normals(D0, self.cut)
             return self.constrain(start + (T - self.T0)[:, None] * D, clamp=False), np.zeros(len(self.V0))

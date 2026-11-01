@@ -67,19 +67,20 @@ MUSCLES = {
     # 闊筋膜張肌：髂前上棘往外下，收進髂脛束
     'tensorFasciae': dict(share=0.03, width=2.0, strokes=[
         ([('front', 11.5, 90.0), ('lat', 82.0, 3.0)], [0.6, 0.4])]),
-    # 股外側肌：大轉子下方開始（大轉子本身沒有肌肉，是臀側凹陷的底），往下越來越厚
+    # 股外側肌：大轉子下方開始（大轉子本身沒有肌肉，是臀側凹陷的底）。在這個部位裡（大腿上段）很快到滿、往下持平：
+    # 大腿最粗在最上面（臀溝那一圈），不能越往切口越厚，不然切口上方鼓成一圈（作者 2026-11-01）
     'vastusLateralis': dict(share=0.08, width=6.0, strokes=[
-        ([('lat', 80.0, -1.0), ('lat', 76.0, -0.5), ('lat', 72.5, 0.0)], [0.0, 0.7, 1.0])]),
+        ([('lat', 80.0, -1.0), ('lat', 76.0, -0.5), ('lat', 72.5, 0.0)], [0.0, 1.0, 1.0])]),
     # 股直肌＋股中間肌：大腿正前方的縱向隆起，從髂前下棘往下
     'quadricepsFront': dict(share=0.06, width=5.5, strokes=[
-        ([('front', 10.5, 84.0), ('front', 10.0, 76.0), ('front', 9.8, 71.0)], [0.3, 0.8, 1.0])]),
+        ([('front', 10.5, 84.0), ('front', 10.0, 76.0), ('front', 9.8, 71.0)], [0.5, 1.0, 1.0])]),
     # 內收肌群：從恥骨與坐恥枝往下展開的楔形
     'adductors': dict(share=0.14, width=4.5, strokes=[
-        ([('front', 3.5, 79.0), ('med', 74.0, 1.5), ('med', 69.5, 0.5)], [0.4, 1.0, 1.0]),
-        ([('med', 76.0, -2.0), ('med', 72.5, -2.5), ('med', 69.5, -2.0)], [0.5, 1.0, 1.0])]),
+        ([('front', 3.5, 79.0), ('med', 74.0, 1.5), ('med', 69.5, 0.5)], [0.6, 1.0, 1.0]),
+        ([('med', 76.0, -2.0), ('med', 72.5, -2.5), ('med', 69.5, -2.0)], [0.6, 1.0, 1.0])]),
     # 膕繩肌：起點在坐骨粗隆，站立時被臀大肌蓋住；看得到的肌腹從臀溝下方開始往下
     'hamstrings': dict(share=0.12, width=5.0, strokes=[
-        ([('back', 6.5, 74.0), ('back', 7.5, 72.0), ('back', 8.0, 70.5)], [0.1, 0.7, 1.0])]),
+        ([('back', 6.5, 74.0), ('back', 7.5, 72.0), ('back', 8.0, 70.5)], [0.6, 1.0, 1.0])]),
 }
 # 偏美型（型 t = 1，DECISIONS #75）的肌肉份量：臀大肌、臀中肌多，大腿少（合計 1）。造型假設
 BEAUTY_SHARE = dict(gluteusMaximus=0.60, gluteusMedius=0.12, tensorFasciae=0.03, vastusLateralis=0.06,
@@ -233,7 +234,8 @@ class MuscleLine:
         k = int(round(L))
         if k not in self._fields:
             widen = 1 + WIDEN * np.clip((k - L0) / (LMAX - L0), 0, 1)
-            self._fields[k] = {n: v * self.A for n, v in muscle_fields(self.V0n, self.N0n, widen).items()}
+            # 大腿的肌肉往下一直接到膝蓋：切口附近照上方延續（glute_mh_fat.leg_continuation）
+            self._fields[k] = {n: self.fat.cont(v * self.A) for n, v in muscle_fields(self.V0n, self.N0n, widen).items()}
         return self._fields[k]
 
     def increment(self, B, dL, T, L):
