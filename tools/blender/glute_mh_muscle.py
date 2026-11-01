@@ -94,6 +94,10 @@ BLUR_STEPS = 25
 # 一般人口去脂的高端（約 55 kg 以上，160 cm 女性的第 90 百分位以上）多半是大體重帶來的：肌肉整體變大、皮與結締組織增加，
 # 不是運動員那種一塊塊的肌肥大。這一段新增的去脂漸漸改成平順地攤開（各肌肉的形合起來再大幅抹平），到 75 kg 只剩 30% 照肌肉的形。
 SHAPED = [(L0, 1.0), (55.0, 1.0), (75.0, 0.3), (91.0, 0.3)]
+# 型作用在整個範圍（作者 2026-11-01，#77）：中性時範圍內已有的肌肉也照型的份量重新分配一部分（總量不變）。
+# 範圍內中性的去脂約 5.4 kg（組成線的估計）；TYPE_AT_NEUTRAL 是照型重新分配的比例。造型假設
+REGION_LEAN0 = 5.4
+TYPE_AT_NEUTRAL = 0.5
 
 
 def surface_point(V, N, spec):
@@ -203,6 +207,22 @@ class MuscleLine:
         self.D0 = D / np.linalg.norm(D, axis=1, keepdims=True)
         self.th0 = np.clip(((fl.V0 - self.base0) * self.N_base0).sum(1), 0, None)   # 中性時沿底層法線量的脂肪厚度
         self._states = {}
+        self.base0t = self.base0 if type == 0 else self.redistribute(self.base0)
+
+    def redistribute(self, B):
+        """型的中性底層：範圍內中性的肌肉照型的份量重新分配 TYPE_AT_NEUTRAL（臀多、大腿少，總量不變），
+        形照各塊肌肉的筆觸、被中性的脂肪抹平。"""
+        vol = REGION_LEAN0 * TYPE_AT_NEUTRAL / DENSITY * 1000
+        area = gf.areas(B, self.F)
+        d = np.zeros(len(B))
+        for name, f in self.fields(L0).items():
+            d += (self.share[name] - MUSCLES[name]['share']) * f / (area * f).sum()
+        dT = fat_blur(vol * d, self.W, self.T0)
+        D = gm.growth_dirs(B, self.D0, self.cut)
+        B = B + dT[:, None] * D
+        side = np.sign(self.V0n[:, 0])
+        B[:, 0] = side * np.maximum(B[:, 0] * side, 0.0)
+        return B
 
     def skin_normals(self, B, T):
         """脂肪層蓋回去的方向：底層的法線先被脂肪抹平（脂肪越厚越平），凹處兩壁的方向才不會交叉。"""
@@ -275,7 +295,7 @@ class MuscleLine:
         sgn = 1 if L >= L0 else -1
         key = lambda j: sgn * j
         k = max([j for j in range(n + 1) if key(j) in states], default=0)
-        B = states[key(k)].copy() if k else self.base0.copy()
+        B = states[key(k)].copy() if k else self.base0t.copy()
         for j in range(k, n):
             B = self.grow(B, sgn * STEP_L, L0 + sgn * (j + 0.5) * STEP_L, T)
             states[key(j + 1)] = B.copy()

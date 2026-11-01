@@ -26,6 +26,11 @@ import glute_mh_contact as gc  # noqa: E402
 PW0 = 27.3                 # 中性型的髂嵴寬（ANSUR II 女性中位數，R15）
 PW_RANGE = (23.7, 31.0)    # p5～p95
 TILT_RANGE = (-10.0, 10.0)
+# 網站的預設骨架（DECISIONS #77）：骨盆寬取相對寬的約第 75～80 百分位（R15 的標準差約 2.2 → 28.8～29.2）；
+# 前傾取約 12～13°。中性型的前傾估計約 10～15°（髖關節中心與髂前上棘的位置，照 Harrington 2007 的骨盆比例回推；
+# 網格上沒有明顯的腰窩可以直接量），和假設的 12～13° 相符，所以預設不轉。
+DEFAULT_PW = 29.0
+DEFAULT_TILT = 0.0
 HIP = np.array([84.0, -2.0])   # 兩髖關節連線的 (y, z)（MakeHuman 的 upper-leg 關節，左右 ±9.4）
 HIP_Y = 81.6               # 量臀寬的高度
 
@@ -109,6 +114,10 @@ class Frame:
             out[:, 1] = HIP[0] + dy * np.cos(th) - dz * np.sin(th)
             out[:, 2] = HIP[1] + dy * np.sin(th) + dz * np.cos(th)
         return out
+
+    def default(self):
+        """網站預設骨架下的中性型（#77）。"""
+        return self.neutral(DEFAULT_PW, DEFAULT_TILT)
 
     def neutral(self, pw=PW0, tilt=0.0, steps=10):
         """這副骨架下的中性型（控制籠）：從原本的中性型沿骨架參數每一小步做接觸走過去，結果只由 (pw, tilt) 決定。"""

@@ -89,6 +89,9 @@ STYLIZED = dict(
             'innerThigh': dict(amax=3.0), 'backThigh': dict(amax=2.2), 'flank': dict(amax=0.5), 'everywhere': dict(amax=0.5)},
     belly_follow=0.1, fold_grow=0.55)
 LEAN0 = 35.3                  # 中性的全身去脂（同 glute_mh_muscle.L0）
+# 型作用在整個範圍（作者 2026-11-01，#77：統一到所有範圍）：中性與中性以下的脂肪也照型分配，總量照資料不變。
+# 這個比例是中性時照型重新分配的程度（1 ＝ 中性的脂肪完全照型的堆積點分配）。造型假設
+TYPE_AT_NEUTRAL = 1.0
 
 
 def _lerp(a, b, u):
@@ -127,13 +130,15 @@ def firmness(t, F, L):
 
 def type_reach(t, F, L):
     """變化區間：插畫型（型超過 1 的部分）做得到多少，看組成撐不撐得住（DECISIONS #75：肌肉與脂肪要平衡）。
-    去脂：中性時 0.4，多 18 kg 起全部；脂肪：中性時還沒有多的量可以塑形，多 15 kg 起全部，60 kg 以上漸弱，110 kg 剩 0.4。
+    型作用在整個範圍（#77），中性也有：
+      去脂：中性 0.5，多 18 kg 起全部，少於中性漸少（去脂 29 約 0.3）；
+      脂肪：中性附近到 60 kg 全部；很瘦時可塑的脂肪少（9 kg 剩 0.6）；60 kg 以上漸弱，110 kg 剩 0.4。
     回傳這個組成實際用的型（1 以下照原樣）。造型假設。"""
     if t <= 1:
         return t
     s = lambda u: float(np.clip(u, 0, 1) ** 2 * (3 - 2 * np.clip(u, 0, 1)))
-    m = float(np.clip(0.4 + (L - LEAN0) / 30.0, 0, 1))
-    f = s((F - F0) / 15.0) * (1 - 0.6 * s((F - 60.0) / 50.0))
+    m = float(np.clip(0.5 + (L - LEAN0) / 36.0, 0, 1))
+    f = (1 - 0.4 * s((F0 - F) / 8.0)) * (1 - 0.6 * s((F - 60.0) / 50.0))
     return 1 + (t - 1) * m * f
 
 
@@ -272,7 +277,8 @@ class FatLine:
                        * np.clip(np.abs(self.Nc[:, 0]) * 2, 0, 1))
         self.adhere = a
         self._unl, self._sag = {}, {}
-        assert np.abs(self.shape(F0) - self.V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
+        self._Tt = {}
+        assert type > 0 or np.abs(self.shape(F0) - self.V0).max() < 1e-9, '底層＋中性厚度要還原中性型'
 
     def maps(self, V, N, F, depots=None):
         """每個堆積點在每個頂點上的分布（0～1），範圍隨脂肪量擴大。用中性位置算，堆積點跟著組織走。"""
@@ -301,6 +307,36 @@ class FatLine:
                 continue
             T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
         return T
+
+    def thickness_typed(self, F):
+        """中性與中性以下（F ≤ F0）照型分配的厚度：同樣的堆積點公式換成型的堆積點，再把總量調回資料的量
+        （型只改分配）。型 0 就是 thickness。"""
+        Td = self.thickness(F)
+        if self.type == 0:
+            return Td
+        M = self.maps(self.Vc, self.Nc, F, self.depots)
+        T = np.full(len(self.V0), TMIN)
+        for name, d in self.depots.items():
+            if d.get('grow_only'):
+                continue
+            T += GAIN * d['amax'] * growth(F, d['on'], d['k']) * M[name] * self.A
+        a = areas(self.Vc, self.F)
+        T = TMIN + (T - TMIN) * (a * (Td - TMIN)).sum() / (a * (T - TMIN)).sum()
+        return Td + TYPE_AT_NEUTRAL * (T - Td)
+
+    def Tt(self, F):
+        """F ≤ F0 時每個點的脂肪厚度（照型）；肚子只跟著變一部分。型 0、F0 時就是 T0。"""
+        if F not in self._Tt:
+            self._Tt[F] = self.T0 + self.cont((self.thickness_typed(F) - self.T0)
+                                              * (1 - (1 - self.belly_follow) * self.belly))
+        return self._Tt[F]
+
+    def neutral_skin(self, start, D0):
+        """型的中性皮膚（還沒處理接觸）：中性的脂肪照型重新分配，從 start（原本的中性皮膚）沿長的方向移。"""
+        if self.type == 0:
+            return start.copy()
+        D = gm.cut_normals(D0, self.cut)
+        return self.constrain(start + (self.Tt(F0) - self.T0)[:, None] * D, clamp=False)
 
     def constrain(self, V, clamp=True):
         V[self.mid, 0] = 0.0
@@ -335,14 +371,14 @@ class FatLine:
         if start is None:
             start, D0, cache = self.V0, self.D0, self._unl
         if F <= F0:
-            T = self.T0 + self.cont((self.thickness(F) - self.T0) * (1 - (1 - BELLY_FOLLOW) * self.belly))
+            T = self.Tt(F)
             # 切口附近只在切口平面裡收（切口是接身體其他部分的地方，不能離開那個平面）
             D = gm.cut_normals(D0, self.cut)
             return self.constrain(start + (T - self.T0)[:, None] * D, clamp=False), np.zeros(len(self.V0))
         cache = {} if cache is None else cache
         n = int(round((F - F0) / STEP_F * 1e6)) // 1000000
         k = max([j for j in cache if j <= n], default=0)
-        V, acc = (a.copy() for a in cache[k]) if k else (start.copy(), np.zeros(len(self.V0)))
+        V, acc = (a.copy() for a in cache[k]) if k else (self.neutral_skin(start, D0), np.zeros(len(self.V0)))
         steps = [(F0 + (j + 0.5) * STEP_F, STEP_F, j + 1) for j in range(k, n)]
         rest = F - (F0 + n * STEP_F)
         if rest > 1e-9:
@@ -449,8 +485,16 @@ class FatLine:
         """任一全身脂肪量 F 的控制籠：從中性型（沒有穿面）每 CONTACT_STEP kg 一步走向規則算出的形，
         每一步用通用的接觸（glute_mh_contact）讓碰在一起的皮膚兩邊一起讓開、不穿過。結果只由 F 決定。"""
         if not hasattr(self, 'walk'):
-            self.walk = gc.Walk(self.V0, self.F, F0, self.target, CONTACT_STEP)
+            self.walk = gc.Walk(self.neutral_shape(), self.F, F0, self.target, CONTACT_STEP)
         return self.walk(F)
+
+    def neutral_shape(self):
+        """型的中性（中性的脂肪照型分配）：從原本的中性型分 4 步做接觸走過去。型 0 就是原本的中性型。"""
+        if not hasattr(self, '_Nt'):
+            T = self.target(F0)
+            self._Nt = self.V0.copy() if np.abs(T - self.V0).max() < 1e-9 else \
+                gc.Walk(self.V0, self.F, 0.0, lambda u: self.V0 + u * (T - self.V0), 0.25)(1.0)
+        return self._Nt.copy()
 
 
 def girth(P, y, side=None):

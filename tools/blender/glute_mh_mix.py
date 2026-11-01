@@ -42,18 +42,14 @@ class MixLine:
         """F 時每個點的脂肪厚度（用來決定肌肉的形被抹平多少）；用純脂肪線的厚度。"""
         if F not in self._T:
             fl = self.fl
-            if F <= F0:
-                T = fl.T0 + fl.cont((fl.thickness(F) - fl.T0) * (1 - (1 - gf.BELLY_FOLLOW) * fl.belly))
-            else:
-                T = fl.T0 + fl.unloaded(F)[1]
-            self._T[F] = T
+            self._T[F] = fl.Tt(F) if F <= F0 else fl.Tt(F0) + fl.unloaded(F)[1]
         return self._T[F]
 
     def start(self, F, L):
         """(皮膚, 肌肉表面)：去脂 L 的肌肉（形照 F 的脂肪厚度抹平）蓋上中性的脂肪。"""
         key = (F, L)
         if key not in self._start:
-            if abs(F - F0) < 1e-9:
+            if abs(F - F0) < 1e-9 and self.type == 0:
                 B = self.ml.base(L)
             else:
                 B = self.ml.base(L, T=self.fat_T(F))
@@ -63,7 +59,7 @@ class MixLine:
         return self._start[key]
 
     def unloaded(self, F, L):
-        if abs(L - L0) < 1e-9:
+        if abs(L - L0) < 1e-9 and self.type == 0:
             return self.fl.unloaded(F)
         S, _ = self.start(F, L)
         return self.fl.unloaded(F, start=S, D0=self.fl.smooth_dirs(S), cache={})
@@ -77,16 +73,26 @@ class MixLine:
 
     def target(self, F, L):
         """規則算出來的形（還沒處理接觸）。"""
-        if abs(L - L0) < 1e-9:
+        if abs(L - L0) < 1e-9 and self.type == 0:
             return self.fl.target(F)
         return self.fl.with_sag(self.unloaded(F, L)[0], F, lambda g: self.sag(g, L))
 
     def shape(self, F, L):
-        """控制籠：先沿去脂走到 L（純肌肉線），再沿脂肪每 1 kg 一步做接觸。"""
-        if abs(L - L0) < 1e-9:
-            return self.fl.shape(F)
+        """控制籠：先沿去脂走到 L（純肌肉線），再沿脂肪每 1 kg 一步做接觸。
+        型大於 0 時路徑多一段：先從原本的中性型走到型的中性（脂肪與肌肉照型重新分配），再沿去脂、再沿脂肪。"""
+        if self.type == 0:
+            if abs(L - L0) < 1e-9:
+                return self.fl.shape(F)
+            if L not in self._walk:
+                self._walk[L] = gc.Walk(self.ml.shape(L), self.F, F0, lambda F: self.target(F, L), gf.CONTACT_STEP)
+            return self._walk[L](F)
+        if not hasattr(self, '_walkL'):
+            V0 = self.fl.V0
+            T = self.target(F0, L0)
+            Nt = gc.Walk(V0, self.F, 0.0, lambda u: V0 + u * (T - V0), 0.25)(1.0)
+            self._walkL = gc.Walk(Nt, self.F, L0, lambda L: self.target(F0, L), gmu.CONTACT_STEP)
         if L not in self._walk:
-            self._walk[L] = gc.Walk(self.ml.shape(L), self.F, F0, lambda F: self.target(F, L), gf.CONTACT_STEP)
+            self._walk[L] = gc.Walk(self._walkL(L), self.F, F0, lambda F: self.target(F, L), gf.CONTACT_STEP)
         return self._walk[L](F)
 
 
