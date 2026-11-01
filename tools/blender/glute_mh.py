@@ -268,6 +268,7 @@ class Glute:
         zero = np.nonzero((V[:, 1] > hy + top_off) | ((np.abs(V[:, 0]) < mid_x) & (V[:, 1] > cy - 1)))[0]
         one = np.nonzero(V[:, 1] < cy + low_off)[0]
         w = harmonic(len(V), self.nb, np.r_[zero, one], np.r_[np.zeros(len(zero)), np.ones(len(one))])
+        self.w_pose = w            # 腿跟著轉的權重（站姿改回時照這個轉回去，glute_mh_frame）
         out = V.copy()
         for side, sgn in (('l-upper-leg', 1), ('r-upper-leg', -1)):
             m = np.sign(V[:, 0]) == sgn

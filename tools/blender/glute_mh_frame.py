@@ -11,7 +11,8 @@
 2. 骨盆前傾（R28）：女性站姿約 12～13°，個人差約 ±5°；中性型當作平均，線取 ±10°。
    - 骨盆繞兩髖關節的連線轉：大腿不動（站姿），臀跟著骨盆；腰的切口不動，中間平順過渡（腰椎前凸）。
    - 每個點跟著轉多少看它屬於骨盆還是大腿（tilt_weights），中間用雙調和插值。
-3. 兩個切口是和腰、大腿共用的骨架約定（#55）：腿的切口隨腿平移，腰的切口照髂嵴寬等比放寬，前傾時都不動。
+3. 站姿（#81）：雙腳與肩同寬（MakeHuman 原本的站姿）；臀的模建的時候腿往內轉了 5°，這裡再張回去。
+4. 兩個切口是和腰、大腿共用的骨架約定（#55）：腿的切口隨腿平移，腰的切口照髂嵴寬等比放寬，前傾時都不動。
 變形後兩片皮可能相碰（前傾時恥丘往下、往後壓向大腿），用通用的接觸（glute_mh_contact.Walk）從原本的中性型走過去。
 """
 from pathlib import Path
@@ -31,6 +32,10 @@ TILT_RANGE = (-10.0, 10.0)
 # 網格上沒有明顯的腰窩可以直接量），和假設的 12～13° 相符，所以預設不轉。
 DEFAULT_PW = 29.0
 DEFAULT_TILT = 0.0
+# 站姿（DECISIONS #81）：雙腳與肩同寬，照 MakeHuman 原本的站姿（腳踝中心距約 32 公分、腿往外張約 5°）。
+# 臀的模（glute_mh.build）把腿往內轉了 5°（兩腿直直併著）；STANCE 是從那裡再往外張回去的角度，5 就是 MakeHuman 原本的。
+STANCE_POSE = 5.0          # glute_mh.Glute.pose_legs 往內轉的角度
+DEFAULT_STANCE = 5.0
 HIP = np.array([84.0, -2.0])   # 兩髖關節連線的 (y, z)（MakeHuman 的 upper-leg 關節，左右 ±9.4）
 HIP_Y = 81.6               # 量臀寬的高度
 
@@ -42,8 +47,15 @@ def smooth(t):
 
 class Frame:
     def __init__(self):
-        g = gm.build()
+        g = gm.Glute()
+        g.align()
+        g.pose_legs(deg=STANCE_POSE)
+        Fc, w, self.J = g.F, g.w_pose, {k: v.copy() for k, v in g.J.items()}
+        g.densify()
         self.V, self.F = g.V.copy(), g.F
+        assert np.abs(self.V - gm.build().V).max() < 1e-9
+        # 腿跟著轉的權重跟著細分（細分是線性的）
+        self.w_stance = gm.subdivide(np.c_[w, np.zeros(len(w)), np.zeros(len(w))], Fc)[0][:, 0]
         # 原本中性型每個高度的半寬與前後中心（細分兩次後量），變形時用
         P, _ = gm.preview(self.V, self.F, 2)
         ys = np.arange(70.0, 101.01, 0.5)
@@ -91,8 +103,23 @@ class Frame:
         w[free] = spsolve(A[free][:, free].tocsc(), -(A[free][:, kn] @ w[kn]))
         return np.clip(w, 0, 1)
 
-    def deform(self, V, pw=PW0, tilt=0.0):
-        """規則上的形（還沒處理接觸）。"""
+    def stance(self, V, deg):
+        """兩腿繞各自的髖關節往外張 deg 度（正面看的平面裡），權重照 pose_legs：骨盆不動、胯下以下的腿整個轉。"""
+        out = V.copy()
+        for side, sgn in (('l-upper-leg', 1), ('r-upper-leg', -1)):
+            m = np.sign(self.V[:, 0]) == sgn
+            c = self.J[side]
+            a = sgn * np.radians(deg) * self.w_stance[m]
+            d = V[m][:, :2] - c[:2]
+            out[m, 0] = c[0] + np.cos(a) * d[:, 0] - np.sin(a) * d[:, 1]
+            out[m, 1] = c[1] + np.sin(a) * d[:, 0] + np.cos(a) * d[:, 1]
+        out[np.abs(self.V[:, 0]) < 1e-6, 0] = 0.0
+        return out
+
+    def deform(self, V, pw=PW0, tilt=0.0, stance=0.0):
+        """規則上的形（還沒處理接觸）。先站姿，再骨盆寬、前傾。"""
+        if abs(stance) > 1e-9:
+            V = self.stance(V, stance)
         x, y, z = V[:, 0], V[:, 1], V[:, 2]
         out = V.copy()
         if abs(pw - PW0) > 1e-9:
@@ -116,15 +143,16 @@ class Frame:
         return out
 
     def default(self):
-        """網站預設骨架下的中性型（#77）。"""
-        return self.neutral(DEFAULT_PW, DEFAULT_TILT)
+        """網站預設骨架下的中性型（#77、#81）。"""
+        return self.neutral(DEFAULT_PW, DEFAULT_TILT, DEFAULT_STANCE)
 
-    def neutral(self, pw=PW0, tilt=0.0, steps=10):
-        """這副骨架下的中性型（控制籠）：從原本的中性型沿骨架參數每一小步做接觸走過去，結果只由 (pw, tilt) 決定。"""
-        key = (round(pw, 6), round(tilt, 6))
-        if key == (round(PW0, 6), 0.0):
+    def neutral(self, pw=PW0, tilt=0.0, stance=0.0, steps=10):
+        """這副骨架下的中性型（控制籠）：從原本的中性型沿骨架參數每一小步做接觸走過去，結果只由 (pw, tilt, stance) 決定。"""
+        key = (round(pw, 6), round(tilt, 6), round(stance, 6))
+        if key == (round(PW0, 6), 0.0, 0.0):
             return self.V.copy()
         if key not in self._cache:
-            walk = gc.Walk(self.V, self.F, 0.0, lambda t: self.deform(self.V, PW0 + t * (pw - PW0), t * tilt), 1.0 / steps)
+            walk = gc.Walk(self.V, self.F, 0.0,
+                           lambda t: self.deform(self.V, PW0 + t * (pw - PW0), t * tilt, t * stance), 1.0 / steps)
             self._cache[key] = walk(1.0)
         return self._cache[key].copy()
