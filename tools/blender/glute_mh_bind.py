@@ -8,9 +8,13 @@ glute_mh_frame 張回 MakeHuman 原本的與肩同寬，#81）。素體整個細
   1. 網站的骨架（四肢長度、縮放到身高、骨盆寬，還沒有軟組織）細分一次。骨盆寬由網站的骨架做（pelvis.ts，
      規則和 glute_mh_frame 相同），這裡的參考就用同一個骨盆寬的中性型，位移只剩軟組織。
   2. 模的變形量（這個狀態 − 參考，參考是模在 MakeHuman 站姿、還沒任何變形時）先轉回 MakeHuman 原本的空間
-     （還原 Glute.align 的胯下對齊），再照網站骨架在每一點的局部縮放、拉長（鄰邊最小平方）加到網站骨架的平滑曲面上。
+     （還原 Glute.align 的胯下對齊），再照網站骨架在每一點的局部縮放、拉長加到網站骨架的平滑曲面上。
      網站 160 公分的骨架和 MakeHuman 起點差 0.25 公分內；身高、腿長變了，臀那一圈跟著平移、縮放、拉長。
-  3. 圈外 FADE 公分內平順接回網站其他部位現在的形（拉普拉斯），之後由腰、大腿兩個部位接手。
+     局部縮放 J（local_maps）：切平面內用鄰邊最小平方（表面怎麼拉長），法向照身高比例 s（整個人放大 s 倍，軟組織
+     也厚 s 倍；臀的模在 160 公分算，數值換算時已經 ÷ s³）。不能把三個方向一起用鄰邊最小平方：鄰邊幾乎在同一個
+     平面上，法向沒有約束，平的地方（薦骨、髂前上棘一帶）會把微小差異放大成 1 公分的尖刺。
+  3. 圈外 FADE 公分內平順接回網站其他部位現在的形，之後由腰、大腿兩個部位接手。用雙調和（讓位移的拉普拉斯平方和
+     最小）：一階的拉普拉斯只接得上位置、接不上斜率，臀那一圈的邊界會折出一條線（大腿那一側最明顯）。
 控制數據就是臀那一圈 2873 個點的位置（或位移）；圈外的漸弱是固定的線性運算，網站自己算。
 python3 tools/blender/glute_mh_bind.py <out.npz> 名稱=<npz>:<鍵或第幾個> ...
 只用 numpy、scipy。
@@ -49,6 +53,42 @@ def unalign(V):
     return out
 
 
+def vertex_normals(V, Q):
+    N = np.zeros_like(V)
+    for k in range(4):
+        q0, q1, q2, q3 = Q[:, k], Q[:, (k + 1) % 4], Q[:, (k + 2) % 4], Q[:, (k + 3) % 4]
+        np.add.at(N, q0, np.cross(V[q1] - V[q0], V[q3] - V[q0]))
+    return N / np.linalg.norm(N, axis=1, keepdims=True)
+
+
+def tangent_maps(V0, Q, idx, nb):
+    """每一點 i：切平面內的最小平方係數 A（鄰點數 × 3，A·法向 ＝ 0）與法向 n0。
+    網站上 J ＝ Σ 鄰邊₁ ⊗ A ＋ s·n1 n0ᵀ，n1 是 J 在切平面的像的法向（cofactor(Σ 鄰邊₁ ⊗ A)·n0）。"""
+    N = vertex_normals(V0, Q)
+    A, n0 = [], []
+    for i in idx:
+        n = N[i]
+        u = np.cross(n, [1.0, 0, 0] if abs(n[0]) < 0.9 else [0, 1.0, 0])
+        u /= np.linalg.norm(u)
+        U = np.c_[u, np.cross(n, u)]                    # u × v ＝ n
+        E = (V0[nb[i]] - V0[i]) @ U
+        A.append(E @ np.linalg.inv(E.T @ E) @ U.T)
+        n0.append(n)
+    return A, np.array(n0)
+
+
+def local_maps(V0, V1, Q, idx, nb, scale):
+    """V0 → V1 在每一點的局部縮放 J（3×3）：切平面最小平方 ＋ 法向 × scale。"""
+    A, n0 = tangent_maps(V0, Q, idx, nb)
+    J = np.empty((len(idx), 3, 3))
+    for k, i in enumerate(idx):
+        Jt = (V1[nb[i]] - V1[i]).T @ A[k]
+        c = Jt.T
+        n1 = n0[k][0] * np.cross(c[1], c[2]) + n0[k][1] * np.cross(c[2], c[0]) + n0[k][2] * np.cross(c[0], c[1])
+        J[k] = Jt + scale * np.outer(n1 / np.linalg.norm(n1), n0[k])
+    return J
+
+
 def limit_points(P, Q, n):
     """細分兩次後前 n 個點（原本那些頂點的「頂點點」），接近極限曲面。"""
     V, F = gm.subdivide(P, Q)
@@ -57,11 +97,12 @@ def limit_points(P, Q, n):
 
 
 class Binding:
-    def __init__(self, skel=None, final=None, ref=None):
+    def __init__(self, skel=None, final=None, ref=None, scale=None):
         """skel：網站的骨架（四肢長度、縮放到身高、骨盆寬，還沒有軟組織；13,380 點），預設 MakeHuman 起點（160 公分）。
         final：網站其他部位現在的形（切口外面接回去的對象），預設同 skel。
         ref：臀的模裡和 skel 同一副骨架的中性型（控制籠）。網站的骨架已經有骨盆寬（src/body/mh/pelvis.ts）時，
-        傳那個骨盆寬的中性型（glute_mh_frame.Frame.neutral），位移就只剩軟組織；預設是 MakeHuman 站姿的起點。"""
+        傳那個骨盆寬的中性型（glute_mh_frame.Frame.neutral），位移就只剩軟組織；預設是 MakeHuman 站姿的起點。
+        scale：身高 ／ 160（法向的放大），預設照 skel 的高度。"""
         P, Q, _ = gm.load_mh()
         g = gm.Glute()
         used = cKDTree(P).query(g.V)[1]
@@ -85,13 +126,11 @@ class Binding:
         self.M = M
         n1 = len(self.B1)
         self.lim = limit_points(self.B1, self.Q1, n1)[M]          # 網站骨架在臀那一圈的平滑曲面
-        # 每一點的局部縮放、拉長（MakeHuman 起點 → 網站骨架，鄰邊最小平方）
+        # 每一點的局部縮放、拉長（MakeHuman 起點 → 網站骨架；切平面最小平方，法向 × 身高比例）
         nb = gm.neighbours(n1, self.Q1)
-        self.J = np.empty((len(M), 3, 3))
-        for k, i in enumerate(M):
-            js = list(nb[i])
-            E0, E1 = mh1[js] - mh1[i], self.B1[js] - self.B1[i]
-            self.J[k] = np.linalg.lstsq(E0, E1, rcond=None)[0].T
+        if scale is None:
+            scale = np.ptp(skel[:, 1]) / np.ptp(P[:, 1])
+        self.J = local_maps(mh1, self.B1, self.Q1, M, nb, scale)
         # 參考：臀的模在 MakeHuman 站姿、還沒有任何變形時（glute_mh_frame 張回 5°）
         import glute_mh_frame as gfr
         fr = gfr.Frame()
@@ -111,8 +150,10 @@ class Binding:
         dist = cKDTree(self.B1[M]).query(self.B1)[0]
         fixed = inreg | (dist > FADE)
         self.free, self.fix = np.nonzero(~fixed)[0], np.nonzero(fixed)[0]
-        self.Lfx = L[self.free][:, self.fix]
-        self.lu = splu(L[self.free][:, self.free].tocsc())
+        rows = np.unique(np.r_[self.free, A[self.free].indices])            # 自由點和它們的鄰點，各一列拉普拉斯
+        Af = L[rows][:, self.free]
+        self.Lfx = (Af.T @ L[rows][:, self.fix]).tocsr()
+        self.lu = splu((Af.T @ Af).tocsc())
 
     def region(self, Vs):
         """臀的模在狀態 Vs（控制籠）時，網站上臀那一圈 2873 點的位置。"""

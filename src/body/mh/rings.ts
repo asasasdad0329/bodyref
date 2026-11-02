@@ -163,6 +163,8 @@ export interface CompositionResult {
   tissues: { fat: number; muscle: number; otherLean: number };
   quality: ShapeQuality;
   accounting: { otherLeanBase: number; otherLeanControl: number; breastOtherLean: number };
+  /** 骨架：四肢長度、縮放到身高、骨盆寬，還沒有軟組織、也還沒抹順骨盆（新臀預覽放在這上面，glute.ts） */
+  skeleton: Float32Array;
 }
 
 /** 四肢長度用 MakeHuman 的長度形變（骨架） */
@@ -220,6 +222,8 @@ interface Prepared {
   sex: Sex;
   hipExpansion: number;
   B: Float32Array;
+  /** 抹順骨盆前的骨架（身體頂點） */
+  skeleton: Float32Array;
   marks: Measured['marks'];
   levels: Measured['levels'];
   acromionY: number;
@@ -380,6 +384,7 @@ export class RingBody {
       ({ B, m: frameMeasure } = this.skeleton(B0, t, lens));
     }
     let m = measure(this.ctx, B);
+    const skeleton = B.slice(0, n * 3);
     if (opts.neutralize) {
       this.neutralizePelvis(B, m.marks);
       m = measure(this.ctx, B);
@@ -479,6 +484,7 @@ export class RingBody {
       sex,
       hipExpansion: opts.hipExpansion ?? 0,
       B,
+      skeleton,
       marks: m.marks,
       levels: m.levels,
       acromionY: (B[a.landmarks.acromionL * 3 + 1] + B[a.landmarks.acromionR * 3 + 1]) / 2,
@@ -1432,7 +1438,7 @@ export class RingBody {
     this.inspectionState = { p, q: { ...q }, soft: { ...soft } };
     const kg = zeroSoft();
     for (const k of SOFT_KEYS) kg[k] = soft[k] * kgPer[k];
-    return { P, measured: m, values: m.values, weight, bodyFat: tissues.fat / weight, kg, iterations: total, tissues, accounting, quality: p.quality.evaluate(P) };
+    return { P, measured: m, values: m.values, weight, bodyFat: tissues.fat / weight, kg, iterations: total, tissues, accounting, quality: p.quality.evaluate(P), skeleton: p.skeleton };
   }
 }
 

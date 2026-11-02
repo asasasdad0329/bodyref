@@ -160,12 +160,13 @@ function apply(): void {
   }
   renderPanel({ ...pending, values });
   viewer.setDisplay({ lineStyle: state.view.lineStyle, outline: state.view.showOutline, measures: state.view.showMeasures });
-  toolbar.render(state.view);
+  toolbar.render(state.view, state.sex);
 
-  const key = JSON.stringify([state.sex, state.locked, state.cup, state.ratios, state.muscleMass, state.morphology, state.view.armAngle]);
+  const newGlute = state.view.newGlute && state.sex === 'female';
+  const key = JSON.stringify([state.sex, state.locked, state.cup, state.ratios, state.muscleMass, state.morphology, state.view.armAngle, newGlute]);
   if (key !== requestedKey) {
     requestedKey = key;
-    client.request({ ...bodyInputFor({ sex: state.sex, sug, bustDiff: diff, muscleMass: state.muscleMass, morphology: state.morphology }), armAngle: state.view.armAngle }, { state, sug, bustDiff: diff, key });
+    client.request({ ...bodyInputFor({ sex: state.sex, sug, bustDiff: diff, muscleMass: state.muscleMass, morphology: state.morphology }), armAngle: state.view.armAngle, newGlute }, { state, sug, bustDiff: diff, key });
   }
   save(state);
 }
