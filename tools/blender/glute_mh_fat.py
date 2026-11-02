@@ -544,6 +544,26 @@ def girth(P, y, side=None):
     return float(ConvexHull(S[:, [0, 2]]).area) if len(S) > 5 else float('nan')
 
 
+def hip_prominent(P, plateau=0.3):
+    """臀圍照網站的量法「臀部最翹處水平一圈」。臀背後在一段高度內常常幾乎一樣凸（一塊平台），最凸那一點會在
+    平台上跳來跳去（周長跟著跳），所以取「比最凸處少 plateau 公分以內」那一段高度的中間（照凸出量加權），
+    在那個高度量水平周長（上下兩層直線內插）。只看臀（離正中 12 公分內、74～92 公分）。回傳 (周長, 高度)。"""
+    from scipy.spatial import ConvexHull
+    m = (np.abs(P[:, 0]) < 12) & (P[:, 1] > 74) & (P[:, 1] < 92)
+    B = P[m]
+    ys = np.arange(74.5, 91.51, 0.25)
+    zb = np.array([B[np.abs(B[:, 1] - yy) < 0.2][:, 2].min() for yy in ys])
+    w = np.clip(plateau - (zb - zb.min()), 0, None)
+    y = float((w * ys).sum() / w.sum())
+
+    def g(yy):
+        S = P[np.abs(P[:, 1] - yy) < 0.2]
+        return ConvexHull(S[:, [0, 2]]).area
+    y0 = np.floor(y / 0.25) * 0.25
+    u = (y - y0) / 0.25
+    return (1 - u) * g(y0) + u * g(y0 + 0.25), y
+
+
 def measure(P):
     S = P[np.abs(P[:, 1] - 81.6) < 0.1]
     return dict(hipCirc=round(girth(P, 81.6), 2), hipBreadth=round(2 * float(S[:, 0].max()), 2),
