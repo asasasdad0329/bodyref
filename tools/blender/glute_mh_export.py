@@ -10,6 +10,7 @@
   - 切口外漸弱的範圍（離臀那一圈 12 公分內、不含手臂），網站上用鄰點平均反覆做（拉普拉斯）。
   - 每一欄去脂的臀圍表（最翹處，glute_mh_fat.hip_prominent），臀圍有鎖時反查脂肪用。
 python3 tools/blender/glute_mh_export.py <control.npz> <格子資料夾>
+  全部重做的順序：glute_mh_grid（每欄去脂一次）→ glute_mh_control（找方向、擬合曲線）→ 這支。
 """
 import hashlib
 import json
