@@ -4,7 +4,7 @@
 
 - 上線版用 `stable-YYYY-MM-DD` 標籤，由作者在 GitHub 的 Releases 建立並發佈，網站會自動部署（AGENTS「切換代理時的檢查點」）。
 - 預覽版（例如 `glute-preview-*`）只是把一個階段的成果、對照圖與數字收在一起給作者看，**不會部署到網站**（`.github/workflows/deploy.yml` 只認 `stable-*`）。雲端代理不能建立 Release（GitHub API 拒絕），代理準備好說明與附件，由作者建立：Releases → Draft a new release → Choose a tag 輸入標籤名（Create new tag）→ Target 選對應的分支 → 標題 → 說明貼附件裡的 `版本記錄.md` → 附件拖進去 → 勾「Set as a pre-release」→ Publish release。
-- 圖片只放在 Release 的附件，不提交進倉庫（AGENTS「絕對不要放進倉庫」：截圖；公開庫的歷史刪不掉）。作者提供的參考圖片連附件也不放。
+- 圖片：私有庫建好前，看圖對照放在 Release 的附件；之後放私有庫的 `review/`（AGENTS「圖片」、DECISIONS #86）。作者提供的參考圖片連附件也不放。
 
 ## glute-preview-2026-11-02 · 新臀預覽（等作者在 GitHub 建立）
 
