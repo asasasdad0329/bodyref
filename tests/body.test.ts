@@ -10,6 +10,8 @@ import type { Sex } from '../src/core/measurements';
 import { REFERENCE, cupDiff } from '../src/core/reference';
 import { meshVolume } from '../src/body/mh/geometry';
 import { BODY_CASES, PLAN_CASES } from './fixtures/bodyCases';
+import { PELVIS_BASE, pelvisWidthFor } from '../src/body/mh/pelvis';
+import { GluteBody, parseGlute, toModel } from '../src/body/mh/glute';
 
 let engine: BodyEngine;
 
@@ -52,6 +54,40 @@ describe('人體網格', () => {
       }
     });
   }
+
+  it('女性骨架照身高加骨盆寬：髂嵴一圈放寬、兩腿平移，高度、腰以上與手臂不動', () => {
+    // 同一個素體分別當女性（有骨盆寬）與男性（沒有）跑骨架，差就是骨盆寬（pelvis.ts，DECISIONS #77、#83）
+    const rings = engine.rings as unknown as { ctx: { sex: Sex }; skeleton(B0: Float32Array, t: { height: number }, lens: number[]): { B: Float32Array; m: { marks: { crotchY: number } } } };
+    const a = engine.asset;
+    const B0 = new Float32Array(a.base);
+    const arms = new Set(['upperarmL', 'upperarmR', 'forearmL', 'forearmR', 'handL', 'handR'].map(r => a.regions.indexOf(r)));
+    expect(pelvisWidthFor(160)).toBeCloseTo(28.4, 1);
+    for (const height of [140, 160, 190]) {
+      rings.ctx.sex = 'male';
+      const plain = rings.skeleton(B0, { height }, [0, 0, 0, 0]);
+      rings.ctx.sex = 'female';
+      const wide = rings.skeleton(B0, { height }, [0, 0, 0, 0]);
+      const s = height / 160, crotch = plain.m.marks.crotchY;
+      const half = (P: Float32Array, u: number) => {
+        let m = 0;
+        for (let i = 0; i < a.nBody; i++) if (!arms.has(a.region[i]) && Math.abs(P[i * 3 + 1] - (crotch + u * s)) < 0.6 * s) m = Math.max(m, Math.abs(P[i * 3]));
+        return m;
+      };
+      const crest = (pelvisWidthFor(height) - PELVIS_BASE * s) / 2;
+      expect(Math.abs(half(wide.B, 25) - half(plain.B, 25) - crest)).toBeLessThan(0.05 * s);   // 髂嵴那一圈
+      const legs = half(wide.B, -10) - half(plain.B, -10);
+      expect(legs).toBeGreaterThan(0);
+      expect(legs).toBeLessThan(crest);                                                      // 臀與腿放寬得比髂嵴少（R15）
+      expect(Math.abs(half(wide.B, 45) - half(plain.B, 45))).toBeLessThan(0.02);              // 腰以上收回 0
+      let dy = 0, dArm = 0;
+      for (let i = 0; i < a.nBody; i++) {
+        dy = Math.max(dy, Math.abs(wide.B[i * 3 + 1] - plain.B[i * 3 + 1]));
+        if (arms.has(a.region[i])) dArm = Math.max(dArm, Math.abs(wide.B[i * 3] - plain.B[i * 3]) + Math.abs(wide.B[i * 3 + 2] - plain.B[i * 3 + 2]));
+      }
+      expect(dy).toBeLessThan(1e-4);
+      expect(dArm).toBeLessThan(1e-4);
+    }
+  });
 
   it('只填身高時，參考體型的體重、體脂與三圍接近參考值', () => {
     for (const sex of ['female', 'male'] as const) {
@@ -344,4 +380,100 @@ describe('小幅尺寸與組成變動不跨到另一個表面解', () => {
       expect(Math.sqrt(sum / engine.asset.nBody)).toBeLessThan(0.1);
     }, 15000);
   }
+});
+
+describe('新臀（預覽，glute.ts）', () => {
+  let glute: GluteBody;
+  beforeAll(() => {
+    const buf = readFileSync('public/glute.bin');
+    glute = new GluteBody(engine.asset, parseGlute(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)));
+    engine.glute = glute;
+  });
+  const runG = (newGlute: boolean, locked: Record<string, number>, sex: Sex = 'female') => {
+    const sug = suggest({ sex, locked, bustDiff: null });
+    return engine.run({ ...bodyInputFor({ sex, sug, bustDiff: null }), armAngle: 16, newGlute });
+  };
+
+  it('數值換算與方向的量和 Python 原型相同（glute_mh_input、glute_mh_control）', () => {
+    const c = toModel(160, 54.5, 0.31);
+    expect(c.F).toBeCloseTo(16.895, 3);
+    expect(c.L).toBeCloseTo(35.2803, 3);
+    expect(toModel(175, 70, 0.3).L).toBeCloseTo(35.5525, 3);
+    const want: [number, number, number[]][] = [
+      [20, 35.3, [30.79734, -26.879943, -7.614295, -14.63535]],
+      [4, 30, [-64.6662, -22.260025, -18.337949, -3.302725]],
+      [100, 70, [293.974815, -0.687864, -7.460813, 11.266773]],
+    ];
+    for (const [F, L, w] of want) {
+      const got = glute.weights(F, L);
+      w.forEach((v, m) => expect(got[m]).toBeCloseTo(v, 3));
+    }
+  });
+
+  it('開關：素體細分一次，只換臀那一圈與切口外漸弱的範圍；體重帳目與其他部位不變', () => {
+    const off = runG(false, { height: 160 });
+    const on = runG(true, { height: 160 });
+    expect(on.positions.length / 3).toBe(glute.n1);
+    expect(off.positions.length / 3).toBe(engine.asset.nBody);
+    expect(on.weight).toBe(off.weight);
+    expect(on.glute).toBeDefined();
+    expect(on.values.hip).toBe(on.glute!.hip);
+    // 腰、大腿圍在新的網格上重量（只加新舊網格的差），不會亂跳
+    expect(Math.abs(on.values.waist - off.values.waist)).toBeLessThan(3);
+    expect(Math.abs(on.values.thigh - off.values.thigh)).toBeLessThan(8);
+    expect(on.values.calf).toBe(off.values.calf);
+    // 臀那一圈與漸弱範圍以外：就是原本的形細分一次
+    const base = glute.subdivide(off.positions);
+    const touched = new Uint8Array(glute.n1);
+    for (const v of glute.data.region) touched[v] = 1;
+    for (const v of glute.data.fade) touched[v] = 1;
+    let outside = 0, inside = 0;
+    for (let i = 0; i < glute.n1; i++) {
+      const d = Math.hypot(on.positions[i * 3] - base[i * 3], on.positions[i * 3 + 1] - base[i * 3 + 1], on.positions[i * 3 + 2] - base[i * 3 + 2]);
+      if (touched[i]) inside = Math.max(inside, d); else outside = Math.max(outside, d);
+    }
+    expect(outside).toBeLessThan(1e-4);
+    expect(inside).toBeGreaterThan(0.5);
+    // 三角形：每個可見的四邊形變四個，編號都在範圍內
+    expect(on.bodyIndex.length).toBe(off.bodyIndex.length * 4);
+    expect(on.bodyIndex.reduce((m, v) => Math.max(m, v), 0)).toBeLessThan(glute.n1);
+    expect(on.cavity.length).toBe(glute.n1);
+    for (let i = 0; i < on.positions.length; i++) if (!Number.isFinite(on.positions[i])) throw new Error('非有限值');
+  }, 30000);
+
+  it('臀圍有鎖時，網站上量到的新臀臀圍對上（去脂不動，改脂肪）', () => {
+    for (const hip of [92, 100, 110]) {
+      const out = runG(true, { height: 160, hip });
+      expect(Math.abs(out.values.hip - hip), `hip ${hip}`).toBeLessThan(0.5);
+      expect(out.glute!.clamped).toBe(false);
+    }
+  }, 60000);
+
+  it('結果不依賴上一次輸入；男性不受開關影響', () => {
+    const a = runG(true, { height: 160 });
+    runG(true, { height: 175, weight: 80 });
+    runG(true, { height: 160, hip: 105 });
+    const b = runG(true, { height: 160 });
+    let diff = 0;
+    for (let i = 0; i < a.positions.length; i++) diff = Math.max(diff, Math.abs(a.positions[i] - b.positions[i]));
+    expect(diff).toBeLessThan(1e-4);
+    const m0 = runG(false, { height: 175 }, 'male'), m1 = runG(true, { height: 175 }, 'male');
+    expect(m1.positions.length).toBe(m0.positions.length);
+    expect(m1.glute).toBeUndefined();
+  }, 60000);
+
+  it('脂肪、去脂小步變化時，臀那一圈連續（跨過曲線節點與去脂欄）', () => {
+    const sug = suggest({ sex: 'female', locked: { height: 160 }, bustDiff: null });
+    const B1 = glute.skeleton1(engine.rings.fitComposition(bodyInputFor({ sex: 'female', sug, bustDiff: null }), { neutralize: true }).skeleton);
+    let worst = 0;
+    for (const L of [29.5, 35.3, 41, 52, 70]) {
+      for (let F = 2; F < 130; F += 0.5) {
+        const a = glute.region(B1, F, L, 1), b = glute.region(B1, F + 0.5, L + 0.1, 1);
+        let d = 0;
+        for (let i = 0; i < a.length; i += 3) d = Math.max(d, Math.hypot(a[i] - b[i], a[i + 1] - b[i + 1], a[i + 2] - b[i + 2]));
+        worst = Math.max(worst, d);
+      }
+    }
+    expect(worst).toBeLessThan(0.5);
+  }, 60000);
 });

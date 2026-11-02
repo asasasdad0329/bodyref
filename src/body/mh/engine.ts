@@ -1,11 +1,12 @@
 import type { BodyAsset } from './asset';
 import { type HeadParts, cutNeck, eggHead, headParts } from './egghead';
-import { type V3, cavity, centroid, meshVolume, vert } from './geometry';
+import { type V3, cavity, centroid, lerp3, meshVolume, vert } from './geometry';
 import { GuideBuilder } from './guides';
 import type { BodyInput } from '../goals';
 import { MEASURE_KEYS, type MeasureKey, type Measured } from './measure';
 import { type ArmPose, BodyModel, rotateArmPoint } from './model';
-import { RingBody, type Soft } from './rings';
+import { RingBody, type CompositionResult, type Soft } from './rings';
+import { type GluteBody, MODEL_HEIGHT, toModel } from './glute';
 
 // 把「骨架 + 身體組成 + 手動數值」變成畫面需要的一切：顯示用網格、結構線、量測線、實際量到的數值、體重與身體組成。
 // 在 Web Worker 裡執行，避免拖動滑桿時卡住畫面。
@@ -20,6 +21,8 @@ export type Goal =
 
 export interface EngineInput extends BodyInput {
   armAngle: number;
+  /** 新臀（預覽）：女性的臀那一圈換成臀的獨立模型（glute.ts），整個素體細分一次 */
+  newGlute?: boolean;
 }
 
 export interface TapePath {
@@ -46,7 +49,7 @@ export interface EngineOutput {
   bodyFat: number;
   tissues: { fat: number; muscle: number; otherLean: number };
   accounting: { otherLeanBase: number; otherLeanControl: number; breastOtherLean: number };
-  diagnostics: { kind: 'input-conflict' | 'unconverged' | 'invalid-shape'; message: string }[];
+  diagnostics: { kind: 'input-conflict' | 'unconverged' | 'invalid-shape' | 'preview'; message: string }[];
   quality: ReturnType<RingBody['fitComposition']>['quality'];
   measurement: { version: 3; chestWallUnderbust: number; standingBust: number; sources: Measured['sources']; neutralPaths: Measured['tapes'] };
   /** 手動填的數值與模型做到的差距（模型值 − 目標值） */
@@ -56,6 +59,8 @@ export interface EngineOutput {
   /** 體積（cm³） */
   volume: number;
   marks: { topY: number; crotchY: number; kneeY: number; ankleY: number };
+  /** 新臀（預覽）開著時：換到臀的模（160 公分）上的脂肪、去脂與量到的臀圍 */
+  glute?: { F: number; L: number; clamped: boolean; hip: number };
 }
 
 export class BodyEngine {
@@ -64,6 +69,8 @@ export class BodyEngine {
   private readonly guides: GuideBuilder;
   readonly head: HeadParts;
   private fitted: { key: string; result: ReturnType<RingBody['fitComposition']>; approximate: boolean } | null = null;
+  /** 新臀的資料（另外載入；沒有時預覽開關無效） */
+  glute: GluteBody | null = null;
 
   constructor(readonly asset: BodyAsset) {
     this.model = new BodyModel(asset);
@@ -82,7 +89,7 @@ export class BodyEngine {
         solveInput = { ...input, muscleMass: available * 0.7 };
       }
     }
-    const { armAngle: _angle, ...shapeInput } = input;
+    const { armAngle: _angle, newGlute: _glute, ...shapeInput } = input;
     const key = JSON.stringify(shapeInput);
     if (this.fitted?.key !== key) {
       let result = this.rings.fitComposition(solveInput, { neutralize: true });
@@ -106,14 +113,20 @@ export class BodyEngine {
       this.fitted = { key, result, approximate };
     }
     const res = this.fitted.result;
-    const residual = [...residualOf(input, res.values, res.weight, res.bodyFat), ...(input.muscleMass === undefined ? [] : [{ goal: { kind: 'muscleMass' as const, value: input.muscleMass }, error: res.tissues.muscle - input.muscleMass }])];
+    const { P, armRotation } = this.model.display(res.P, input.armAngle, false);
+    const glute = input.newGlute && input.sex === 'female' && this.glute ? this.gluteState(input, res, P, this.glute) : null;
+    const values = glute ? { ...res.values, ...glute.values } : res.values;
+    if (glute) {
+      diagnostics.push({ kind: 'preview', message: `新臀（預覽）：臀那一圈換成臀的獨立模型（換到 160 公分的模上：脂肪 ${glute.F.toFixed(1)} kg、去脂 ${glute.L.toFixed(1)} kg）。臀圍、腰圍、大腿圍在新的網格上量；體重與其他部位還是原本的算法。` });
+      if (glute.clamped) diagnostics.push({ kind: 'preview', message: '這組數值超出新臀做好的範圍（模上脂肪 2～130 kg、去脂 29～91 kg），臀先停在範圍邊上。' });
+    }
+    const residual = [...residualOf(input, values, res.weight, res.bodyFat), ...(input.muscleMass === undefined ? [] : [{ goal: { kind: 'muscleMass' as const, value: input.muscleMass }, error: res.tissues.muscle - input.muscleMass }])];
     if (!diagnostics.length && (residual.some(r => Math.abs(r.error) > (r.goal.kind === 'bodyFat' ? 0.01 : 0.5)) || Object.values(res.tissues).some(x => x < 0))) {
       diagnostics.push({ kind: 'unconverged', message: this.fitted.approximate
         ? `目前控制未能同時符合鎖定尺寸與體重；顯示優先維持尺寸的近似解，實際體重 ${res.weight.toFixed(1)} kg。原體重目標仍保留，這不代表輸入在生理上不可能。`
         : '目前控制尚未找到同時符合全部尺寸與組成的解；這是模型求解未達標，不能據此判定這個體型不可能。' });
     }
     if (!res.quality.valid) diagnostics.push({ kind: 'invalid-shape', message: `目前曲面有 ${res.quality.foldedFaces} 個新增折返面、${res.quality.collapsedFaces} 個塌縮面、${res.quality.intersectingPairs} 對穿插面；即使尺寸接近目標，也尚未形成有效體型。` });
-    const { P, armRotation } = this.model.display(res.P, input.armAngle, false);
     const a = this.asset;
     const m = res.measured;
 
@@ -145,7 +158,7 @@ export class BodyEngine {
     for (const key of MEASURE_KEYS) {
       const path = m.tapes[key];
       if (!path) continue;
-      let pts = path;
+      let pts = glute?.tapes[key] ?? path;
       if (armKeys.includes(key)) pts = pts.map((p) => rotateArmPoint(p, armRotation.L as ArmPose));
       tapes[key] = closedTape(pts, key !== 'shoulder', ['upperArm', 'wrist', 'thigh', 'calf', 'ankle'].includes(key));
     }
@@ -168,14 +181,15 @@ export class BodyEngine {
     tapes.thighLen = seg([x, crotchY, knee[2]], [x, knee[1], knee[2]]);
     tapes.calfLen = seg([x, knee[1], knee[2]], [x, ankle[1], ankle[2]]);
 
+    const positions = glute ? glute.positions : P.slice(0, a.nBody * 3);
     return {
-      positions: P.slice(0, a.nBody * 3),
-      cavity: cavity(P, a.quads, this.model.adj, a.nBody),
-      bodyIndex: neckCut.bodyIndex,
+      positions,
+      cavity: glute ? this.glute!.cavity(positions) : cavity(P, a.quads, this.model.adj, a.nBody),
+      bodyIndex: glute ? this.glute!.triangles(neckCut.faces) : neckCut.bodyIndex,
       head: { positions: headPositions, index: headIndex },
       guides,
       tapes,
-      values: res.values,
+      values,
       weight: res.weight,
       bodyFat: res.bodyFat,
       tissues: res.tissues,
@@ -187,7 +201,39 @@ export class BodyEngine {
       composition: res.kg,
       volume: meshVolume(res.P.subarray(0, a.nBody * 3), a.quads),
       marks: { topY, crotchY, kneeY: knee[1], ankleY: ankle[1] },
+      glute: glute ? { F: glute.F, L: glute.L, clamped: glute.clamped, hip: glute.values.hip } : undefined,
     };
+  }
+
+  /** 新臀：網站的全身數值 → 模上的 (F, L) → 臀那一圈放在骨架上；臀圍有鎖時改找脂肪讓臀圍對上（去脂不動）。
+   * 臀圍照新臀的量法（最翹處）；腰圍、大腿圍在原本的高度重量，只加上新舊網格（都細分一次）在那個高度的差。 */
+  private gluteState(input: EngineInput, res: CompositionResult, P: Float32Array, glute: GluteBody) {
+    const height = res.values.height, s = height / MODEL_HEIGHT;
+    const conv = toModel(height, res.weight, res.bodyFat, input.muscleMass);
+    const mk = res.measured.marks;
+    const B1 = glute.skeleton1(res.skeleton);
+    const L = conv.L;
+    const F = input.locked.hip !== undefined ? glute.fatForHip(input.locked.hip, L, B1, mk.crotchY, s).F : conv.F;
+    const R = glute.region(B1, F, L, s);
+    const hip = glute.hip(glute.regionOnly(R), mk.crotchY, s);
+    const body = P.subarray(0, this.asset.nBody * 3);
+    const positions = glute.compose(body, R), before = glute.subdivide(body);
+    const values: Partial<Record<MeasureKey, number>> = { hip: hip.girth };
+    const tapes: Partial<Record<MeasureKey, V3[]>> = { hip: hip.path };
+    const faces = this.rings.ctx.faces;
+    const hipJ = centroid(P, ...this.asset.joints['l-upper-leg']), knee = centroid(P, ...this.asset.joints['l-knee']);
+    const thighY = mk.crotchY - (mk.crotchY - knee[1]) * 0.1;
+    const thighRef = lerp3(hipJ, knee, (hipJ[1] - thighY) / (hipJ[1] - knee[1]));
+    for (const [key, set, y, ref] of [['waist', faces.trunk, mk.waistY, undefined], ['thigh', faces.thighL, thighY, thighRef]] as const) {
+      const now = glute.tapeAt(positions, set, y, ref), was = glute.tapeAt(before, set, y, ref);
+      if (!now || !was) continue;
+      values[key] = res.values[key] + now.length - was.length;
+      tapes[key] = now.path;
+    }
+    const r = glute.range;
+    const clamped = F < r.F[0] || F > r.F[1] || L < r.L[0] || L > r.L[1]
+      || (input.locked.hip !== undefined && Math.abs(hip.girth - input.locked.hip) > 0.5);
+    return { F, L, clamped, positions, values: values as Pick<Record<MeasureKey, number>, 'hip'> & Partial<Record<MeasureKey, number>>, tapes };
   }
 }
 

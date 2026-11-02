@@ -1,4 +1,4 @@
-# 圖片及數值放在 Actions 產物，不能把產出或作者參考圖提交到倉庫。
+# 圖片及數值放在 Actions 產物，不自動提交（要留存的看圖結果照 AGENTS「圖片」；作者參考圖永遠不進倉庫）。
 name: Shape and UI evidence
 
 on:

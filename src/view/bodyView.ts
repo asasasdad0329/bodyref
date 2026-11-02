@@ -4,6 +4,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import type { BodyAsset } from '../body/mh/asset';
 import { headParts } from '../body/mh/egghead';
+import { level1Grid } from '../body/mh/glute';
 import type { EngineOutput } from '../body/mh/engine';
 import type { LineStyle } from '../core/state';
 import type { SceneColors } from './theme';
@@ -15,6 +16,9 @@ export class BodyView {
   private lineStyle: LineStyle = 'none';
   private outlineVisible = false;
   private gridIndex: Uint32Array | null = null;
+  /** 細分一次（新臀預覽）時的網格線：原本的邊經過邊點 */
+  private gridIndex1: Uint32Array | null = null;
+  private nBody = 0;
   private objects: THREE.Object3D[] = [];
   private grid: THREE.LineSegments | null = null;
   private guides: LineSegments2 | null = null;
@@ -58,6 +62,8 @@ export class BodyView {
       }
     }
     this.gridIndex = Uint32Array.from(edges);
+    this.gridIndex1 = level1Grid(a.quads, a.nBody, this.gridIndex);
+    this.nBody = a.nBody;
   }
 
   update(out: EngineOutput): void {
@@ -87,10 +93,11 @@ export class BodyView {
       this.objects.push(mesh, outline);
     }
 
-    if (this.gridIndex) {
+    const gridIndex = out.positions.length / 3 > this.nBody ? this.gridIndex1 : this.gridIndex;
+    if (gridIndex) {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', pos);
-      g.setIndex(new THREE.BufferAttribute(this.gridIndex, 1));
+      g.setIndex(new THREE.BufferAttribute(gridIndex, 1));
       this.grid = new THREE.LineSegments(g, this.gridMat);
       this.objects.push(this.grid);
     }

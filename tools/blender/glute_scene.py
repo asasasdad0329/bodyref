@@ -62,9 +62,10 @@ def set_cage(obj, C):
     obj.data.update()
 
 
-def fit_cage(obj, V, F, rounds=8, start=None):
+def fit_cage(obj, V, F, rounds=8, start=None, sharp=None):
     """細分會把凸的籠往內收（約 5%），所以反覆把籠往外補差值，讓曲面的尺寸接近設計點 V。
     差值先在籠上平滑過再補，只補大尺寸，不追細節，避免臀縫、臀溝附近起波紋。
+    sharp：刻意做的小起伏（胯下的大陰唇、股生殖摺）上的點，差值不平滑、直接補，形才做得出來。
     Blender 細分後的前 n 個頂點就是籠頂點的對應位置。回傳籠的座標與最大殘差。"""
     nb = neighbours(len(V), F)
     dg = bpy.context.evaluated_depsgraph_get()
@@ -78,7 +79,10 @@ def fit_cage(obj, V, F, rounds=8, start=None):
         S = to_body(np.array([v.co[:] for v in m.vertices[:len(V)]]))
         ev.to_mesh_clear()
         err = V - S
-        C += smooth(err, nb)
+        corr = smooth(err, nb)
+        if sharp is not None:
+            corr[sharp] = err[sharp]
+        C += corr
         C[mid, 0] = 0  # 正中頂點留在正中，鏡像才會合併
         C[~mid, 0] = np.maximum(C[~mid, 0], 0.02)  # 其他頂點不能碰到正中，否則會被鏡像合併，頂點數就變了
     set_cage(obj, C)
@@ -150,9 +154,11 @@ def measure(P, E):
                                           depth=float(np.ptp(s[:, 1])), front=float(s[:, 1].max()), back=float(s[:, 1].min()))
     hipY = max(out, key=lambda y: out[y]['circ'] if 78 <= y <= 90 else 0)
     s = section(P, E, 72.5)
+    f = section(P, E, 75.0)   # ANSUR 的大腿圍量在臀溝最低點（中性型約 75 cm）
     res = dict(hipCirc=out[hipY]['circ'], hipCircY=hipY, hipBreadth=max(v['breadth'] for v in out.values()),
                buttockDepth=out[hipY]['depth'], mostPosteriorY=min(out, key=lambda y: out[y]['back']),
-               thighCirc=hull_perimeter(s[s[:, 0] > 0]), topCirc=out[98.0]['circ'] if 98.0 in out else None)
+               thighCirc=hull_perimeter(s[s[:, 0] > 0]), thighFurrowCirc=hull_perimeter(f[f[:, 0] > 0]),
+               topCirc=out[98.0]['circ'] if 98.0 in out else None)
     return {k: (round(v, 2) if isinstance(v, float) else v) for k, v in res.items()}, out
 
 
