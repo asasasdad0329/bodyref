@@ -1,0 +1,14 @@
+# 作者在 Windows 上工作：文字檔一律存成 LF，避免換行符號讓每個檔都顯示有改
+* text=auto eol=lf
+*.bin binary
+*.png binary
+*.jpg binary
+*.npz binary
+*.npy binary
+*.zip binary
+*.blend binary
+
+# GitHub 的語言統計只算程式：看圖結果（離線檢視頁每個 3～11 MB，模型資料內嵌）、資料、舊腳本不算
+review/** linguist-documentation
+data/** linguist-generated
+tools/archive/** linguist-vendored

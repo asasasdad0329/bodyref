@@ -1,0 +1,17 @@
+// 正式站：Cloudflare Workers（靜態資產），由 Workers Builds 從公開庫 bodyref 的 main 自動建置（DECISIONS #90、#91）。
+// 這份由發佈工具從私有開發庫的 tools/publish/public/wrangler.jsonc 放進公開庫；要改請改那份來源，不要直接改公開庫。
+// main → bodyref.oriharastudio.com（建置指令 npm run build）。只部署 main：不做分支預覽，也不開一般的 workers.dev 網址。
+// 兩層的網址一定要用自訂網域（custom_domain）掛，Cloudflare 才會另外發憑證；不要自己在 DNS 加紀錄。
+// 舊網址 asasasdad0329.github.io/bodyref/ 由 .github/workflows/deploy.yml 部署的轉址頁帶到這裡。
+{
+  "name": "bodyref",
+  "compatibility_date": "2026-11-04",
+  "assets": {
+    "directory": "./dist"
+  },
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "bodyref.oriharastudio.com", "custom_domain": true }
+  ]
+}

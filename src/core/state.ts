@@ -22,6 +22,8 @@ export interface ViewSettings {
   lineStyle: LineStyle;
   showOutline: boolean;
   showMeasures: boolean;
+  /** 新臀（預覽）：女性的臀換成臀的獨立模型（只在這台瀏覽器記住，不進分享連結） */
+  newGlute: boolean;
 }
 
 export type Locked = Partial<Record<VarId, number>>;
@@ -39,7 +41,7 @@ export interface AppState {
   morphology: Morphology;
 }
 
-export const DEFAULT_VIEW: ViewSettings = { armAngle: 16, lineStyle: 'none', showOutline: false, showMeasures: false };
+export const DEFAULT_VIEW: ViewSettings = { armAngle: 16, lineStyle: 'none', showOutline: false, showMeasures: false, newGlute: false };
 
 export interface Preset {
   id: string;
@@ -110,6 +112,7 @@ function sanitize(raw: unknown): AppState | null {
       lineStyle: LINE_STYLES.find((s) => s.id === view.lineStyle)?.id ?? DEFAULT_VIEW.lineStyle,
       showOutline: typeof view.showOutline === 'boolean' ? view.showOutline : DEFAULT_VIEW.showOutline,
       showMeasures: typeof view.showMeasures === 'boolean' ? view.showMeasures : DEFAULT_VIEW.showMeasures,
+      newGlute: typeof view.newGlute === 'boolean' ? view.newGlute : DEFAULT_VIEW.newGlute,
     },
   };
 }

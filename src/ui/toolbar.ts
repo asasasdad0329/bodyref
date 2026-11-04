@@ -1,11 +1,13 @@
+import type { Sex } from '../core/measurements';
 import { LINE_STYLES, type ViewSettings } from '../core/state';
 
 // 3D 畫面上方的顯示工具列：表面線條、輪廓線、量測線、手臂角度。
 // 這些只影響畫面，不影響任何數值，所以放在畫面上而不是輸入面板裡。
+// 例外是「新臀（預覽）」：試看還在開發的臀（會改臀的形與量到的臀圍），只是預覽，所以也放這裡、不進分享連結。
 
 export class DisplayToolbar {
   private readonly lineButtons: HTMLButtonElement[] = [];
-  private readonly toggles: Record<'showOutline' | 'showMeasures', HTMLButtonElement>;
+  private readonly toggles: Record<'showOutline' | 'showMeasures' | 'newGlute', HTMLButtonElement>;
   private readonly arm: HTMLInputElement;
   private readonly armValue: HTMLElement;
 
@@ -26,11 +28,12 @@ export class DisplayToolbar {
     toggles.className = 'tool-group';
     const outline = button('輪廓');
     const measures = button('量測線');
+    const glute = button('新臀（預覽）');
     outline.title = '人台外輪廓的深色描邊';
     measures.title = '顯示全部量測線（關閉時只顯示滑鼠指著的那一條）';
-    toggles.append(outline, measures);
-    this.toggles = { showOutline: outline, showMeasures: measures };
-    for (const key of ['showOutline', 'showMeasures'] as const) {
+    toggles.append(outline, measures, glute);
+    this.toggles = { showOutline: outline, showMeasures: measures, newGlute: glute };
+    for (const key of ['showOutline', 'showMeasures', 'newGlute'] as const) {
       this.toggles[key].addEventListener('click', () => onView({ [key]: this.toggles[key].getAttribute('aria-pressed') !== 'true' }));
     }
 
@@ -51,10 +54,16 @@ export class DisplayToolbar {
     root.append(lines, toggles, arm);
   }
 
-  render(view: ViewSettings): void {
+  render(view: ViewSettings, sex: Sex): void {
     for (const b of this.lineButtons) b.setAttribute('aria-pressed', String(b.dataset.value === view.lineStyle));
     this.toggles.showOutline.setAttribute('aria-pressed', String(view.showOutline));
     this.toggles.showMeasures.setAttribute('aria-pressed', String(view.showMeasures));
+    const glute = this.toggles.newGlute;
+    glute.setAttribute('aria-pressed', String(view.newGlute));
+    glute.disabled = sex !== 'female';
+    glute.title = sex === 'female'
+      ? '試看還在開發的臀：臀那一圈換成獨立做的模型（第一次打開要下載約 1.6 MB）。體重、腰、大腿還是原本的算法。'
+      : '新臀目前只有女性';
     if (document.activeElement !== this.arm) this.arm.value = String(view.armAngle);
     this.armValue.textContent = `${view.armAngle}°`;
   }

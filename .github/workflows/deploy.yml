@@ -1,20 +1,12 @@
-# 建置並發佈到 GitHub Pages。
-# 只有建立 stable-* 標籤（切換代理時的檢查點，由作者在 Releases 頁面建立，見 AGENTS.md）才會發佈，
-# main 上的每次合併不會直接上線；也可以手動執行（Actions → Deploy to GitHub Pages → Run workflow）。
-# 需要先在 Settings → Pages → Source 選「GitHub Actions」。
+# GitHub Pages 的轉址頁（DECISIONS #90）：正式站搬到 https://bodyref.oriharastudio.com（Cloudflare Workers，
+# 由 Cloudflare 從公開庫 main 自動建置，見公開庫的 wrangler.jsonc）。舊網址 asasasdad0329.github.io/bodyref/ 只留一頁轉址，
+# 帶著路徑、分享代碼（?b=…）與 # 後面的部分跳到新網址；找不到的路徑（404.html）也一樣。
+# 只在公開庫 bodyref 跑，而且只能手動執行（Actions → Deploy to GitHub Pages → Run workflow），轉址頁改了才要再跑。
+# 放一段時間後關掉 Pages（Settings → Pages）。
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    tags: ['stable-*']
-  release:
-    types: [published]
   workflow_dispatch:
-    inputs:
-      evidence:
-        description: '附上本次版本的數值與九視角驗證頁'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -27,32 +19,37 @@ concurrency:
 
 jobs:
   build:
-    # Release 只認 stable-* 標籤；同一次發佈同時觸發 push 與 release 時，concurrency 會取消重複的那一次
-    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'stable-')
+    if: github.repository == 'asasasdad0329/bodyref'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
-      - name: Prepare evidence renderer
-        if: github.event_name == 'workflow_dispatch' && inputs.evidence
-        run: npx playwright install --with-deps chromium
-      - name: Include same-version evidence gallery
-        if: github.event_name == 'workflow_dispatch' && inputs.evidence
+      - name: Write the redirect page
         run: |
-          export BODYREF_CHROMIUM=$(node --input-type=module -e 'import { chromium } from "playwright"; process.stdout.write(chromium.executablePath())')
-          node tools/shape-evidence.mjs "$RUNNER_TEMP/bodyref-views"
-          mkdir -p dist/evidence
-          cp "$RUNNER_TEMP/bodyref-views/"*.png "$RUNNER_TEMP/bodyref-views/report.json" "$RUNNER_TEMP/bodyref-views/index.html" dist/evidence/
+          mkdir -p site
+          cat > site/index.html <<'EOF'
+          <!doctype html>
+          <html lang="zh-Hant">
+          <head>
+          <meta charset="utf-8">
+          <title>BodyRef 實尺人台已搬到新網址</title>
+          <meta name="robots" content="noindex">
+          <link rel="canonical" href="https://bodyref.oriharastudio.com/">
+          <script>
+          var rest = location.pathname.replace(/^\/bodyref(\/|$)/, '');
+          location.replace('https://bodyref.oriharastudio.com/' + rest + location.search + location.hash);
+          </script>
+          <noscript><meta http-equiv="refresh" content="0; url=https://bodyref.oriharastudio.com/"></noscript>
+          </head>
+          <body>
+          <p>BodyRef 實尺人台已搬到 <a href="https://bodyref.oriharastudio.com/">bodyref.oriharastudio.com</a>。</p>
+          </body>
+          </html>
+          EOF
+          cp site/index.html site/404.html
+          touch site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: site
 
   deploy:
     needs: build

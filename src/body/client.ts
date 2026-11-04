@@ -1,5 +1,6 @@
 import { type BodyAsset, parseBodyAsset } from './mh/asset';
 import manifest from './mh/manifest.json';
+import gluteManifest from './mh/glute.json';
 import type { EngineInput, EngineOutput } from './mh/engine';
 import BodyWorker from './worker?worker&inline';
 import type { WorkerRequest, WorkerResponse } from './worker';
@@ -11,6 +12,8 @@ declare global {
   // 單一檔案版本把人體資料直接嵌在頁面裡（base64）
   // eslint-disable-next-line no-var
   var __BODYREF_BODY_BIN__: string | undefined;
+  // eslint-disable-next-line no-var
+  var __BODYREF_GLUTE_BIN__: string | undefined;
 }
 
 const manifestVersion = `${manifest.vertexCount}-${manifest.targets.length}-${manifest.targets[manifest.targets.length - 1].deltas}`;
@@ -24,6 +27,15 @@ async function loadBuffer(): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+/** 新臀（預覽）的資料：開關第一次打開時才下載（約 1.6 MB） */
+async function loadGluteBuffer(): Promise<ArrayBuffer> {
+  const embedded = globalThis.__BODYREF_GLUTE_BIN__;
+  if (embedded) return Uint8Array.from(atob(embedded), (c) => c.charCodeAt(0)).buffer;
+  const res = await fetch(`${import.meta.env.BASE_URL}glute.bin?v=${gluteManifest.version}`);
+  if (!res.ok) throw new Error(`無法載入新臀資料（HTTP ${res.status}）`);
+  return res.arrayBuffer();
+}
+
 export class BodyClient<Tag> {
   private readonly worker = new BodyWorker();
   private ready = false;
@@ -31,6 +43,7 @@ export class BodyClient<Tag> {
   private pending: { input: EngineInput; tag: Tag } | null = null;
   private nextId = 1;
   private readonly tags = new Map<number, Tag>();
+  private glute: 'none' | 'loading' | 'ready' | 'failed' = 'none';
   /** 主畫面也保留一份資料，用來畫網格線 */
   asset: BodyAsset | null = null;
 
@@ -61,11 +74,28 @@ export class BodyClient<Tag> {
 
   request(input: EngineInput, tag: Tag): void {
     this.pending = { input, tag };
+    if (input.newGlute && this.glute === 'none') this.loadGlute();
     this.pump();
+  }
+
+  private loadGlute(): void {
+    this.glute = 'loading';
+    loadGluteBuffer()
+      .then((buf) => {
+        this.worker.postMessage({ type: 'glute', buffer: buf } satisfies WorkerRequest, [buf]);
+        this.glute = 'ready';
+      })
+      .catch((err: unknown) => {
+        // 新臀只是預覽：載不到時照原本的模型算，不擋住畫面
+        console.error(err);
+        this.glute = 'failed';
+      })
+      .finally(() => this.pump());
   }
 
   private pump(): void {
     if (!this.ready || this.busy || !this.pending) return;
+    if (this.pending.input.newGlute && this.glute === 'loading') return;
     const { input, tag } = this.pending;
     this.pending = null;
     const id = this.nextId++;
