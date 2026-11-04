@@ -148,6 +148,8 @@ export function eggHead(P: Float32Array, parts: HeadParts): HeadMesh {
 export interface NeckCut {
   /** 可見的身體三角形（頭與上段脖子已移除） */
   bodyIndex: Uint32Array;
+  /** 可見的四邊形編號（細分一次的新臀預覽用） */
+  faces: Uint32Array;
   /** 從切口往上伸進頭部的頸部延伸 */
   plug: { positions: Float32Array; index: Uint32Array };
 }
@@ -164,7 +166,7 @@ export function cutNeck(P: Float32Array, a: BodyAsset, parts: HeadParts): NeckCu
   const plane = { p: p0, n };
   const sd = (i: number) => (P[i * 3] - p0[0]) * n[0] + (P[i * 3 + 1] - p0[1]) * n[1] + (P[i * 3 + 2] - p0[2]) * n[2];
 
-  const tris: number[] = [];
+  const tris: number[] = [], kept: number[] = [];
   for (let f = 0; f < a.quads.length / 4; f++) {
     let hide = true;
     for (let k = 0; k < 4; k++) {
@@ -176,6 +178,7 @@ export function cutNeck(P: Float32Array, a: BodyAsset, parts: HeadParts): NeckCu
     }
     if (hide) continue;
     const q = f * 4;
+    kept.push(f);
     tris.push(a.quads[q], a.quads[q + 1], a.quads[q + 2], a.quads[q], a.quads[q + 2], a.quads[q + 3]);
   }
 
@@ -211,7 +214,7 @@ export function cutNeck(P: Float32Array, a: BodyAsset, parts: HeadParts): NeckCu
     }
   }
   for (let j = 0; j < PLUG_COLS; j++) face((PLUG_ROWS - 1) * PLUG_COLS + j, (PLUG_ROWS - 1) * PLUG_COLS + ((j + 1) % PLUG_COLS), top);
-  return { bodyIndex: Uint32Array.from(tris), plug: { positions, index: Uint32Array.from(idx) } };
+  return { bodyIndex: Uint32Array.from(tris), faces: Uint32Array.from(kept), plug: { positions, index: Uint32Array.from(idx) } };
 }
 
 /** 依弧長平均重新取樣一圈截面 */

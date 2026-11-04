@@ -188,6 +188,31 @@ textarea {
   white-space: nowrap;
 }
 
+/* 測試站（--mode testsite 建置）：頂端一條橘線、版本字樣加底色，和正式站一眼分得出來；旁邊是看圖頁的連結 */
+html[data-site='test'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: #e07a1f;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+html[data-site='test'] .build-version {
+  color: #fff;
+  background: #e07a1f;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.review-link {
+  color: #e07a1f;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;

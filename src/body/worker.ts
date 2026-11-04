@@ -1,23 +1,38 @@
 /// <reference lib="webworker" />
 import { parseBodyAsset } from './mh/asset';
 import { BodyEngine, type EngineInput, type EngineOutput } from './mh/engine';
+import { GluteBody, parseGlute } from './mh/glute';
 
 // 背景執行緒：網格求解與生成都在這裡做，主畫面只負責顯示
 
-export type WorkerRequest = { type: 'init'; buffer: ArrayBuffer } | { type: 'run'; id: number; input: EngineInput };
+export type WorkerRequest = { type: 'init'; buffer: ArrayBuffer } | { type: 'glute'; buffer: ArrayBuffer } | { type: 'run'; id: number; input: EngineInput };
 export type WorkerResponse =
   | { type: 'ready' }
   | { type: 'result'; id: number; output: EngineOutput; ms: number }
   | { type: 'error'; id: number; message: string };
 
 let engine: BodyEngine | null = null;
+/** 新臀的資料可能比人體網格先到 */
+let gluteBuffer: ArrayBuffer | null = null;
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
+
+function attachGlute(): void {
+  if (!engine || !gluteBuffer) return;
+  engine.glute = new GluteBody(engine.asset, parseGlute(gluteBuffer));
+  gluteBuffer = null;
+}
 
 ctx.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data;
   if (msg.type === 'init') {
     engine = new BodyEngine(parseBodyAsset(msg.buffer));
+    attachGlute();
     ctx.postMessage({ type: 'ready' } satisfies WorkerResponse);
+    return;
+  }
+  if (msg.type === 'glute') {
+    gluteBuffer = msg.buffer;
+    attachGlute();
     return;
   }
   if (!engine) return;

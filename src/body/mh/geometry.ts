@@ -234,7 +234,7 @@ export function meshVolume(P: Float32Array, quads: Uint16Array): number {
 }
 
 /** 頂點的鄰接表（沿四邊形的邊） */
-export function adjacency(quads: Uint16Array, nVerts: number): number[][] {
+export function adjacency(quads: ArrayLike<number>, nVerts: number): number[][] {
   const adj: Set<number>[] = Array.from({ length: nVerts }, () => new Set<number>());
   for (let q = 0; q < quads.length; q += 4) {
     for (let k = 0; k < 4; k++) {
@@ -281,7 +281,7 @@ export function smooth(P: Float32Array, adj: number[][], verts: Uint32Array, ite
 }
 
 /** 頂點法向量（四邊形拆成兩個三角形，面積加權） */
-export function vertexNormals(P: Float32Array, quads: Uint16Array, nVerts: number): Float32Array {
+export function vertexNormals(P: Float32Array, quads: ArrayLike<number>, nVerts: number): Float32Array {
   const N = new Float32Array(nVerts * 3);
   const tri = (a: number, b: number, c: number) => {
     const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
@@ -351,10 +351,10 @@ export function taubin(P: Float32Array, adj: number[][], verts: Uint32Array, ite
  * 每個頂點凹進去多深（0–1）：和抹平後的表面比較，低於平滑表面的是凹處（肚臍、腋下、指縫）。
  * 用來做近似的環境光遮蔽，讓凹處稍微暗一點。
  */
-export function cavity(P: Float32Array, quads: Uint16Array, adj: number[][], nVerts: number, depth = 0.5): Float32Array {
+export function cavity(P: Float32Array, quads: ArrayLike<number>, adj: number[][], nVerts: number, depth = 0.5, iterations = 12): Float32Array {
   const Q = new Float32Array(P.subarray(0, nVerts * 3));
   const all = Uint32Array.from({ length: nVerts }, (_, i) => i);
-  smooth(Q, adj, all, 12, 0.6);
+  smooth(Q, adj, all, iterations, 0.6);
   const N = vertexNormals(P, quads, nVerts);
   const C = new Float32Array(nVerts);
   for (let i = 0; i < nVerts; i++) {

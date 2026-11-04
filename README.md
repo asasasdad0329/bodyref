@@ -1,6 +1,6 @@
 # BodyRef 實尺人台
 
-**[直接開啟 BodyRef（GitHub Pages）](https://asasasdad0329.github.io/bodyref/)**
+**[直接開啟 BodyRef](https://bodyref.oriharastudio.com/)**
 
 輸入身高、體重、三圍和各部位量測，即時生成依真實尺寸換算的 3D 人台。以 AI 生圖與角色設計的體型參照為主，允許美型、誇張比例與後續修型；尺寸精確和曲線、部位連接的品質都要顧到。
 
@@ -76,11 +76,10 @@ python3 tools/prepare_stats.py "ANSUR II FEMALE Public.csv" "ANSUR II MALE Publi
 
 ## 部署
 
-- 倉庫與 [GitHub Pages 網站](https://asasasdad0329.github.io/bodyref/)已公開，Pages 的來源為 **GitHub Actions**。
-- [CI](.github/workflows/ci.yml)：推送到 `main` 或建立、更新 PR 時，執行測試與建置。合併 `main` 後仍需部署，網站才會更新。
-- [部署流程](.github/workflows/deploy.yml)：推送 `stable-*` 標籤、發布對應 Release，或手動執行時，重新測試、建置並發佈到 Pages。
-- **線上驗收最新版**：到 [Actions → Deploy to GitHub Pages](https://github.com/asasasdad0329/bodyref/actions/workflows/deploy.yml)，按 **Run workflow**、選 `main`；等部署成功後開啟網站。
-- **穩定版發佈**：由作者在 [Releases](https://github.com/asasasdad0329/bodyref/releases) 建立以 `main` 為目標的 `stable-YYYY-MM-DD` 標籤並發布 Release；細節見 `AGENTS.md`。
+- 網站：<https://bodyref.oriharastudio.com/>，放在 Cloudflare Workers（靜態資產），設定在 [`wrangler.jsonc`](wrangler.jsonc)。Cloudflare 從這個倉庫的 `main` 自動建置（`npm run build`）：**`main` 每次合併就上線**。
+- 舊網址 `asasasdad0329.github.io/bodyref/` 只剩一頁轉址（[部署流程](.github/workflows/deploy.yml)，手動執行），帶著分享代碼跳到新網址。
+- [CI](.github/workflows/ci.yml)：推送到 `main` 或建立、更新 PR 時，執行測試與建置。
+- **穩定版標記**：上線沒問題後，由作者在 [Releases](https://github.com/asasasdad0329/bodyref/releases) 建立以 `main` 為目標的 `stable-YYYY-MM-DD` 標籤並發布 Release。
 
 ## 架構
 

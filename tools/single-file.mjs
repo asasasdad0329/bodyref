@@ -1,4 +1,4 @@
-// 把 dist/ 打包成單一 HTML：CSS、JS 內嵌，人體網格（body.bin）以 base64 內嵌，
+// 把 dist/ 打包成單一 HTML：CSS、JS 內嵌，人體網格（body.bin）與新臀預覽的資料（glute.bin）以 base64 內嵌，
 // 不需要伺服器就能打開，方便離線分享或上傳到只收單一檔案的地方。
 // 用法：npm run build:single（先 build，再輸出 dist/bodyref-single.html）
 import fs from 'node:fs';
@@ -10,6 +10,7 @@ const read = (rel) => fs.readFileSync(path.join(distDir, rel), 'utf8');
 const css = [...html.matchAll(/<link rel="stylesheet"[^>]*href="\.\/(assets\/[^"]+\.css)"[^>]*>/g)].map((m) => read(m[1])).join('\n');
 const js = [...html.matchAll(/<script type="module"[^>]*src="\.\/(assets\/[^"]+\.js)"[^>]*><\/script>/g)].map((m) => read(m[1])).join('\n');
 const bin = fs.readFileSync(path.join(distDir, 'body.bin')).toString('base64');
+const glute = fs.readFileSync(path.join(distDir, 'glute.bin')).toString('base64');
 const fonts = html.match(/<link\s+rel="stylesheet"\s+href="https:\/\/fonts[^>]+>/)?.[0] ?? '';
 const body = html.split(/<body>/)[1].split(/<\/body>/)[0].replace(/<script[\s\S]*?<\/script>/g, '');
 const title = html.match(/<title>[^<]*<\/title>/)[0];
@@ -23,7 +24,7 @@ ${title}
 ${fonts}
 <style>${css}</style>
 ${body}
-<script>window.__BODYREF_BODY_BIN__ = "${bin}";</script>
+<script>window.__BODYREF_BODY_BIN__ = "${bin}"; window.__BODYREF_GLUTE_BIN__ = "${glute}";</script>
 <script type="module">${js.replace(/<\/script/gi, '<\\/script')}</script>
 `;
 fs.writeFileSync(out, result);

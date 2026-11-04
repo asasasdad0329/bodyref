@@ -1,0 +1,142 @@
+{
+ "source": "glute_mh_export.py（臀的控制數據，DECISIONS #84）",
+ "modes": {
+  "offset": 86548,
+  "count": 517140,
+  "dtype": "int16",
+  "shape": [
+   60,
+   2873,
+   3
+  ]
+ },
+ "points": 2873,
+ "level1Vertices": 53514,
+ "degree": 3,
+ "Ls": {
+  "offset": 0,
+  "count": 15,
+  "dtype": "float32",
+  "shape": [
+   15
+  ]
+ },
+ "knots": {
+  "offset": 60,
+  "count": 22,
+  "dtype": "float32",
+  "shape": [
+   22
+  ]
+ },
+ "coef": {
+  "offset": 148,
+  "count": 21600,
+  "dtype": "float32",
+  "shape": [
+   15,
+   24,
+   60
+  ]
+ },
+ "scale": {
+  "offset": 1120828,
+  "count": 60,
+  "dtype": "float32",
+  "shape": [
+   60
+  ]
+ },
+ "region": {
+  "offset": 1121068,
+  "count": 2873,
+  "dtype": "int32",
+  "shape": [
+   2873
+  ]
+ },
+ "limPtr": {
+  "offset": 1132560,
+  "count": 2874,
+  "dtype": "int32",
+  "shape": [
+   2874
+  ]
+ },
+ "limCol": {
+  "offset": 1144056,
+  "count": 25865,
+  "dtype": "int32",
+  "shape": [
+   25865
+  ]
+ },
+ "limVal": {
+  "offset": 1247516,
+  "count": 25865,
+  "dtype": "float32",
+  "shape": [
+   25865
+  ]
+ },
+ "nbrPtr": {
+  "offset": 1350976,
+  "count": 2874,
+  "dtype": "int32",
+  "shape": [
+   2874
+  ]
+ },
+ "nbr": {
+  "offset": 1362472,
+  "count": 11496,
+  "dtype": "int32",
+  "shape": [
+   11496
+  ]
+ },
+ "nbrA": {
+  "offset": 1408456,
+  "count": 34488,
+  "dtype": "float32",
+  "shape": [
+   11496,
+   3
+  ]
+ },
+ "normal0": {
+  "offset": 1546408,
+  "count": 8619,
+  "dtype": "float32",
+  "shape": [
+   2873,
+   3
+  ]
+ },
+ "fade": {
+  "offset": 1580884,
+  "count": 1688,
+  "dtype": "int32",
+  "shape": [
+   1688
+  ]
+ },
+ "hipF": {
+  "offset": 1587636,
+  "count": 129,
+  "dtype": "float32",
+  "shape": [
+   129
+  ]
+ },
+ "hip": {
+  "offset": 1588152,
+  "count": 1935,
+  "dtype": "float32",
+  "shape": [
+   15,
+   129
+  ]
+ },
+ "version": "7f2d8c5dea5c"
+}
